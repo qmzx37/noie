@@ -1,0 +1,207 @@
+[
+  {
+    "text": "괜찮다고 웃었는데 속으로는 계속 무너지는 느낌이었어",
+    "memo": "겉표현은 안정이지만 속은 우울한 상태",
+    "result": {
+      "input": "괜찮다고 웃었는데 속으로는 계속 무너지는 느낌이었어",
+      "user_view": {
+        "primary_axis": {
+          "like": "Low",
+          "dislike": "High"
+        },
+        "emotion_axis": {
+          "F": "Mid",
+          "A": "Low",
+          "D": "High",
+          "J": "Low",
+          "C": "Low",
+          "G": "Low",
+          "T": "Mid",
+          "R": "Low"
+        },
+        "state_summary": "겉으로 웃었지만 속으로는 무너지고 우울함과 긴장이 강하게 느껴지는 상태입니다."
+      },
+      "admin_view": {
+        "primary_axis": {
+          "like": 0.25,
+          "dislike": 0.8
+        },
+        "emotion_axis": {
+          "F": 0.4,
+          "A": 0.2,
+          "D": 0.85,
+          "J": 0.1,
+          "C": 0.3,
+          "G": 0.15,
+          "T": 0.55,
+          "R": 0.1
+        }
+      },
+      "source": "openai"
+    }
+  },
+  {
+    "text": "축하받았는데 이상하게 도망치고 싶어졌어",
+    "memo": "긍정 사건과 회피 욕구가 충돌하는 상태",
+    "result": {
+      "input": "축하받았는데 이상하게 도망치고 싶어졌어",
+      "user_view": {
+        "primary_axis": {
+          "like": "Mid",
+          "dislike": "High"
+        },
+        "emotion_axis": {
+          "F": "High",
+          "A": "Low",
+          "D": "Mid",
+          "J": "Low",
+          "C": "Low",
+          "G": "Low",
+          "T": "Mid",
+          "R": "Low"
+        },
+        "state_summary": "축하받았지만 불안과 두려움이 커서 도망치고 싶은 회피감이 강하게 느껴지는 상태입니다."
+      },
+      "admin_view": {
+        "primary_axis": {
+          "like": 0.4,
+          "dislike": 0.7
+        },
+        "emotion_axis": {
+          "F": 0.7,
+          "A": 0.2,
+          "D": 0.4,
+          "J": 0.2,
+          "C": 0.3,
+          "G": 0.2,
+          "T": 0.6,
+          "R": 0.1
+        }
+      },
+      "source": "openai"
+    }
+  },
+  {
+    "text": "좋은 기회인 건 아는데 자꾸 피하고 싶어",
+    "memo": "기회에 대한 욕구와 두려움이 함께 있는 상태",
+    "result": {
+      "input": "좋은 기회인 건 아는데 자꾸 피하고 싶어",
+      "user_view": {
+        "primary_axis": {
+          "like": "Mid",
+          "dislike": "High"
+        },
+        "emotion_axis": {
+          "F": "High",
+          "A": "Low",
+          "D": "Mid",
+          "J": "Low",
+          "C": "Low",
+          "G": "Mid",
+          "T": "High",
+          "R": "Low"
+        },
+        "state_summary": "좋은 기회임을 알지만 두려움과 긴장 때문에 피하고 싶은 회피 반응이 강하게 나타나는 상태입니다."
+      },
+      "admin_view": {
+        "primary_axis": {
+          "like": 0.4,
+          "dislike": 0.7
+        },
+        "emotion_axis": {
+          "F": 0.7,
+          "A": 0.3,
+          "D": 0.4,
+          "J": 0.1,
+          "C": 0.3,
+          "G": 0.5,
+          "T": 0.7,
+          "R": 0.1
+        }
+      },
+      "source": "openai"
+    }
+  },
+  {
+    "text": "나 별로 화난 건 아닌데 계속 말투가 날카로워져",
+    "memo": "분노를 자각하지 못하지만 행동으로 드러나는 상태",
+    "result": {
+      "input": "나 별로 화난 건 아닌데 계속 말투가 날카로워져",
+      "user_view": {
+        "primary_axis": {
+          "like": "Low",
+          "dislike": "Mid"
+        },
+        "emotion_axis": {
+          "F": "Low",
+          "A": "Mid",
+          "D": "Low",
+          "J": "Low",
+          "C": "Mid",
+          "G": "Low",
+          "T": "Mid",
+          "R": "Low"
+        },
+        "state_summary": "화가 완전히 난 것은 아니지만 말투가 날카로워져서 약간의 분노와 긴장, 불편함이 느껴지는 상태입니다."
+      },
+      "admin_view": {
+        "primary_axis": {
+          "like": 0.15,
+          "dislike": 0.65
+        },
+        "emotion_axis": {
+          "F": 0.25,
+          "A": 0.55,
+          "D": 0.3,
+          "J": 0.1,
+          "C": 0.4,
+          "G": 0.1,
+          "T": 0.45,
+          "R": 0.2
+        }
+      },
+      "source": "openai"
+    }
+  },
+  {
+    "text": "오늘은 편한 것 같은데 아무것도 의미가 없어 보여",
+    "memo": "안정인지 무기력인지 애매한 상태",
+    "result": {
+      "input": "오늘은 편한 것 같은데 아무것도 의미가 없어 보여",
+      "user_view": {
+        "primary_axis": {
+          "like": "Low",
+          "dislike": "Mid"
+        },
+        "emotion_axis": {
+          "F": "Low",
+          "A": "Low",
+          "D": "High",
+          "J": "Low",
+          "C": "Mid",
+          "G": "Low",
+          "T": "Low",
+          "R": "Low"
+        },
+        "state_summary": "편안함 속에 의미 없음으로 인한 우울감과 약간의 긴장, 호기심이 혼재된 상태입니다."
+      },
+      "admin_view": {
+        "primary_axis": {
+          "like": 0.3,
+          "dislike": 0.6
+        },
+        "emotion_axis": {
+          "F": 0.1,
+          "A": 0.1,
+          "D": 0.7,
+          "J": 0.1,
+          "C": 0.5,
+          "G": 0.2,
+          "T": 0.3,
+          "R": 0.3
+        }
+      },
+      "source": "openai"
+    }
+  }
+]

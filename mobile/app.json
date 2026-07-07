@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "노이에 감정 분석기",
+    "slug": "noie-emotion-analyzer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android", "web"],
+    "sdkVersion": "48.0.0",
+    "assetBundlePatterns": ["**/*"]
+  }
+}

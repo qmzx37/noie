@@ -1,0 +1,43 @@
+[
+  {
+    "text": "나 합격했는데 이상하게 마음이 불안해",
+    "memo": "좋은 일인데 긴장이 섞인 상태",
+    "result": {
+      "input": "나 합격했는데 이상하게 마음이 불안해",
+      "user_view": {
+        "primary_axis": {
+          "like": "High",
+          "dislike": "Mid"
+        },
+        "emotion_axis": {
+          "F": "Mid",
+          "A": "Low",
+          "D": "Low",
+          "J": "High",
+          "C": "Low",
+          "G": "Mid",
+          "T": "High",
+          "R": "Low"
+        },
+        "state_summary": "합격에 대한 기쁨과 욕구가 있으나 동시에 불안과 긴장이 강하게 느껴지는 상태입니다."
+      },
+      "admin_view": {
+        "primary_axis": {
+          "like": 0.7,
+          "dislike": 0.5
+        },
+        "emotion_axis": {
+          "F": 0.6,
+          "A": 0.1,
+          "D": 0.2,
+          "J": 0.7,
+          "C": 0.3,
+          "G": 0.5,
+          "T": 0.7,
+          "R": 0.3
+        }
+      },
+      "source": "openai"
+    }
+  }
+]

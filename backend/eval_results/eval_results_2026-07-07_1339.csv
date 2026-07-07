@@ -1,0 +1,6 @@
+﻿input,memo,like,dislike,F,A,D,J,C,G,T,R,source,state_summary
+괜찮다고 웃었는데 속으로는 계속 무너지는 느낌이었어,겉표현은 안정이지만 속은 우울한 상태,Low,High,Mid,Low,High,Low,Low,Low,Mid,Low,openai,겉으로 웃었지만 속으로는 무너지고 우울함과 긴장이 강하게 느껴지는 상태입니다.
+축하받았는데 이상하게 도망치고 싶어졌어,긍정 사건과 회피 욕구가 충돌하는 상태,Mid,High,High,Low,Mid,Low,Low,Low,Mid,Low,openai,축하받았지만 불안과 두려움이 커서 도망치고 싶은 회피감이 강하게 느껴지는 상태입니다.
+좋은 기회인 건 아는데 자꾸 피하고 싶어,기회에 대한 욕구와 두려움이 함께 있는 상태,Mid,High,High,Low,Mid,Low,Low,Mid,High,Low,openai,좋은 기회임을 알지만 두려움과 긴장 때문에 피하고 싶은 회피 반응이 강하게 나타나는 상태입니다.
+나 별로 화난 건 아닌데 계속 말투가 날카로워져,분노를 자각하지 못하지만 행동으로 드러나는 상태,Low,Mid,Low,Mid,Low,Low,Mid,Low,Mid,Low,openai,"화가 완전히 난 것은 아니지만 말투가 날카로워져서 약간의 분노와 긴장, 불편함이 느껴지는 상태입니다."
+오늘은 편한 것 같은데 아무것도 의미가 없어 보여,안정인지 무기력인지 애매한 상태,Low,Mid,Low,Low,High,Low,Mid,Low,Low,Low,openai,"편안함 속에 의미 없음으로 인한 우울감과 약간의 긴장, 호기심이 혼재된 상태입니다."
