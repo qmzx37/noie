@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,12 +15,12 @@ import {
   View,
 } from "react-native";
 
-// 백엔드 API 주소입니다.
-// PC 에뮬레이터나 웹에서 테스트할 때는 127.0.0.1을 사용할 수 있습니다.
-// 실제 휴대폰 Expo Go에서 테스트할 때는 127.0.0.1이 휴대폰 자신을 뜻하므로,
-// 아래 값을 PC의 내부 IPv4 주소로 바꿔 주세요.
+// 백엔드 API 주소입니다. 실제 휴대폰에서는 PC 내부 IPv4 주소로 바꿔 주세요.
 // 예: const API_BASE_URL = "http://192.168.0.10:8000";
 const API_BASE_URL = "http://127.0.0.1:8000";
+
+const SESSIONS_STORAGE_KEY = "noie_chat_sessions_v1";
+const CURRENT_CHAT_ID_STORAGE_KEY = "noie_current_chat_id_v1";
 
 type EmotionLevel = "Low" | "Mid" | "High";
 type AnalysisSource = "openai" | "rule_based";
@@ -40,14 +41,6 @@ type EmotionAxis = {
   R: EmotionLevel;
 };
 
-type AdminView = {
-  primary_axis: {
-    like: number;
-    dislike: number;
-  };
-  emotion_axis: Record<keyof EmotionAxis, number>;
-};
-
 type AnalyzeEmotionResponse = {
   input: string;
   user_view: {
@@ -55,18 +48,35 @@ type AnalyzeEmotionResponse = {
     emotion_axis: EmotionAxis;
     state_summary: string;
   };
-  admin_view: AdminView;
+  admin_view: {
+    primary_axis: { like: number; dislike: number };
+    emotion_axis: Record<keyof EmotionAxis, number>;
+  };
   source: AnalysisSource;
+};
+
+type ChatApiResponse = {
+  reply: string;
+  state_summary: string;
+  analysis: AnalyzeEmotionResponse;
+  source: AnalysisSource;
+};
+
+type GenerateTitleResponse = {
+  title: string;
 };
 
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  reply?: string;
+  stateSummary?: string;
   analysis?: AnalyzeEmotionResponse;
   isLoading?: boolean;
   error?: string;
   showAdminView?: boolean;
+  createdAt: string;
 };
 
 type ChatSession = {
@@ -74,6 +84,7 @@ type ChatSession = {
   title: string;
   messages: ChatMessage[];
   createdAt: string;
+  updatedAt: string;
 };
 
 const primaryLabels: Array<{ key: keyof PrimaryAxis; label: string }> = [
@@ -92,31 +103,80 @@ const emotionLabels: Array<{ key: keyof EmotionAxis; label: string }> = [
   { key: "R", label: "R 안정" },
 ];
 
-const emptySession = (): ChatSession => {
+function createEmptySession(): ChatSession {
   const now = new Date().toISOString();
   return {
     id: createId("session"),
     title: "새 채팅",
     messages: [],
     createdAt: now,
+    updatedAt: now,
   };
-};
+}
 
 export default function App() {
   const { width } = useWindowDimensions();
   const isWideScreen = width >= 820;
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const fallbackSession = useMemo(() => createEmptySession(), []);
 
-  // 아직 DB 저장은 하지 않고 앱이 켜져 있는 동안 state로만 채팅 세션을 관리합니다.
-  const initialSession = useMemo(() => emptySession(), []);
-  const [sessions, setSessions] = useState<ChatSession[]>([initialSession]);
-  const [activeSessionId, setActiveSessionId] = useState(initialSession.id);
+  const [sessions, setSessions] = useState<ChatSession[]>([fallbackSession]);
+  const [activeSessionId, setActiveSessionId] = useState(fallbackSession.id);
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const activeSession =
     sessions.find((session) => session.id === activeSessionId) ?? sessions[0];
+
+  useEffect(() => {
+    loadSavedChats();
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    AsyncStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions)).catch(
+      (error) => console.log("[noie] 채팅 저장 실패", error)
+    );
+    AsyncStorage.setItem(CURRENT_CHAT_ID_STORAGE_KEY, activeSessionId).catch(
+      (error) => console.log("[noie] 현재 채팅 저장 실패", error)
+    );
+  }, [activeSessionId, isHydrated, sessions]);
+
+  const loadSavedChats = async () => {
+    try {
+      const [savedSessions, savedCurrentChatId] = await Promise.all([
+        AsyncStorage.getItem(SESSIONS_STORAGE_KEY),
+        AsyncStorage.getItem(CURRENT_CHAT_ID_STORAGE_KEY),
+      ]);
+      const parsedSessions = savedSessions
+        ? (JSON.parse(savedSessions) as ChatSession[])
+        : [];
+
+      if (Array.isArray(parsedSessions) && parsedSessions.length > 0) {
+        setSessions(parsedSessions);
+        setActiveSessionId(
+          parsedSessions.some((session) => session.id === savedCurrentChatId)
+            ? String(savedCurrentChatId)
+            : parsedSessions[0].id
+        );
+      } else {
+        const newSession = createEmptySession();
+        setSessions([newSession]);
+        setActiveSessionId(newSession.id);
+      }
+    } catch (error) {
+      const newSession = createEmptySession();
+      setSessions([newSession]);
+      setActiveSessionId(newSession.id);
+    } finally {
+      setIsHydrated(true);
+    }
+  };
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -124,18 +184,19 @@ export default function App() {
     }, 80);
   };
 
-  const updateActiveSession = (
+  const updateSession = (
+    sessionId: string,
     updater: (session: ChatSession) => ChatSession
   ) => {
     setSessions((currentSessions) =>
       currentSessions.map((session) =>
-        session.id === activeSessionId ? updater(session) : session
+        session.id === sessionId ? updater(session) : session
       )
     );
   };
 
   const createNewChat = () => {
-    const newSession = emptySession();
+    const newSession = createEmptySession();
     setSessions((currentSessions) => [newSession, ...currentSessions]);
     setActiveSessionId(newSession.id);
     setInputText("");
@@ -143,89 +204,122 @@ export default function App() {
     setIsDrawerOpen(false);
   };
 
-  const selectSession = (sessionId: string) => {
-    setActiveSessionId(sessionId);
-    setIsDrawerOpen(false);
-    scrollToBottom();
+  const deleteChat = (sessionId: string) => {
+    setSessions((currentSessions) => {
+      const remainingSessions = currentSessions.filter(
+        (session) => session.id !== sessionId
+      );
+
+      if (remainingSessions.length === 0) {
+        const newSession = createEmptySession();
+        setActiveSessionId(newSession.id);
+        return [newSession];
+      }
+
+      if (sessionId === activeSessionId) {
+        setActiveSessionId(remainingSessions[0].id);
+      }
+
+      return remainingSessions;
+    });
   };
 
   const sendMessage = async () => {
     const trimmedText = inputText.trim();
-
-    if (!trimmedText || isSending) {
+    if (!trimmedText || isSending || !activeSession) {
       return;
     }
+
+    const sessionId = activeSession.id;
+    const shouldGenerateTitle =
+      activeSession.title === "새 채팅" && activeSession.messages.length === 0;
+    const now = new Date().toISOString();
+    const assistantMessageId = createId("assistant");
 
     const userMessage: ChatMessage = {
       id: createId("user"),
       role: "user",
       text: trimmedText,
+      createdAt: now,
     };
-    const assistantMessageId = createId("assistant");
     const loadingMessage: ChatMessage = {
       id: assistantMessageId,
       role: "assistant",
-      text: "noie가 분석 중...",
+      text: "noie가 응답을 준비 중...",
       isLoading: true,
+      createdAt: now,
     };
 
-    // 첫 문장을 채팅 제목으로 사용해 사이드바 목록에서 알아보기 쉽게 만듭니다.
-    updateActiveSession((session) => ({
+    updateSession(sessionId, (session) => ({
       ...session,
-      title:
-        session.messages.length === 0
-          ? makeSessionTitle(trimmedText)
-          : session.title,
       messages: [...session.messages, userMessage, loadingMessage],
+      updatedAt: now,
     }));
 
     setInputText("");
     setIsSending(true);
     scrollToBottom();
 
+    if (shouldGenerateTitle) {
+      generateTitle(trimmedText).then((title) => {
+        updateSession(sessionId, (session) =>
+          session.title === "새 채팅"
+            ? { ...session, title, updatedAt: new Date().toISOString() }
+            : session
+        );
+      });
+    }
+
     try {
-      const response = await fetch(`${API_BASE_URL}/analyze-emotion`, {
+      const response = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        // FastAPI 백엔드는 text 필드로 사용자 문장을 받습니다.
-        body: JSON.stringify({ text: trimmedText }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: trimmedText,
+          messages: toChatHistory(activeSession.messages),
+        }),
       });
 
       if (!response.ok) {
         throw new Error(`API 응답 오류: ${response.status}`);
       }
 
-      const analysis = (await response.json()) as AnalyzeEmotionResponse;
+      const data = (await response.json()) as ChatApiResponse;
 
-      updateActiveSession((session) => ({
+      updateSession(sessionId, (session) => ({
         ...session,
         messages: session.messages.map((message) =>
           message.id === assistantMessageId
             ? {
                 id: assistantMessageId,
                 role: "assistant",
-                text: analysis.user_view.state_summary,
-                analysis,
+                text: data.reply,
+                reply: data.reply,
+                stateSummary:
+                  data.state_summary || data.analysis.user_view.state_summary,
+                analysis: data.analysis,
                 showAdminView: false,
+                createdAt: message.createdAt,
               }
             : message
         ),
+        updatedAt: new Date().toISOString(),
       }));
     } catch (error) {
-      updateActiveSession((session) => ({
+      updateSession(sessionId, (session) => ({
         ...session,
         messages: session.messages.map((message) =>
           message.id === assistantMessageId
             ? {
                 id: assistantMessageId,
                 role: "assistant",
-                text: "분석에 실패했습니다. 백엔드 서버가 켜져 있는지 확인해주세요.",
-                error: "분석에 실패했습니다. 백엔드 서버가 켜져 있는지 확인해주세요.",
+                text: "noie 응답 생성에 실패했습니다. 백엔드 서버를 확인해주세요.",
+                error: "noie 응답 생성에 실패했습니다. 백엔드 서버를 확인해주세요.",
+                createdAt: message.createdAt,
               }
             : message
         ),
+        updatedAt: new Date().toISOString(),
       }));
     } finally {
       setIsSending(false);
@@ -233,14 +327,38 @@ export default function App() {
     }
   };
 
+  const generateTitle = async (text: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/generate-title`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`제목 API 응답 오류: ${response.status}`);
+      }
+
+      const data = (await response.json()) as GenerateTitleResponse;
+      return cleanTitle(data.title) || makeFallbackTitle(text);
+    } catch (error) {
+      return makeFallbackTitle(text);
+    }
+  };
+
   const toggleAdminView = (messageId: string) => {
-    updateActiveSession((session) => ({
+    if (!activeSession) {
+      return;
+    }
+
+    updateSession(activeSession.id, (session) => ({
       ...session,
       messages: session.messages.map((message) =>
         message.id === messageId
           ? { ...message, showAdminView: !message.showAdminView }
           : message
       ),
+      updatedAt: new Date().toISOString(),
     }));
   };
 
@@ -256,7 +374,11 @@ export default function App() {
             sessions={sessions}
             activeSessionId={activeSessionId}
             onNewChat={createNewChat}
-            onSelectSession={selectSession}
+            onSelectSession={(id) => {
+              setActiveSessionId(id);
+              scrollToBottom();
+            }}
+            onDeleteSession={deleteChat}
           />
         ) : null}
 
@@ -271,7 +393,12 @@ export default function App() {
               sessions={sessions}
               activeSessionId={activeSessionId}
               onNewChat={createNewChat}
-              onSelectSession={selectSession}
+              onSelectSession={(id) => {
+                setActiveSessionId(id);
+                setIsDrawerOpen(false);
+                scrollToBottom();
+              }}
+              onDeleteSession={deleteChat}
             />
           </View>
         ) : null}
@@ -290,7 +417,7 @@ export default function App() {
             <View style={styles.topBarTitleBlock}>
               <Text style={styles.topBarTitle}>noie</Text>
               <Text style={styles.topBarSubtitle}>
-                감정 분석 채팅 · {activeSession.title}
+                감정 분석 채팅 · {activeSession?.title ?? "새 채팅"}
               </Text>
             </View>
             <TouchableOpacity
@@ -309,7 +436,12 @@ export default function App() {
             keyboardShouldPersistTaps="handled"
             onContentSizeChange={scrollToBottom}
           >
-            {activeSession.messages.length === 0 ? (
+            {!isHydrated ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator color="#f2f4f8" />
+                <Text style={styles.emptyText}>저장된 채팅을 불러오는 중...</Text>
+              </View>
+            ) : activeSession.messages.length === 0 ? (
               <EmptyChat />
             ) : (
               activeSession.messages.map((message) => (
@@ -330,17 +462,18 @@ export default function App() {
               value={inputText}
               onChangeText={setInputText}
               multiline
-              editable={!isSending}
+              editable={!isSending && isHydrated}
               returnKeyType="send"
               onSubmitEditing={sendMessage}
             />
             <TouchableOpacity
               style={[
                 styles.sendButton,
-                (!inputText.trim() || isSending) && styles.sendButtonDisabled,
+                (!inputText.trim() || isSending || !isHydrated) &&
+                  styles.sendButtonDisabled,
               ]}
               onPress={sendMessage}
-              disabled={!inputText.trim() || isSending}
+              disabled={!inputText.trim() || isSending || !isHydrated}
               activeOpacity={0.85}
             >
               <Text style={styles.sendButtonText}>전송</Text>
@@ -357,6 +490,7 @@ type SidebarProps = {
   activeSessionId: string;
   onNewChat: () => void;
   onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
 };
 
 function Sidebar({
@@ -364,6 +498,7 @@ function Sidebar({
   activeSessionId,
   onNewChat,
   onSelectSession,
+  onDeleteSession,
 }: SidebarProps) {
   return (
     <View style={styles.sidebar}>
@@ -381,28 +516,39 @@ function Sidebar({
         {sessions.map((session) => {
           const isActive = session.id === activeSessionId;
           return (
-            <TouchableOpacity
+            <View
               key={session.id}
               style={[
                 styles.sessionItem,
                 isActive && styles.sessionItemActive,
               ]}
-              onPress={() => onSelectSession(session.id)}
-              activeOpacity={0.85}
             >
-              <Text
-                style={[
-                  styles.sessionTitle,
-                  isActive && styles.sessionTitleActive,
-                ]}
-                numberOfLines={1}
+              <TouchableOpacity
+                style={styles.sessionTitleButton}
+                onPress={() => onSelectSession(session.id)}
+                activeOpacity={0.85}
               >
-                {session.title}
-              </Text>
-              <Text style={styles.sessionMeta}>
-                {formatSessionTime(session.createdAt)}
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.sessionTitle,
+                    isActive && styles.sessionTitleActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {session.title}
+                </Text>
+                <Text style={styles.sessionMeta}>
+                  {formatSessionTime(session.updatedAt)}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => onDeleteSession(session.id)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.deleteButtonText}>삭제</Text>
+              </TouchableOpacity>
+            </View>
           );
         })}
       </ScrollView>
@@ -415,7 +561,7 @@ function EmptyChat() {
     <View style={styles.emptyState}>
       <Text style={styles.emptyTitle}>오늘의 감정을 입력해 주세요</Text>
       <Text style={styles.emptyText}>
-        noie가 문장의 호감/불호와 8축 감정을 분석해 대화처럼 보여줍니다.
+        noie가 자연스러운 답변, 상태 요약, 감정 분석 카드를 함께 보여줍니다.
       </Text>
     </View>
   );
@@ -447,7 +593,7 @@ function ChatBubble({ message, onToggleAdminView }: ChatBubbleProps) {
         {!isUser && message.isLoading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color="#f2f4f8" />
-            <Text style={styles.assistantText}>noie가 분석 중...</Text>
+            <Text style={styles.assistantText}>noie가 응답을 준비 중...</Text>
           </View>
         ) : null}
 
@@ -473,14 +619,25 @@ type AnalysisCardProps = {
 
 function AnalysisCard({ message, onToggleAdminView }: AnalysisCardProps) {
   const analysis = message.analysis;
-
-  if (!analysis) {
-    return null;
-  }
+  if (!analysis) return null;
 
   return (
     <View>
-      <Text style={styles.assistantName}>noie</Text>
+      <Text style={styles.assistantName}>noie 답변</Text>
+
+      <View style={styles.replyBox}>
+        <Text style={styles.sectionLabel}>일반 답변</Text>
+        <Text style={styles.replyText}>{message.reply || message.text}</Text>
+      </View>
+
+      <View style={styles.summaryBox}>
+        <Text style={styles.sectionLabel}>상태 요약</Text>
+        <Text style={styles.summaryText}>
+          {message.stateSummary || analysis.user_view.state_summary}
+        </Text>
+      </View>
+
+      <Text style={styles.groupTitle}>감정 분석</Text>
       <Text style={styles.inputEcho}>{analysis.input}</Text>
 
       <Text style={styles.groupTitle}>1차 반응</Text>
@@ -503,13 +660,6 @@ function AnalysisCard({ message, onToggleAdminView }: AnalysisCardProps) {
             value={analysis.user_view.emotion_axis[item.key]}
           />
         ))}
-      </View>
-
-      <View style={styles.summaryBox}>
-        <Text style={styles.summaryLabel}>상태 요약</Text>
-        <Text style={styles.summaryText}>
-          {analysis.user_view.state_summary}
-        </Text>
       </View>
 
       <View style={styles.sourceRow}>
@@ -545,19 +695,39 @@ function MetricPill({ label, value }: MetricPillProps) {
   return (
     <View style={styles.metricPill}>
       <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={[styles.metricValue, styles[`level${value}`]]}>
-        {value}
-      </Text>
+      <Text style={[styles.metricValue, levelStyle(value)]}>{value}</Text>
     </View>
   );
+}
+
+function toChatHistory(messages: ChatMessage[]) {
+  return messages
+    .filter((message) => !message.isLoading && !message.error)
+    .map((message) => ({
+      role: message.role,
+      content:
+        message.role === "assistant"
+          ? message.reply || message.text
+          : message.text,
+    }));
+}
+
+function levelStyle(value: EmotionLevel) {
+  if (value === "High") return styles.levelHigh;
+  if (value === "Mid") return styles.levelMid;
+  return styles.levelLow;
 }
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function makeSessionTitle(text: string) {
-  return text.length > 18 ? `${text.slice(0, 18)}...` : text;
+function makeFallbackTitle(text: string) {
+  return cleanTitle(text) || "새 채팅";
+}
+
+function cleanTitle(text: string) {
+  return text.replace(/["'“”‘’.,!?]/g, "").trim().slice(0, 15);
 }
 
 function formatSessionTime(value: string) {
@@ -568,15 +738,8 @@ function formatSessionTime(value: string) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#050505",
-  },
-  appShell: {
-    flex: 1,
-    backgroundColor: "#050505",
-    flexDirection: "row",
-  },
+  safeArea: { flex: 1, backgroundColor: "#050505" },
+  appShell: { flex: 1, backgroundColor: "#050505", flexDirection: "row" },
   sidebar: {
     backgroundColor: "#111111",
     borderRightColor: "#242424",
@@ -603,11 +766,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 14,
   },
-  newChatButtonText: {
-    color: "#f5f5f5",
-    fontSize: 15,
-    fontWeight: "700",
-  },
+  newChatButtonText: { color: "#f5f5f5", fontSize: 15, fontWeight: "700" },
   sidebarSectionLabel: {
     color: "#8f8f8f",
     fontSize: 12,
@@ -615,33 +774,30 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 22,
   },
-  sessionList: {
-    flex: 1,
-  },
+  sessionList: { flex: 1 },
   sessionItem: {
+    alignItems: "center",
     backgroundColor: "transparent",
     borderRadius: 8,
+    flexDirection: "row",
     marginBottom: 6,
     minHeight: 56,
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
-  sessionItemActive: {
-    backgroundColor: "#2a2b32",
+  sessionItemActive: { backgroundColor: "#2a2b32" },
+  sessionTitleButton: { flex: 1, marginRight: 8 },
+  sessionTitle: { color: "#d7d7d7", fontSize: 14, fontWeight: "700" },
+  sessionTitleActive: { color: "#ffffff" },
+  sessionMeta: { color: "#7d7d7d", fontSize: 12, marginTop: 4 },
+  deleteButton: {
+    borderColor: "#3a3a3a",
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
-  sessionTitle: {
-    color: "#d7d7d7",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  sessionTitleActive: {
-    color: "#ffffff",
-  },
-  sessionMeta: {
-    color: "#7d7d7d",
-    fontSize: 12,
-    marginTop: 4,
-  },
+  deleteButtonText: { color: "#b8b8b8", fontSize: 12, fontWeight: "700" },
   drawerLayer: {
     bottom: 0,
     flexDirection: "row",
@@ -659,10 +815,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  mainPane: {
-    backgroundColor: "#050505",
-    flex: 1,
-  },
+  mainPane: { backgroundColor: "#050505", flex: 1 },
   topBar: {
     alignItems: "center",
     backgroundColor: "#050505",
@@ -683,24 +836,10 @@ const styles = StyleSheet.create({
     marginRight: 12,
     width: 40,
   },
-  iconButtonText: {
-    color: "#ffffff",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  topBarTitleBlock: {
-    flex: 1,
-  },
-  topBarTitle: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  topBarSubtitle: {
-    color: "#8f8f8f",
-    fontSize: 12,
-    marginTop: 2,
-  },
+  iconButtonText: { color: "#ffffff", fontSize: 20, fontWeight: "800" },
+  topBarTitleBlock: { flex: 1 },
+  topBarTitle: { color: "#ffffff", fontSize: 18, fontWeight: "800" },
+  topBarSubtitle: { color: "#8f8f8f", fontSize: 12, marginTop: 2 },
   newChatSmallButton: {
     alignItems: "center",
     backgroundColor: "#1a1a1a",
@@ -711,19 +850,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 40,
   },
-  newChatSmallButtonText: {
-    color: "#ffffff",
-    fontSize: 24,
-    lineHeight: 28,
-  },
-  chatScroll: {
-    flex: 1,
-  },
-  chatContent: {
-    flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-  },
+  newChatSmallButtonText: { color: "#ffffff", fontSize: 24, lineHeight: 28 },
+  chatScroll: { flex: 1 },
+  chatContent: { flexGrow: 1, paddingHorizontal: 16, paddingVertical: 18 },
   emptyState: {
     alignItems: "center",
     flex: 1,
@@ -741,67 +870,58 @@ const styles = StyleSheet.create({
     color: "#a4a4a4",
     fontSize: 15,
     lineHeight: 22,
+    marginTop: 10,
     textAlign: "center",
   },
-  messageRow: {
-    flexDirection: "row",
-    marginBottom: 16,
-  },
-  userMessageRow: {
-    justifyContent: "flex-end",
-  },
-  assistantMessageRow: {
-    justifyContent: "flex-start",
-  },
+  messageRow: { flexDirection: "row", marginBottom: 16 },
+  userMessageRow: { justifyContent: "flex-end" },
+  assistantMessageRow: { justifyContent: "flex-start" },
   bubble: {
     borderRadius: 14,
     maxWidth: "92%",
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  userBubble: {
-    backgroundColor: "#2f6fed",
-    borderBottomRightRadius: 4,
-  },
+  userBubble: { backgroundColor: "#2f6fed", borderBottomRightRadius: 4 },
   assistantBubble: {
     backgroundColor: "#171717",
+    borderBottomLeftRadius: 4,
     borderColor: "#2b2b2b",
     borderWidth: 1,
-    borderBottomLeftRadius: 4,
+    width: "100%",
   },
-  userText: {
-    color: "#ffffff",
-    fontSize: 16,
-    lineHeight: 23,
-  },
-  assistantText: {
-    color: "#f2f4f8",
-    fontSize: 15,
-    lineHeight: 22,
-  },
+  userText: { color: "#ffffff", fontSize: 16, lineHeight: 23 },
+  assistantText: { color: "#f2f4f8", fontSize: 15, lineHeight: 22 },
   assistantName: {
     color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "800",
-    marginBottom: 8,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 10,
   },
+  replyBox: {
+    backgroundColor: "#0d0d0d",
+    borderColor: "#2b2b2b",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 12,
+    padding: 12,
+  },
+  sectionLabel: {
+    color: "#8f8f8f",
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  replyText: { color: "#ffffff", fontSize: 15, lineHeight: 22 },
   inputEcho: {
     color: "#b8b8b8",
+    flexShrink: 1,
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 12,
   },
-  loadingRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-  },
-  errorText: {
-    color: "#ffb4b4",
-    fontSize: 15,
-    fontWeight: "700",
-    lineHeight: 22,
-  },
+  loadingRow: { alignItems: "center", flexDirection: "row", gap: 10 },
+  errorText: { color: "#ffb4b4", fontSize: 15, fontWeight: "700", lineHeight: 22 },
   groupTitle: {
     color: "#f7f7f7",
     fontSize: 14,
@@ -809,11 +929,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 10,
   },
-  metricGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   metricPill: {
     backgroundColor: "#222222",
     borderColor: "#333333",
@@ -823,79 +939,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  metricLabel: {
-    color: "#a9a9a9",
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: 5,
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  levelLow: {
-    color: "#9ca3af",
-  },
-  levelMid: {
-    color: "#fbbf24",
-  },
-  levelHigh: {
-    color: "#34d399",
-  },
+  metricLabel: { color: "#a9a9a9", fontSize: 12, fontWeight: "700", marginBottom: 5 },
+  metricValue: { fontSize: 18, fontWeight: "900" },
+  levelLow: { color: "#9ca3af" },
+  levelMid: { color: "#fbbf24" },
+  levelHigh: { color: "#34d399" },
   summaryBox: {
     backgroundColor: "#0d0d0d",
     borderColor: "#2b2b2b",
     borderRadius: 8,
     borderWidth: 1,
-    marginTop: 12,
+    marginBottom: 12,
     padding: 12,
   },
-  summaryLabel: {
-    color: "#8f8f8f",
-    fontSize: 12,
-    fontWeight: "800",
-    marginBottom: 6,
-  },
-  summaryText: {
-    color: "#ffffff",
-    fontSize: 15,
-    lineHeight: 22,
-  },
+  summaryText: { color: "#ffffff", flexShrink: 1, fontSize: 15, lineHeight: 22 },
   sourceRow: {
-    alignItems: "center",
+    alignItems: "flex-start",
+    columnGap: 10,
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     marginTop: 12,
+    rowGap: 8,
   },
   sourceLabel: {
     color: "#8f8f8f",
+    flexShrink: 0,
     fontSize: 13,
     fontWeight: "700",
+    lineHeight: 24,
   },
   sourceValue: {
     backgroundColor: "#242424",
     borderRadius: 999,
     color: "#f2f4f8",
+    flexShrink: 0,
     fontSize: 12,
     fontWeight: "800",
+    minWidth: 76,
     overflow: "hidden",
     paddingHorizontal: 10,
     paddingVertical: 5,
+    textAlign: "center",
   },
   adminToggle: {
     alignItems: "center",
     borderColor: "#3a3a3a",
     borderRadius: 8,
     borderWidth: 1,
+    justifyContent: "center",
     marginTop: 12,
     minHeight: 40,
-    justifyContent: "center",
   },
-  adminToggleText: {
-    color: "#c7c7c7",
-    fontSize: 13,
-    fontWeight: "800",
-  },
+  adminToggleText: { color: "#c7c7c7", fontSize: 13, fontWeight: "800" },
   adminJson: {
     backgroundColor: "#050505",
     borderColor: "#262626",
@@ -940,12 +1036,6 @@ const styles = StyleSheet.create({
     minHeight: 46,
     paddingHorizontal: 16,
   },
-  sendButtonDisabled: {
-    opacity: 0.38,
-  },
-  sendButtonText: {
-    color: "#050505",
-    fontSize: 15,
-    fontWeight: "900",
-  },
+  sendButtonDisabled: { opacity: 0.38 },
+  sendButtonText: { color: "#050505", fontSize: 15, fontWeight: "900" },
 });

@@ -239,3 +239,119 @@ def analyze_with_openai(text: str) -> EmotionAnalysis:
     except Exception as error:
         print_openai_error(error)
         raise
+
+
+def clean_generated_title(title: str) -> str:
+    """OpenAI가 만든 제목을 15자 이내의 간단한 제목으로 정리합니다."""
+
+    cleaned = title.strip().strip("\"'“”‘’")
+    for character in ['"', "'", "“", "”", "‘", "’", ".", "!", "?", "。"]:
+        cleaned = cleaned.replace(character, "")
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:15] or "새 채팅"
+
+
+def generate_title_with_openai(text: str) -> str:
+    """사용자의 첫 문장으로 짧은 한국어 채팅 제목을 만듭니다."""
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("[noie] OPENAI_API_KEY가 설정되지 않아 제목 생성을 건너뜁니다.")
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "사용자의 첫 문장을 보고 채팅방 제목을 만든다. "
+                        "제목은 5~15자 정도의 짧은 한국어 명사구로 만든다. "
+                        "따옴표, 마침표, 이모지는 넣지 않는다. "
+                        "응답은 제목 텍스트만 반환한다."
+                    ),
+                },
+                {"role": "user", "content": f"첫 문장: {text}"},
+            ],
+        )
+
+        return clean_generated_title(extract_output_text(response))
+    except Exception as error:
+        print_openai_error(error)
+        raise
+
+
+def generate_chat_reply_with_openai(
+    text: str,
+    state_summary: str,
+    user_view: dict,
+    messages: list[dict[str, str]] | None = None,
+) -> str:
+    """감정 분석 결과를 참고해 noie의 일반 대화 답변을 생성합니다."""
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("[noie] OPENAI_API_KEY가 설정되지 않아 일반 답변 생성을 건너뜁니다.")
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    history = messages or []
+    history_text = "\n".join(
+        f"{item.get('role', '')}: {item.get('content', '')}"
+        for item in history[-8:]
+    )
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "너는 noie라는 감정 분석 채팅 도우미다. "
+                        "사용자의 말에 한국어로 2~5문장 정도로 자연스럽게 답한다. "
+                        "감정을 단정하지 말고 '~같아', '~일 수 있어'처럼 부드럽게 말한다. "
+                        "감정 분석 결과를 참고하되 점수, 축 이름, JSON은 직접 말하지 않는다. "
+                        "두려움/긴장/우울이 높으면 안정시키는 방향으로 답한다. "
+                        "분노가 높으면 감정을 인정하되 공격적 행동을 부추기지 않는다. "
+                        "호기심이 높으면 탐색 질문을 던져도 된다. "
+                        "욕구가 높으면 원하는 것과 다음 한 걸음을 정리해준다. "
+                        "안정감이 낮으면 무리한 행동보다 작고 쉬운 한 걸음을 제안한다. "
+                        "자해, 극단적 선택, 위기 상황으로 보이면 신뢰할 수 있는 사람이나 긴급 도움을 요청하라는 안전 문장을 포함한다."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"이전 대화:\n{history_text}\n\n"
+                        f"현재 사용자 메시지: {text}\n\n"
+                        f"상태 요약: {state_summary}\n"
+                        f"사용자용 감정 분석: {json.dumps(user_view, ensure_ascii=False)}"
+                    ),
+                },
+            ],
+        )
+
+        reply = extract_output_text(response).strip()
+        return reply or fallback_chat_reply(state_summary)
+    except Exception as error:
+        print_openai_error(error)
+        raise
+
+
+def fallback_chat_reply(state_summary: str) -> str:
+    """일반 답변 생성 실패 시 사용할 짧은 fallback 문장입니다."""
+
+    return (
+        f"{state_summary} 지금은 감정을 바로 해결하려 하기보다, 가장 크게 남는 감정이 무엇인지 "
+        "천천히 짚어보면 좋을 것 같아."
+    )
