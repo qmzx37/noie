@@ -293,11 +293,119 @@ def generate_title_with_openai(text: str) -> str:
         raise
 
 
+SAVE_DECISION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "memoryType": {
+            "type": "string",
+            "enum": [
+                "sensitive_event",
+                "achievement",
+                "goal",
+                "dream",
+                "idea",
+                "relationship",
+                "schedule",
+                "todo",
+                "daily_context",
+                "none",
+            ],
+        },
+        "savePolicy": {"type": "string", "enum": ["ask", "auto", "none"]},
+        "saveTargets": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["daily_piece", "daily_trace", "dream_piece"],
+            },
+        },
+        "importance": {"type": "integer", "minimum": 0, "maximum": 100},
+        "displayCategory": {"type": "string"},
+        "reason": {"type": "string"},
+        "askText": {"type": ["string", "null"]},
+    },
+    "required": [
+        "memoryType",
+        "savePolicy",
+        "saveTargets",
+        "importance",
+        "displayCategory",
+        "reason",
+        "askText",
+    ],
+}
+
+
+def generate_save_decision_with_openai(
+    text: str,
+    user_view: dict,
+) -> dict[str, Any]:
+    """문장 전체 의미를 보고 noie 저장 정책을 결정합니다."""
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "너는 사용자의 문장 전체 의미를 보고 noie 앱의 저장 정책을 결정한다. "
+                        "단어 하나만 보고 판단하지 말고 문장 전체 맥락을 본다. "
+                        "memoryType은 sensitive_event, achievement, goal, dream, idea, relationship, schedule, todo, daily_context, none 중 하나다. "
+                        "savePolicy는 ask, auto, none 중 하나다. saveTargets는 daily_piece, daily_trace, dream_piece 중 필요한 값을 넣고, none이면 빈 배열을 넣는다. "
+                        "민감 사건 sensitive_event는 욕설/욕/뒷담화, 친구들이 나쁜 말을 함, 괴롭힘, 관계 갈등, 싸움, 상처, 배신, 차단, 실패, 탈락, 거절, 좌절, 상실, 불안, 공포, 우울, 번아웃, 충격, 무서운 꿈, 힘든 사건을 포함한다. "
+                        "sensitive_event는 자동 저장하지 말고 savePolicy ask, saveTargets ['daily_piece'], importance 100, displayCategory '최근 사건', askText '최근 사건을 저장할까요?'로 한다. "
+                        "'친구들이 내욕을 해'는 relationship이 아니라 sensitive_event다. "
+                        "'친구랑 싸웠어', '나 오늘 취직에 실패했어', '면접 떨어졌어', '오늘 너무 불안했어'도 sensitive_event다. "
+                        "긍정/중립 관계 변화만 relationship이다. 예: 친구를 새로 사귀었어, 친구랑 화해했어. "
+                        "goal은 장기 목표나 해야 할 방향이다. dream은 되고 싶은 미래나 만들고 싶은 미래다. "
+                        "achievement는 완료, 성공, 구현, 해결, 시작 같은 진전이다. "
+                        "schedule/todo는 날짜나 해야 할 일정이다. none은 저장 가치가 낮은 인사, 잡담, 배고픔, ㅋㅋㅋ다. "
+                        "응답은 JSON만 반환한다."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"문장: {text}\n"
+                        f"감정 분석: {json.dumps(user_view, ensure_ascii=False)}"
+                    ),
+                },
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "save_decision",
+                    "schema": SAVE_DECISION_SCHEMA,
+                    "strict": True,
+                }
+            },
+        )
+
+        return json.loads(extract_output_text(response))
+    except Exception as error:
+        print_openai_error(error)
+        raise
+
+
 def generate_chat_reply_with_openai(
     text: str,
     state_summary: str,
     user_view: dict,
     messages: list[dict[str, str]] | None = None,
+    is_project: bool = False,
+    project_name: str | None = None,
+    project_goal: str | None = None,
 ) -> str:
     """감정 분석 결과를 참고해 noie의 일반 대화 답변을 생성합니다."""
 
@@ -308,10 +416,36 @@ def generate_chat_reply_with_openai(
 
     model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     history = messages or []
+    history_limit = 20 if is_project else 8
     history_text = "\n".join(
         f"{item.get('role', '')}: {item.get('content', '')}"
-        for item in history[-8:]
+        for item in history[-history_limit:]
     )
+    project_instruction = ""
+
+    if is_project:
+        project_instruction = f"""
+
+프로젝트 대화 모드:
+- 프로젝트 이름: {project_name or "미지정"}
+- 프로젝트 목표: {project_goal or "미지정"}
+- 최근 대화 맥락을 반드시 반영한다.
+- 사용자가 "파이썬으로", "자바스크립트로", "간단하게", "복잡하게", "리액트로"처럼 짧게 말하면 바로 직전 사용자 요청을 보완하는 말로 해석한다.
+- 사용자가 코드, 개발 코드, 알려줘, 만들어줘, 구현, 작성, 예제, 파이썬, 자바스크립트, 계산기, 앱, 함수, 클래스라고 말하면 code_request로 판단한다.
+- code_request이면 질문만 하고 끝내지 말고 산출물을 먼저 제공한다.
+- 정보가 부족해도 합리적인 기본값을 가정해서 실행 가능한 예시를 먼저 준다.
+- 언어가 명시되지 않은 코드 요청은 기본값을 Python으로 둔다.
+- 코드 요청에는 반드시 fenced code block을 포함한다.
+- 코드 아래에는 짧은 설명과 실행 방법을 붙인다.
+- 추가 질문은 답변과 코드를 제공한 뒤 마지막에 짧게만 한다.
+
+예시:
+이전 사용자: 계산기 개발 코드 줘
+이전 assistant: 어떤 언어로 만들까요?
+현재 사용자: 파이썬으로
+올바른 응답: 파이썬 계산기 코드를 바로 제공하고 실행 방법을 설명한다.
+잘못된 응답: 다시 어떤 기능을 원하는지 질문만 한다.
+"""
 
     try:
         from openai import OpenAI
@@ -333,12 +467,16 @@ def generate_chat_reply_with_openai(
                         "욕구가 높으면 원하는 것과 다음 한 걸음을 정리해준다. "
                         "안정감이 낮으면 무리한 행동보다 작고 쉬운 한 걸음을 제안한다. "
                         "자해, 극단적 선택, 위기 상황으로 보이면 신뢰할 수 있는 사람이나 긴급 도움을 요청하라는 안전 문장을 포함한다."
+                        f"{project_instruction}"
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
                         f"이전 대화:\n{history_text}\n\n"
+                        f"프로젝트 대화 여부: {is_project}\n"
+                        f"프로젝트 이름: {project_name or ''}\n"
+                        f"프로젝트 목표: {project_goal or ''}\n\n"
                         f"현재 사용자 메시지: {text}\n\n"
                         f"상태 요약: {state_summary}\n"
                         f"사용자용 감정 분석: {json.dumps(user_view, ensure_ascii=False)}"

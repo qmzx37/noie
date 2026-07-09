@@ -1,4 +1,9 @@
-"""noie 백엔드 요청/응답 타입 모음입니다."""
+"""API 요청/응답 타입을 모아둔 파일입니다.
+
+처음 백엔드를 볼 때는 이 파일부터 보면 좋습니다.
+여기에는 "클라이언트가 무엇을 보내고", "서버가 무엇을 돌려주는지"가
+한눈에 보이도록 타입을 정의해 둡니다.
+"""
 
 from __future__ import annotations
 
@@ -7,12 +12,19 @@ from typing import Dict, Literal, Optional, TypedDict
 from pydantic import BaseModel, Field
 
 
+# 감정축은 프로젝트 전체에서 항상 같은 8개를 사용합니다.
 EmotionKey = Literal["F", "A", "D", "J", "C", "G", "T", "R"]
+
+# 사용자가 보는 화면에는 숫자 대신 High/Mid/Low만 보여줍니다.
 Level = Literal["High", "Mid", "Low"]
+
+# 8축 순서를 한곳에서 관리합니다.
 EMOTION_KEYS: list[EmotionKey] = ["F", "A", "D", "J", "C", "G", "T", "R"]
 
 
 class PrimaryAxisScore(TypedDict):
+    """관리자용 1차 관계축 원점수입니다."""
+
     like: float
     dislike: float
 
@@ -21,21 +33,32 @@ EmotionAxisScore = Dict[EmotionKey, float]
 
 
 class EmotionAnalysis(TypedDict):
+    """OpenAI 분석기와 규칙 기반 분석기가 공통으로 반환하는 내부 형식입니다."""
+
     primary_axis: PrimaryAxisScore
     emotion_axis: EmotionAxisScore
     state_summary: str
 
 
 class AnalyzeEmotionRequest(BaseModel):
-    text: str = Field(min_length=1, examples=["개발은 하고 싶은데 좀 부담돼"])
+    """POST /analyze-emotion 요청 본문입니다."""
+
+    text: str = Field(
+        min_length=1,
+        examples=["나 개발은 하고 싶은데 너무 부담되고 지쳐"],
+    )
 
 
 class PrimaryAxisLevel(BaseModel):
+    """사용자용 1차 관계축 레벨입니다."""
+
     like: Level
     dislike: Level
 
 
 class EmotionAxisLevel(BaseModel):
+    """사용자용 8축 감정 레벨입니다."""
+
     F: Level
     A: Level
     D: Level
@@ -47,17 +70,23 @@ class EmotionAxisLevel(BaseModel):
 
 
 class UserView(BaseModel):
+    """실제 채팅 UI에 보여주기 좋은 응답입니다."""
+
     primary_axis: PrimaryAxisLevel
     emotion_axis: EmotionAxisLevel
     state_summary: str
 
 
 class PrimaryAxisRaw(BaseModel):
+    """관리자/디버깅용 1차 관계축 숫자 점수입니다."""
+
     like: float
     dislike: float
 
 
 class EmotionAxisRaw(BaseModel):
+    """관리자/디버깅용 8축 감정 숫자 점수입니다."""
+
     F: float
     A: float
     D: float
@@ -69,22 +98,69 @@ class EmotionAxisRaw(BaseModel):
 
 
 class AdminView(BaseModel):
+    """튜닝할 때 확인할 수 있는 숫자 응답입니다."""
+
     primary_axis: PrimaryAxisRaw
     emotion_axis: EmotionAxisRaw
 
 
+MemoryType = Literal[
+    "sensitive_event",
+    "achievement",
+    "goal",
+    "dream",
+    "idea",
+    "relationship",
+    "schedule",
+    "todo",
+    "task",
+    "note",
+    "daily_plan",
+    "daily_context",
+    "important_note",
+    "none",
+]
+
+SavePolicy = Literal["ask", "auto", "none"]
+
+SaveTarget = Literal[
+    "daily_piece",
+    "daily_trace",
+    "dream_piece",
+]
+
+
+class SaveDecision(BaseModel):
+    """noie가 사용자 문장을 저장할지 결정한 결과입니다."""
+
+    memoryType: MemoryType
+    savePolicy: SavePolicy
+    saveTargets: list[SaveTarget] = Field(default_factory=list)
+    importance: int = 0
+    displayCategory: str = ""
+    reason: str = ""
+    askText: Optional[str] = None
+
+
 class AnalyzeEmotionResponse(BaseModel):
+    """POST /analyze-emotion 최종 응답 형식입니다."""
+
     input: str
     user_view: UserView
     admin_view: AdminView
     source: Literal["openai", "rule_based"]
+    save_decision: Optional[SaveDecision] = None
 
 
 class GenerateTitleRequest(BaseModel):
+    """POST /generate-title 요청 본문입니다."""
+
     text: str = Field(min_length=1, examples=["나 오늘 친구랑 싸웠는데 기분이 이상해"])
 
 
 class GenerateTitleResponse(BaseModel):
+    """POST /generate-title 응답 형식입니다."""
+
     title: str
 
 
@@ -105,7 +181,20 @@ class ChatResponse(BaseModel):
     source: Literal["openai", "rule_based"]
 
 
-DailyTraceItemType = Literal["schedule", "record", "todo", "quote", "goal"]
+DailyTraceItemType = Literal[
+    "schedule",
+    "record",
+    "todo",
+    "quote",
+    "goal",
+    "dream",
+    "achievement",
+    "important_note",
+    "note",
+    "daily_plan",
+    "task",
+    "relationship",
+]
 
 
 class ExtractDailyTraceRequest(BaseModel):

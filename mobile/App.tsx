@@ -57,6 +57,16 @@ type EmotionAxis = {
 type EmotionKey = keyof EmotionAxis;
 type NumericEmotionAxis = Record<EmotionKey, number>;
 
+type SaveDecision = {
+  memoryType: MemorySavePolicyType;
+  savePolicy: "ask" | "auto" | "none";
+  saveTargets: Array<"daily_piece" | "daily_trace" | "dream_piece">;
+  importance: number;
+  displayCategory: string;
+  reason: string;
+  askText?: string | null;
+};
+
 type AnalyzeEmotionResponse = {
   input: string;
   user_view: {
@@ -69,6 +79,7 @@ type AnalyzeEmotionResponse = {
     emotion_axis: NumericEmotionAxis;
   };
   source: AnalysisSource;
+  save_decision?: SaveDecision;
 };
 
 type ChatApiResponse = {
@@ -118,6 +129,10 @@ type DailyTraceItem = {
   sourceText?: string;
   sourceMessageId?: string;
   isDone?: boolean;
+  memoryType?: MemorySavePolicyType;
+  saveTargets?: SaveDecision["saveTargets"];
+  importance?: number;
+  displayCategory?: string;
   createdAt: string;
   updatedAt?: string;
 };
@@ -131,6 +146,8 @@ type MemorySavePolicyType =
   | "dream"
   | "goal"
   | "idea"
+  | "schedule"
+  | "todo"
   | "daily_context"
   | "none";
 
@@ -140,6 +157,7 @@ type MemorySavePolicy = {
   requiresConfirmation: boolean;
   importance: number;
   label: string;
+  saveTargets?: SaveDecision["saveTargets"];
 };
 
 type EmotionSignals = Partial<Record<EmotionKey, EmotionLevel | number>>;
@@ -676,11 +694,14 @@ export default function App() {
         requestChatReply(trimmedText, activeSession.messages),
         extractDailyTraceCandidate(trimmedText),
       ]);
-      const memoryPolicy = classifyMemorySavePolicy(
-        trimmedText,
-        chatData.analysis.user_view.emotion_axis,
-        traceCandidate ?? undefined
-      );
+      const saveDecision = chatData.analysis.save_decision;
+      const memoryPolicy = saveDecision
+        ? buildMemorySavePolicyFromDecision(saveDecision)
+        : classifyMemorySavePolicy(
+            trimmedText,
+            chatData.analysis.user_view.emotion_axis,
+            traceCandidate ?? undefined
+          );
       const resolvedTraceCandidate = resolveDailyTraceCandidate(
         trimmedText,
         traceCandidate,
@@ -689,15 +710,20 @@ export default function App() {
       let dailyTraceStatus: DailyTraceStatus | undefined;
       let dailyTraceNotice: string | undefined;
 
-      if (resolvedTraceCandidate && memoryPolicy.shouldSave) {
-        if (memoryPolicy.type === "sensitive_event") {
+      if (
+        resolvedTraceCandidate &&
+        memoryPolicy.shouldSave &&
+        memoryPolicy.type !== "none"
+      ) {
+        if (saveDecision?.savePolicy === "ask" || memoryPolicy.type === "sensitive_event") {
           dailyTraceStatus = "pending";
-        } else {
+        } else if (saveDecision?.savePolicy !== "none") {
           const autoSavedItem = buildDailyTraceItem(
             resolvedTraceCandidate,
             trimmedText,
             assistantMessageId,
-            now
+            now,
+            memoryPolicy
           );
           const saveResult = saveNoieMemory(
             dailyTraces,
@@ -806,7 +832,11 @@ export default function App() {
     setIsProjectSending(true);
 
     try {
-      const data = await requestProjectChatReply(trimmedText, previousMessages);
+      const data = await requestProjectChatReply(
+        trimmedText,
+        previousMessages,
+        activeProject
+      );
       setProjectMessages((currentMessages) =>
         currentMessages.map((message) =>
           message.id === assistantMessageId
@@ -853,7 +883,8 @@ export default function App() {
 
   const requestProjectChatReply = async (
     text: string,
-    messages: NoieProjectMessage[]
+    messages: NoieProjectMessage[],
+    project: NoieProject
   ) => {
     const response = await fetch(`${API_BASE_URL}/chat`, {
       method: "POST",
@@ -861,6 +892,9 @@ export default function App() {
       body: JSON.stringify({
         text,
         messages: toProjectChatHistory(messages),
+        is_project: true,
+        project_name: project.title,
+        project_goal: project.goal,
       }),
     });
 
@@ -986,7 +1020,8 @@ export default function App() {
       candidate,
       sourceUserMessage?.text ?? memoryInput,
       messageId,
-      now
+      now,
+      message.dailyMemoryPolicy
     );
     const saveResult = saveNoieMemory(dailyTraces, newItem, memoryInput, {
       shouldLog: false,
@@ -1003,6 +1038,9 @@ export default function App() {
           ? {
               ...item,
               dailyTraceStatus: saveResult.duplicate ? "duplicate" : "added",
+              dailyTraceNotice: saveResult.duplicate
+                ? "이미 하루의 조각에 있는 내용이에요."
+                : "하루의 조각에 저장했어요.",
             }
           : item
       ),
@@ -1022,7 +1060,11 @@ export default function App() {
       ...session,
       messages: session.messages.map((message) =>
         message.id === messageId
-          ? { ...message, dailyTraceStatus: "dismissed" }
+          ? {
+              ...message,
+              dailyTraceStatus: "dismissed",
+              dailyTraceNotice: "저장하지 않았어요.",
+            }
           : message
       ),
       updatedAt: new Date().toISOString(),
@@ -1947,16 +1989,17 @@ function DailyTraceCandidateCard({
   onDismiss: (messageId: string) => void;
 }) {
   const candidate = message.dailyTraceCandidate;
-  if (!candidate || message.dailyTraceStatus === "dismissed") {
+  if (!candidate) {
     return null;
   }
 
   const isAdded = message.dailyTraceStatus === "added";
   const isDuplicate = message.dailyTraceStatus === "duplicate";
+  const isDismissed = message.dailyTraceStatus === "dismissed";
   const questionText =
     message.dailyTraceNotice ??
     (message.dailyMemoryPolicy?.type === "sensitive_event"
-      ? "최근 사건으로 기록할까요?"
+      ? "최근 사건을 저장할까요?"
       : isDuplicate
         ? "이미 하루의 조각에 있는 내용이에요."
         : isAdded
@@ -1980,7 +2023,7 @@ function DailyTraceCandidateCard({
         <Text style={styles.traceCandidateMemo}>{candidate.memo}</Text>
       ) : null}
 
-      {!isAdded && !isDuplicate ? (
+      {!isAdded && !isDuplicate && !isDismissed ? (
         <View style={styles.traceCandidateActions}>
           <TouchableOpacity
             style={styles.traceConfirmButton}
@@ -1989,7 +2032,7 @@ function DailyTraceCandidateCard({
           >
             <Text style={styles.traceConfirmButtonText}>
               {message.dailyMemoryPolicy?.type === "sensitive_event"
-                ? "기록하기"
+                ? "저장하기"
                 : TRACE_CONFIRM_LABELS[candidate.type]}
             </Text>
           </TouchableOpacity>
@@ -2307,11 +2350,23 @@ function DailyTraceCalendar({
 }) {
   const monthCells = buildCalendarMonth(calendarMonth);
   const datesWithItems = useMemo(
-    () => new Set(items.map((item) => item.date)),
+    () =>
+      new Set(
+        dedupeMemories(items)
+          .filter((item) => {
+            const memoryPolicy = getMemoryPolicy(item);
+            return shouldSaveToDailyTrace(memoryPolicy);
+          })
+          .map((item) => item.date)
+      ),
     [items]
   );
   const selectedItems = dedupeMemories(items)
-    .filter((item) => item.date === selectedDate)
+    .filter((item) => {
+      const memoryPolicy = getMemoryPolicy(item);
+
+      return item.date === selectedDate && shouldSaveToDailyTrace(memoryPolicy);
+    })
     .sort(sortDailyTraceItems);
 
   return (
@@ -2693,7 +2748,8 @@ function buildDailyTraceItem(
   candidate: DailyTraceCandidate,
   sourceText: string,
   sourceMessageId: string,
-  createdAt: string
+  createdAt: string,
+  memoryPolicy?: MemorySavePolicy
 ): DailyTraceItem {
   return {
     id: createId("trace"),
@@ -2708,6 +2764,10 @@ function buildDailyTraceItem(
     sourceText,
     sourceMessageId,
     isDone: candidate.type === "todo" ? false : undefined,
+    memoryType: memoryPolicy?.type,
+    saveTargets: memoryPolicy?.saveTargets,
+    importance: memoryPolicy?.importance,
+    displayCategory: memoryPolicy?.label,
     createdAt,
   };
 }
@@ -2734,6 +2794,14 @@ function resolveDailyTraceCandidate(
 }
 
 function getDailyTraceTypeForMemory(type: MemorySavePolicyType): DailyTraceItemType {
+  if (type === "schedule") {
+    return "schedule";
+  }
+
+  if (type === "todo") {
+    return "todo";
+  }
+
   if (type === "goal" || type === "dream") {
     return "goal";
   }
@@ -2761,10 +2829,75 @@ function getAutoSavedMemoryNotice(type: MemorySavePolicyType) {
     dream: "꿈으로 하루의 조각에 담았어요.",
     idea: "아이디어로 하루의 조각에 담았어요.",
     relationship: "관계의 조각으로 담았어요.",
+    schedule: "일정으로 하루의 흔적에 담았어요.",
+    todo: "할 일로 하루의 흔적에 담았어요.",
     daily_context: "오늘의 기록으로 담았어요.",
   };
 
   return noticeMap[type] ?? "";
+}
+
+function buildMemorySavePolicyFromDecision(decision: SaveDecision): MemorySavePolicy {
+  return {
+    type: decision.memoryType,
+    shouldSave: decision.savePolicy !== "none",
+    requiresConfirmation: decision.savePolicy === "ask",
+    importance: decision.importance,
+    label: decision.displayCategory,
+    saveTargets: decision.saveTargets,
+  };
+}
+
+function getMemoryPolicy(memory: NoieMemory): MemorySavePolicy {
+  if (memory.memoryType) {
+    return {
+      type: memory.memoryType,
+      shouldSave: memory.memoryType !== "none",
+      requiresConfirmation: memory.memoryType === "sensitive_event",
+      importance:
+        memory.importance ??
+        calculateMemoryImportance(memory.memoryType),
+      label: memory.displayCategory ?? memory.memoryType,
+      saveTargets: memory.saveTargets,
+    };
+  }
+
+  return classifyMemorySavePolicy(
+    getMemoryInputText({
+      title: memory.title,
+      memo: memory.memo,
+      sourceText: memory.sourceText,
+    }),
+    undefined,
+    memory
+  );
+}
+
+function shouldSaveToDailyTrace(memoryPolicy: MemorySavePolicy) {
+  if (!memoryPolicy.shouldSave || memoryPolicy.type === "sensitive_event") {
+    return false;
+  }
+
+  if (memoryPolicy.saveTargets) {
+    return memoryPolicy.saveTargets.includes("daily_trace");
+  }
+
+  return true;
+}
+
+function shouldSaveToDailyPieces(memoryPolicy: MemorySavePolicy) {
+  if (!memoryPolicy.shouldSave || memoryPolicy.type === "none") {
+    return false;
+  }
+
+  if (memoryPolicy.saveTargets) {
+    return (
+      memoryPolicy.saveTargets.includes("daily_piece") ||
+      memoryPolicy.saveTargets.includes("dream_piece")
+    );
+  }
+
+  return true;
 }
 
 function normalizeMemoryInput(input: string): string {
@@ -2825,7 +2958,7 @@ function getMemorySemanticKey(memory: NoieMemory): string {
     return `${dateKey}_developer_goal`;
   }
 
-  const memoryPolicy = classifyMemorySavePolicy(input, undefined, memory);
+  const memoryPolicy = getMemoryPolicy(memory);
   return `${dateKey}_${memoryPolicy.type}_${normalizedInput}`;
 }
 
@@ -2836,6 +2969,8 @@ function getMemoryTypePriority(type: MemorySavePolicyType) {
     achievement: 4,
     relationship: 3,
     idea: 2,
+    schedule: 2,
+    todo: 2,
     daily_context: 1,
     sensitive_event: 0,
     none: -1,
@@ -2863,18 +2998,8 @@ function getMemoryNaturalScore(memory: NoieMemory) {
 }
 
 function chooseRepresentativeMemory(left: NoieMemory, right: NoieMemory) {
-  const leftInput = getMemoryInputText({
-    title: left.title,
-    memo: left.memo,
-    sourceText: left.sourceText,
-  });
-  const rightInput = getMemoryInputText({
-    title: right.title,
-    memo: right.memo,
-    sourceText: right.sourceText,
-  });
-  const leftPolicy = classifyMemorySavePolicy(leftInput, undefined, left);
-  const rightPolicy = classifyMemorySavePolicy(rightInput, undefined, right);
+  const leftPolicy = getMemoryPolicy(left);
+  const rightPolicy = getMemoryPolicy(right);
   const importanceDiff = rightPolicy.importance - leftPolicy.importance;
 
   if (importanceDiff > 0) {
@@ -2953,11 +3078,7 @@ function saveNoieMemory(
   input: string,
   options: { shouldLog?: boolean } = {}
 ): SaveNoieMemoryResult {
-  const memoryPolicy = classifyMemorySavePolicy(
-    input || `${newItem.title} ${newItem.memo ?? ""}`,
-    undefined,
-    newItem
-  );
+  const memoryPolicy = getMemoryPolicy(newItem);
   const shouldLog = options.shouldLog ?? true;
 
   if (shouldLog) {
@@ -3010,18 +3131,9 @@ function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
       return;
     }
 
-    const memoryInput = getMemoryInputText({
-      title: item.title,
-      memo: item.memo,
-      sourceText: item.sourceText,
-    });
-    const memoryPolicy = classifyMemorySavePolicy(
-      memoryInput,
-      undefined,
-      item
-    );
+    const memoryPolicy = getMemoryPolicy(item);
 
-    if (!memoryPolicy.shouldSave || memoryPolicy.type === "none") {
+    if (!shouldSaveToDailyPieces(memoryPolicy)) {
       return;
     }
 
@@ -3066,15 +3178,7 @@ function removeDuplicateDailyPieces(pieces: DailyPiece[]) {
 
     return {
       ...memory,
-      memoryPolicy: classifyMemorySavePolicy(
-        getMemoryInputText({
-          title: memory.title,
-          memo: memory.memo,
-          sourceText: memory.sourceText,
-        }),
-        undefined,
-        memory
-      ),
+      memoryPolicy: getMemoryPolicy(memory),
     };
   });
 }
@@ -3094,12 +3198,12 @@ function classifyMemorySavePolicy(
     patterns.some((pattern) => pattern.test(normalizedText));
 
   const sensitivePatterns = [
-    /싸움|싸웠|다툼|다퉜|갈등|헤어짐|이별|차단/,
-    /울음|울었|눈물|상처|충격|놀람|놀랐/,
-    /악몽|무서운\s*꿈|무서움|불안|공포|긴장/,
-    /힘듦|힘들|지침|번아웃|멘붕/,
-    /화남|화났|짜증|분노/,
-    /학교\s*문제|알바\s*문제|회사\s*문제|교수\s*문제|친구\s*문제|가족\s*문제/,
+    /싸움|싸웠|싸웟|다툼|다퉜|갈등|차단|상처|배신|헤어졌|헤어짐|이별|손절/,
+    /실패|실패햇|떨어졌|떨어졋|탈락|불합격|망했|망쳣|망침|못했|안\s*됐|안됐|안됏|거절|거절당/,
+    /취직\s*실패|면접\s*떨어|시험\s*망|프로젝트\s*실패|코딩\s*테스트\s*떨어|서류\s*탈락/,
+    /무너졌|좌절|포기하고\s*싶|절망|끝난\s*것\s*같|잃었|잃어버렸|해고|퇴사당|버림받/,
+    /불안|무서|무서운\s*꿈|악몽|공포|놀랐|충격|멘붕|긴장돼|숨\s*막혀/,
+    /우울|힘들|힘들엇|지쳤|지침|번아웃|아무것도\s*하기\s*싫|눈물|울었|울엇|울음/,
   ];
   const achievementActionPatterns = [
     /완료|끝냄|해냄|성공|통과|해결/,
@@ -3243,6 +3347,8 @@ function calculateMemoryImportance(
     dream: 85,
     goal: 78,
     idea: 70,
+    schedule: 60,
+    todo: 65,
     daily_context: 40,
     none: 0,
   };
@@ -3290,6 +3396,18 @@ function buildMemorySavePolicy(
       shouldSave: true,
       requiresConfirmation: false,
       label: "아이디어",
+    },
+    schedule: {
+      type,
+      shouldSave: true,
+      requiresConfirmation: false,
+      label: "일정",
+    },
+    todo: {
+      type,
+      shouldSave: true,
+      requiresConfirmation: false,
+      label: "할 일",
     },
     daily_context: {
       type,
@@ -3418,7 +3536,7 @@ function toChatHistory(messages: ChatMessage[]) {
 }
 
 function toProjectChatHistory(messages: NoieProjectMessage[]) {
-  return messages.map((message) => ({
+  return messages.slice(-20).map((message) => ({
     role: message.role,
     content: message.content,
   }));
