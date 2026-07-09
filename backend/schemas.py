@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Literal, TypedDict
+from typing import Dict, Literal, Optional, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -103,3 +103,23 @@ class ChatResponse(BaseModel):
     state_summary: str
     analysis: AnalyzeEmotionResponse
     source: Literal["openai", "rule_based"]
+
+
+DailyTraceItemType = Literal["schedule", "record", "todo", "quote", "goal"]
+
+
+class ExtractDailyTraceRequest(BaseModel):
+    text: str = Field(min_length=1, examples=["7월 12일 친구 만나기로 했어"])
+    current_date: str = Field(examples=["2026-07-08"])
+
+
+class ExtractDailyTraceResponse(BaseModel):
+    has_trace: bool
+    type: Optional[DailyTraceItemType] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    title: Optional[str] = None
+    memo: Optional[str] = None
+    targetDate: Optional[str] = None
+    targetYear: Optional[str] = None
+    targetText: Optional[str] = None

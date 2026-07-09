@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
 from openai_analyzer import (
     fallback_chat_reply,
@@ -19,6 +20,8 @@ from schemas import (
     ChatRequest,
     ChatResponse,
     EmotionAnalysis,
+    ExtractDailyTraceRequest,
+    ExtractDailyTraceResponse,
     GenerateTitleRequest,
     GenerateTitleResponse,
 )
@@ -147,4 +150,56 @@ def chat(request: ChatRequest) -> dict:
         "state_summary": state_summary,
         "analysis": analysis_response,
         "source": source,
+    }
+
+
+@app.post("/extract-daily-trace", response_model=ExtractDailyTraceResponse)
+def extract_daily_trace(request: ExtractDailyTraceRequest) -> dict:
+    text = request.text.strip()
+    current_date = request.current_date.strip()
+
+    try:
+        candidate = extract_daily_trace_with_openai(
+            text=text,
+            current_date=current_date,
+        )
+    except Exception:
+        return {"has_trace": False}
+
+    if not candidate.get("has_trace"):
+        return {"has_trace": False}
+
+    trace_type = candidate.get("type")
+    date = candidate.get("date")
+    title = candidate.get("title")
+
+    if trace_type not in ["schedule", "record", "todo", "quote", "goal"]:
+        return {"has_trace": False}
+    if not isinstance(date, str) or len(date) != 10:
+        return {"has_trace": False}
+    if not isinstance(title, str) or not title.strip():
+        return {"has_trace": False}
+
+    time = candidate.get("time")
+    memo = candidate.get("memo")
+    target_date = candidate.get("targetDate")
+    target_year = candidate.get("targetYear")
+    target_text = candidate.get("targetText")
+
+    return {
+        "has_trace": True,
+        "type": trace_type,
+        "date": date,
+        "time": time if isinstance(time, str) and time.strip() else None,
+        "title": title.strip()[:40],
+        "memo": memo if isinstance(memo, str) and memo.strip() else text,
+        "targetDate": target_date
+        if isinstance(target_date, str) and target_date.strip()
+        else None,
+        "targetYear": target_year
+        if isinstance(target_year, str) and target_year.strip()
+        else None,
+        "targetText": target_text
+        if isinstance(target_text, str) and target_text.strip()
+        else None,
     }

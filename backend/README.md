@@ -7,6 +7,8 @@ FastAPI로 만든 noie 감정 분석 API입니다.
 - `POST /analyze-emotion`: 사용자의 문장을 감정 분석합니다.
 - `POST /generate-title`: 첫 사용자 문장으로 짧은 채팅 제목을 생성합니다.
 - `POST /chat`: 일반 대화 답변, 상태 요약, 감정 분석 결과를 함께 반환합니다.
+- `POST /extract-daily-trace`: 채팅 문장에서 일정, 오늘의 기록, 할 일, 남긴 말 후보를 추출합니다.
+- `POST /extract-daily-trace`: 장기 목표나 미래 목표 후보도 `goal` 타입으로 추출할 수 있습니다.
 
 ## 환경 변수
 
@@ -28,7 +30,7 @@ pip install -r requirements.txt
 
 ## 서버 실행
 
-휴대폰에서 같은 네트워크로 접속하려면 `--host 0.0.0.0`으로 실행합니다.
+휴대폰에서 같은 네트워크로 접속하려면 `--host 0.0.0.0` 옵션으로 실행합니다.
 
 ```powershell
 cd C:\noie\backend
@@ -59,10 +61,26 @@ curl -X POST "http://127.0.0.1:8000/generate-title" ^
 -d "{\"text\":\"나 오늘 친구랑 싸웠는데 기분이 이상해\"}"
 ```
 
-일반 대화 답변 + 감정 분석:
+일반 답변 + 감정 분석:
 
 ```powershell
 curl -X POST "http://127.0.0.1:8000/chat" ^
 -H "Content-Type: application/json" ^
 -d "{\"text\":\"나 오늘 친구랑 싸워서 힘들어\",\"messages\":[]}"
+```
+
+하루의 흔적 후보 추출:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/extract-daily-trace" ^
+-H "Content-Type: application/json" ^
+-d "{\"text\":\"7월 12일 친구 만나기로 했어\",\"current_date\":\"2026-07-08\"}"
+```
+
+장기 목표 후보 추출:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/extract-daily-trace" ^
+-H "Content-Type: application/json" ^
+-d "{\"text\":\"2년 뒤쯤에 난 개발자가 될거야\",\"current_date\":\"2026-07-08\"}"
 ```
