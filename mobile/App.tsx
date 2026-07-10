@@ -29,12 +29,19 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 const SESSIONS_STORAGE_KEY = "noie_chat_sessions_v1";
 const CURRENT_CHAT_ID_STORAGE_KEY = "noie_current_chat_id_v1";
 const DAILY_TRACES_STORAGE_KEY = "noie_daily_traces_v1";
+const DREAM_TORCH_ID_STORAGE_KEY = "noie_dream_torch_id_v1";
 const PROJECTS_STORAGE_KEY = "noie_projects_v1";
 const PROJECT_MESSAGES_STORAGE_KEY = "noie_project_messages_v1";
 
 type EmotionLevel = "Low" | "Mid" | "High";
 type AnalysisSource = "openai" | "rule_based";
-type ScreenMode = "chat" | "flow" | "dailyTrace" | "project" | "projectCreate";
+type ScreenMode =
+  | "chat"
+  | "dreamVault"
+  | "flow"
+  | "dailyTrace"
+  | "project"
+  | "projectCreate";
 type DailyTraceItemType = "schedule" | "record" | "todo" | "quote" | "goal";
 type DailyTraceStatus = "pending" | "added" | "dismissed" | "duplicate";
 
@@ -65,6 +72,28 @@ type SaveDecision = {
   displayCategory: string;
   reason: string;
   askText?: string | null;
+  confidence?: number;
+  intentCategory?:
+    | "identity_goal"
+    | "future_dream"
+    | "action_todo"
+    | "scheduled_event"
+    | "completed_achievement"
+    | "sensitive_negative_event"
+    | "relationship_positive"
+    | "daily_note"
+    | "casual_none";
+  eventTense?: "future" | "present" | "past" | "unknown";
+  userActionRequired?: boolean;
+  uiType?:
+    | "dream_confirm"
+    | "trace_confirm"
+    | "sensitive_confirm"
+    | "auto_saved"
+    | "none";
+  subjectScope?: "self" | "other_person" | "shared" | "unknown";
+  selfRelevance?: "direct" | "indirect" | "none" | "explicit_store_request" | "unknown";
+  shouldStore?: boolean;
 };
 
 type AnalyzeEmotionResponse = {
@@ -80,6 +109,14 @@ type AnalyzeEmotionResponse = {
   };
   source: AnalysisSource;
   save_decision?: SaveDecision;
+  emotionOwner?: "user" | "other_person" | "unknown";
+  analysisPerspective?:
+    | "self_emotion"
+    | "observed_other_info"
+    | "shared_event"
+    | "neutral_info";
+  subjectScope?: "self" | "other_person" | "shared" | "unknown";
+  selfRelevance?: "direct" | "indirect" | "none" | "explicit_store_request" | "unknown";
 };
 
 type ChatApiResponse = {
@@ -133,6 +170,7 @@ type DailyTraceItem = {
   saveTargets?: SaveDecision["saveTargets"];
   importance?: number;
   displayCategory?: string;
+  hiddenFromDream?: boolean;
   createdAt: string;
   updatedAt?: string;
 };
@@ -148,6 +186,10 @@ type MemorySavePolicyType =
   | "idea"
   | "schedule"
   | "todo"
+  | "task"
+  | "daily_plan"
+  | "note"
+  | "important_note"
   | "daily_context"
   | "none";
 
@@ -338,6 +380,7 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([fallbackSession]);
   const [activeSessionId, setActiveSessionId] = useState(fallbackSession.id);
   const [dailyTraces, setDailyTraces] = useState<DailyTraceItem[]>([]);
+  const [dreamTorchId, setDreamTorchId] = useState<string | null>(null);
   const [projects, setProjects] = useState<NoieProject[]>([]);
   const [projectMessages, setProjectMessages] = useState<NoieProjectMessage[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -396,6 +439,15 @@ export default function App() {
     AsyncStorage.setItem(DAILY_TRACES_STORAGE_KEY, JSON.stringify(dailyTraces)).catch(
       (error) => console.log("[noie] 하루의 흔적 저장 실패", error)
     );
+    if (dreamTorchId) {
+      AsyncStorage.setItem(DREAM_TORCH_ID_STORAGE_KEY, dreamTorchId).catch(
+        (error) => console.log("[noie] dream torch save failed", error)
+      );
+    } else {
+      AsyncStorage.removeItem(DREAM_TORCH_ID_STORAGE_KEY).catch((error) =>
+        console.log("[noie] dream torch clear failed", error)
+      );
+    }
     AsyncStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects)).catch(
       (error) => console.log("[noie] 프로젝트 저장 실패", error)
     );
@@ -406,6 +458,7 @@ export default function App() {
   }, [
     activeSessionId,
     dailyTraces,
+    dreamTorchId,
     isHydrated,
     projectMessages,
     projects,
@@ -418,6 +471,7 @@ export default function App() {
         savedSessions,
         savedCurrentChatId,
         savedDailyTraces,
+        savedDreamTorchId,
         savedProjects,
         savedProjectMessages,
       ] =
@@ -425,6 +479,7 @@ export default function App() {
           AsyncStorage.getItem(SESSIONS_STORAGE_KEY),
           AsyncStorage.getItem(CURRENT_CHAT_ID_STORAGE_KEY),
           AsyncStorage.getItem(DAILY_TRACES_STORAGE_KEY),
+          AsyncStorage.getItem(DREAM_TORCH_ID_STORAGE_KEY),
           AsyncStorage.getItem(PROJECTS_STORAGE_KEY),
           AsyncStorage.getItem(PROJECT_MESSAGES_STORAGE_KEY),
         ]);
@@ -464,6 +519,7 @@ export default function App() {
           ).catch((error) => console.log("[noie] 하루의 흔적 중복 정리 실패", error));
         }
       }
+      setDreamTorchId(savedDreamTorchId || null);
       if (Array.isArray(parsedProjects)) {
         setProjects(parsedProjects);
       }
@@ -475,6 +531,7 @@ export default function App() {
       setSessions([newSession]);
       setActiveSessionId(newSession.id);
       setDailyTraces([]);
+      setDreamTorchId(null);
       setProjects([]);
       setProjectMessages([]);
     } finally {
@@ -532,6 +589,11 @@ export default function App() {
 
   const openEmotionFlow = () => {
     setScreenMode("flow");
+    setIsDrawerOpen(false);
+  };
+
+  const openDreamVault = () => {
+    setScreenMode("dreamVault");
     setIsDrawerOpen(false);
   };
 
@@ -695,13 +757,17 @@ export default function App() {
         extractDailyTraceCandidate(trimmedText),
       ]);
       const saveDecision = chatData.analysis.save_decision;
-      const memoryPolicy = saveDecision
+      const baseMemoryPolicy = saveDecision
         ? buildMemorySavePolicyFromDecision(saveDecision)
         : classifyMemorySavePolicy(
             trimmedText,
             chatData.analysis.user_view.emotion_axis,
             traceCandidate ?? undefined
           );
+      const memoryPolicy = adjustMemoryPolicyForText(
+        baseMemoryPolicy,
+        trimmedText
+      );
       const resolvedTraceCandidate = resolveDailyTraceCandidate(
         trimmedText,
         traceCandidate,
@@ -715,8 +781,9 @@ export default function App() {
         memoryPolicy.shouldSave &&
         memoryPolicy.type !== "none"
       ) {
-        if (saveDecision?.savePolicy === "ask" || memoryPolicy.type === "sensitive_event") {
+        if (memoryPolicy.requiresConfirmation) {
           dailyTraceStatus = "pending";
+          dailyTraceNotice = getPendingMemoryNotice(memoryPolicy);
         } else if (saveDecision?.savePolicy !== "none") {
           const autoSavedItem = buildDailyTraceItem(
             resolvedTraceCandidate,
@@ -738,7 +805,7 @@ export default function App() {
 
           dailyTraceStatus = saveResult.duplicate ? "duplicate" : "added";
           dailyTraceNotice = saveResult.duplicate
-            ? "이미 하루의 조각에 있는 내용이에요."
+            ? getDuplicateMemoryNotice(memoryPolicy)
             : getAutoSavedMemoryNotice(memoryPolicy.type);
         }
       }
@@ -1026,6 +1093,7 @@ export default function App() {
     const saveResult = saveNoieMemory(dailyTraces, newItem, memoryInput, {
       shouldLog: false,
     });
+    const memoryPolicy = message.dailyMemoryPolicy ?? getMemoryPolicy(newItem);
 
     setDailyTraces((currentItems) => {
       return saveNoieMemory(currentItems, newItem, memoryInput).items;
@@ -1039,8 +1107,8 @@ export default function App() {
               ...item,
               dailyTraceStatus: saveResult.duplicate ? "duplicate" : "added",
               dailyTraceNotice: saveResult.duplicate
-                ? "이미 하루의 조각에 있는 내용이에요."
-                : "하루의 조각에 저장했어요.",
+                ? getDuplicateMemoryNotice(memoryPolicy)
+                : getSavedMemoryNotice(memoryPolicy),
             }
           : item
       ),
@@ -1108,6 +1176,24 @@ export default function App() {
     );
   };
 
+  const pinDreamTorch = (itemId: string) => {
+    setDreamTorchId(itemId);
+  };
+
+  const hideFromDreamVault = (itemId: string) => {
+    setDailyTraces((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemId
+          ? { ...item, hiddenFromDream: true, updatedAt: new Date().toISOString() }
+          : item
+      )
+    );
+
+    if (dreamTorchId === itemId) {
+      setDreamTorchId(null);
+    }
+  };
+
   const deleteDailyTraceGoal = (itemId: string) => {
     setDailyTraces((currentItems) =>
       currentItems.filter(
@@ -1131,6 +1217,7 @@ export default function App() {
             activeProjectId={activeProjectId}
             currentMode={screenMode}
             onNewChat={createNewChat}
+            onOpenDreamVault={openDreamVault}
             onOpenEmotionFlow={openEmotionFlow}
             onOpenDailyTrace={openDailyTrace}
             onCreateProject={openProjectCreate}
@@ -1158,6 +1245,7 @@ export default function App() {
               activeProjectId={activeProjectId}
               currentMode={screenMode}
               onNewChat={createNewChat}
+              onOpenDreamVault={openDreamVault}
               onOpenEmotionFlow={openEmotionFlow}
               onOpenDailyTrace={openDailyTrace}
               onCreateProject={openProjectCreate}
@@ -1187,8 +1275,10 @@ export default function App() {
             <View style={styles.topBarTitleBlock}>
               <Text style={styles.topBarTitle}>noie</Text>
               <Text style={styles.topBarSubtitle}>
-                {screenMode === "flow"
-                  ? "감정 창고"
+                {screenMode === "dreamVault"
+                  ? "꿈의 조각"
+                  : screenMode === "flow"
+                  ? "감정 흐름 보기"
                   : screenMode === "dailyTrace"
                   ? "하루의 흔적"
                   : screenMode === "projectCreate"
@@ -1207,7 +1297,15 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
-          {screenMode === "flow" ? (
+          {screenMode === "dreamVault" ? (
+            <DreamVaultScreen
+              dailyTraces={dailyTraces}
+              dreamTorchId={dreamTorchId}
+              onPinDreamTorch={pinDreamTorch}
+              onHideFromDream={hideFromDreamVault}
+              onBackToChat={returnToChat}
+            />
+          ) : screenMode === "flow" ? (
             <EmotionVaultScreen
               records={emotionRecords}
               dailyTraces={dailyTraces}
@@ -1279,6 +1377,7 @@ type SidebarProps = {
   activeProjectId: string | null;
   currentMode: ScreenMode;
   onNewChat: () => void;
+  onOpenDreamVault: () => void;
   onOpenEmotionFlow: () => void;
   onOpenDailyTrace: () => void;
   onCreateProject: () => void;
@@ -1294,6 +1393,7 @@ function Sidebar({
   activeProjectId,
   currentMode,
   onNewChat,
+  onOpenDreamVault,
   onOpenEmotionFlow,
   onOpenDailyTrace,
   onCreateProject,
@@ -1312,6 +1412,24 @@ function Sidebar({
         activeOpacity={0.85}
       >
         <Text style={styles.newChatButtonText}>+ 새 채팅</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          styles.flowButton,
+          currentMode === "dreamVault" && styles.flowButtonActive,
+        ]}
+        onPress={onOpenDreamVault}
+        activeOpacity={0.85}
+      >
+        <Text
+          style={[
+            styles.flowButtonText,
+            currentMode === "dreamVault" && styles.flowButtonTextActive,
+          ]}
+        >
+          꿈의 조각
+        </Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -1996,15 +2114,21 @@ function DailyTraceCandidateCard({
   const isAdded = message.dailyTraceStatus === "added";
   const isDuplicate = message.dailyTraceStatus === "duplicate";
   const isDismissed = message.dailyTraceStatus === "dismissed";
+  const memoryType = message.dailyMemoryPolicy?.type;
+  const isDreamOrGoal = isDreamOrGoalType(memoryType);
+  const isDailyTraceConfirm = isDailyTraceConfirmType(memoryType);
+  const isSensitiveEvent = memoryType === "sensitive_event";
   const questionText =
     message.dailyTraceNotice ??
-    (message.dailyMemoryPolicy?.type === "sensitive_event"
+    (isDreamOrGoal
+      ? "꿈의 조각에 저장할까요?"
+      : isSensitiveEvent
       ? "최근 사건을 저장할까요?"
       : isDuplicate
-        ? "이미 하루의 조각에 있는 내용이에요."
-        : isAdded
-          ? "하루의 조각에 담았어요."
-          : TRACE_QUESTION_LABELS[candidate.type]);
+      ? "이미 하루의 조각에 있는 내용이에요."
+      : isAdded
+      ? "하루의 조각에 저장했어요."
+      : TRACE_QUESTION_LABELS[candidate.type]);
 
   return (
     <View style={styles.traceCandidateCard}>
@@ -2022,7 +2146,6 @@ function DailyTraceCandidateCard({
       {candidate.memo ? (
         <Text style={styles.traceCandidateMemo}>{candidate.memo}</Text>
       ) : null}
-
       {!isAdded && !isDuplicate && !isDismissed ? (
         <View style={styles.traceCandidateActions}>
           <TouchableOpacity
@@ -2031,22 +2154,20 @@ function DailyTraceCandidateCard({
             activeOpacity={0.85}
           >
             <Text style={styles.traceConfirmButtonText}>
-              {message.dailyMemoryPolicy?.type === "sensitive_event"
+              {isSensitiveEvent || isDreamOrGoal || isDailyTraceConfirm
                 ? "저장하기"
                 : TRACE_CONFIRM_LABELS[candidate.type]}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.traceCancelButton}
-            onPress={() => onDismiss(message.id)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.traceCancelButtonText}>
-              {message.dailyMemoryPolicy?.type === "sensitive_event"
-                ? "안 할래"
-                : "취소"}
-            </Text>
-          </TouchableOpacity>
+          {isSensitiveEvent ? (
+            <TouchableOpacity
+              style={styles.traceCancelButton}
+              onPress={() => onDismiss(message.id)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.traceCancelButtonText}>안 할래</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -2067,6 +2188,127 @@ function MetricPill({ label, value }: MetricPillProps) {
   );
 }
 
+function DreamVaultScreen({
+  dailyTraces,
+  dreamTorchId,
+  onPinDreamTorch,
+  onHideFromDream,
+  onBackToChat,
+}: {
+  dailyTraces: DailyTraceItem[];
+  dreamTorchId: string | null;
+  onPinDreamTorch: (itemId: string) => void;
+  onHideFromDream: (itemId: string) => void;
+  onBackToChat: () => void;
+}) {
+  const dreamPieces = getDreamPieces(dailyTraces);
+  const torchPiece = selectDreamTorchPiece(dreamPieces, dreamTorchId);
+  const dreamFragments = dreamPieces.filter((piece) => piece.id !== torchPiece?.id);
+
+  return (
+    <ScrollView
+      style={styles.flowScroll}
+      contentContainerStyle={styles.flowContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.flowHeaderRow}>
+        <View style={styles.flowHeaderTextBlock}>
+          <Text style={styles.flowTitle}>꿈의 조각</Text>
+          <Text style={styles.flowSubtitle}>내가 향하는 방향</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.backToChatButton}
+          onPress={onBackToChat}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.backToChatButtonText}>채팅으로 돌아가기</Text>
+        </TouchableOpacity>
+      </View>
+
+      {dreamPieces.length === 0 ? (
+        <View style={styles.flowCard}>
+          <View style={styles.flowEmptyBox}>
+            <Text style={styles.flowEmptyText}>
+              아직 꿈의 조각이 없어요.{"\n"}채팅에서 되고 싶은 모습이나 목표를 말하면 여기에 모여요.
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <>
+          <View style={styles.flowCard}>
+            <Text style={styles.flowCardTitle}>꿈의 횃불</Text>
+            {torchPiece ? (
+              <DreamPieceCard
+                piece={torchPiece}
+                isTorch
+                onPinDreamTorch={onPinDreamTorch}
+                onHideFromDream={onHideFromDream}
+              />
+            ) : null}
+          </View>
+
+          <View style={styles.flowCard}>
+            <Text style={styles.flowCardTitle}>꿈의 파편</Text>
+            {dreamFragments.length > 0 ? (
+              dreamFragments.map((piece) => (
+                <DreamPieceCard
+                  key={piece.id}
+                  piece={piece}
+                  onPinDreamTorch={onPinDreamTorch}
+                  onHideFromDream={onHideFromDream}
+                />
+              ))
+            ) : (
+              <View style={styles.flowEmptyBox}>
+                <Text style={styles.flowEmptyText}>아직 남은 꿈의 파편이 없어요.</Text>
+              </View>
+            )}
+          </View>
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+function DreamPieceCard({
+  piece,
+  isTorch = false,
+  onPinDreamTorch,
+  onHideFromDream,
+}: {
+  piece: DailyTraceItem;
+  isTorch?: boolean;
+  onPinDreamTorch: (itemId: string) => void;
+  onHideFromDream: (itemId: string) => void;
+}) {
+  return (
+    <View style={styles.traceListItem}>
+      <View style={styles.traceListTextBlock}>
+        <Text style={styles.traceItemTitle}>{piece.title}</Text>
+        {piece.memo ? <Text style={styles.traceItemMemo}>{piece.memo}</Text> : null}
+        <Text style={styles.dreamPieceDate}>{formatRelativeTraceDate(piece.date)}</Text>
+        <View style={styles.dreamPieceActions}>
+          {!isTorch ? (
+            <TouchableOpacity
+              style={styles.dreamPieceActionButton}
+              onPress={() => onPinDreamTorch(piece.id)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.dreamPieceActionText}>횃불로 올리기</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={styles.dreamPieceActionButtonMuted}
+            onPress={() => onHideFromDream(piece.id)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.dreamPieceActionTextMuted}>꿈에서 제외</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
 type EmotionVaultScreenProps = {
   records: EmotionRecord[];
   dailyTraces: DailyTraceItem[];
@@ -2794,11 +3036,11 @@ function resolveDailyTraceCandidate(
 }
 
 function getDailyTraceTypeForMemory(type: MemorySavePolicyType): DailyTraceItemType {
-  if (type === "schedule") {
+  if (type === "schedule" || type === "daily_plan") {
     return "schedule";
   }
 
-  if (type === "todo") {
+  if (type === "todo" || type === "task") {
     return "todo";
   }
 
@@ -2837,10 +3079,132 @@ function getAutoSavedMemoryNotice(type: MemorySavePolicyType) {
   return noticeMap[type] ?? "";
 }
 
+function isDreamOrGoalType(type?: MemorySavePolicyType) {
+  return type === "dream" || type === "goal";
+}
+
+function isDailyTraceConfirmType(type?: MemorySavePolicyType) {
+  return type === "todo" || type === "task" || type === "schedule" || type === "daily_plan";
+}
+
+function isTodoLikeText(text: string) {
+  const normalizedText = text.trim().toLowerCase();
+
+  return /해야\s*겠|해야겠다|해야겠어|해야\s*함|해야함|해야\s*해|정리해야|운동해야|훈련.*해야|준비해야/.test(
+    normalizedText
+  );
+}
+
+function adjustMemoryPolicyForText(
+  memoryPolicy: MemorySavePolicy,
+  text: string
+): MemorySavePolicy {
+  if (
+    memoryPolicy.type !== "sensitive_event" &&
+    isTodoLikeText(text) &&
+    !/되고\s*싶|되는\s*게\s*목표|내\s*꿈|목표야|목표는/.test(text)
+  ) {
+    return {
+      type: "todo",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: calculateMemoryImportance("todo"),
+      label: "할 일",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  return memoryPolicy;
+}
+
+function getPendingMemoryNotice(memoryPolicy: MemorySavePolicy) {
+  if (isDreamOrGoalType(memoryPolicy.type)) {
+    return "꿈의 조각에 저장할까요?";
+  }
+
+  if (isDailyTraceConfirmType(memoryPolicy.type)) {
+    return "하루의 흔적에 저장할까요?";
+  }
+
+  if (memoryPolicy.type === "sensitive_event") {
+    return "최근 사건을 저장할까요?";
+  }
+
+  return "";
+}
+
+function getSavedMemoryNotice(memoryPolicy: MemorySavePolicy) {
+  if (isDreamOrGoalType(memoryPolicy.type)) {
+    return "꿈의 조각에 저장했어요.";
+  }
+
+  if (memoryPolicy.type === "sensitive_event") {
+    return "하루의 조각에 저장했어요.";
+  }
+
+  if (isDailyTraceConfirmType(memoryPolicy.type)) {
+    return "하루의 흔적에 저장했어요.";
+  }
+
+  return getAutoSavedMemoryNotice(memoryPolicy.type) || "하루의 조각에 저장했어요.";
+}
+
+function getDuplicateMemoryNotice(memoryPolicy?: MemorySavePolicy) {
+  if (isDreamOrGoalType(memoryPolicy?.type)) {
+    return "이미 꿈의 조각에 있는 내용이에요.";
+  }
+
+  return "이미 하루의 조각에 있는 내용이에요.";
+}
+
 function buildMemorySavePolicyFromDecision(decision: SaveDecision): MemorySavePolicy {
+  if (
+    decision.shouldStore === false ||
+    decision.savePolicy === "none" ||
+    decision.uiType === "none" ||
+    decision.memoryType === "none" ||
+    decision.saveTargets.length === 0
+  ) {
+    return {
+      type: "none",
+      shouldSave: false,
+      requiresConfirmation: false,
+      importance: decision.importance ?? 0,
+      label: decision.displayCategory || "저장 안 함",
+      saveTargets: [],
+    };
+  }
+
+  if (decision.memoryType === "dream" || decision.memoryType === "goal") {
+    return {
+      type: decision.memoryType,
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: decision.importance,
+      label: decision.displayCategory,
+      saveTargets: ["dream_piece", "daily_trace"],
+    };
+  }
+
+  if (
+    decision.memoryType === "todo" ||
+    decision.memoryType === "task" ||
+    decision.memoryType === "schedule" ||
+    decision.memoryType === "daily_plan"
+  ) {
+    return {
+      type: decision.memoryType,
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: decision.importance,
+      label: decision.displayCategory,
+      saveTargets: ["daily_trace"],
+    };
+  }
+
   return {
     type: decision.memoryType,
-    shouldSave: decision.savePolicy !== "none",
+    shouldSave: true,
     requiresConfirmation: decision.savePolicy === "ask",
     importance: decision.importance,
     label: decision.displayCategory,
@@ -2971,6 +3335,10 @@ function getMemoryTypePriority(type: MemorySavePolicyType) {
     idea: 2,
     schedule: 2,
     todo: 2,
+    task: 2,
+    daily_plan: 2,
+    note: 1,
+    important_note: 2,
     daily_context: 1,
     sensitive_event: 0,
     none: -1,
@@ -3103,6 +3471,72 @@ function saveNoieMemory(
   };
 }
 
+function getDreamPieces(items: DailyTraceItem[]) {
+  return dedupeMemories(items)
+    .filter((item) => {
+      if (item.hiddenFromDream) {
+        return false;
+      }
+
+      const memoryPolicy = getMemoryPolicy(item);
+      const forbiddenTypes: MemorySavePolicyType[] = [
+        "sensitive_event",
+        "achievement",
+        "relationship",
+        "schedule",
+        "todo",
+        "task",
+        "daily_plan",
+        "daily_context",
+        "none",
+      ];
+
+      if (forbiddenTypes.includes(memoryPolicy.type)) {
+        return false;
+      }
+
+      return isDreamOrGoalType(memoryPolicy.type) || Boolean(
+        memoryPolicy.saveTargets?.includes("dream_piece")
+      );
+    })
+    .sort((left, right) => {
+      const leftPolicy = getMemoryPolicy(left);
+      const rightPolicy = getMemoryPolicy(right);
+      const importanceDiff = rightPolicy.importance - leftPolicy.importance;
+
+      if (importanceDiff !== 0) {
+        return importanceDiff;
+      }
+
+      return right.createdAt.localeCompare(left.createdAt);
+    });
+}
+
+function selectDreamTorchPiece(
+  dreamPieces: DailyTraceItem[],
+  dreamTorchId: string | null
+) {
+  const pinnedPiece = dreamTorchId
+    ? dreamPieces.find((piece) => piece.id === dreamTorchId)
+    : undefined;
+
+  if (pinnedPiece) {
+    return pinnedPiece;
+  }
+
+  return [...dreamPieces].sort((left, right) => {
+    const leftPolicy = getMemoryPolicy(left);
+    const rightPolicy = getMemoryPolicy(right);
+    const importanceDiff = rightPolicy.importance - leftPolicy.importance;
+
+    if (importanceDiff !== 0) {
+      return importanceDiff;
+    }
+
+    return right.createdAt.localeCompare(left.createdAt);
+  })[0];
+}
+
 function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -3146,17 +3580,7 @@ function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
 
   return dayGroups.map((group) => {
     const uniquePieces = removeDuplicateDailyPieces(group.pieces);
-    const topPieces = uniquePieces
-      .sort((left, right) => {
-        const importanceDiff =
-          right.memoryPolicy.importance - left.memoryPolicy.importance;
-        if (importanceDiff !== 0) {
-          return importanceDiff;
-        }
-
-        return right.createdAt.localeCompare(left.createdAt);
-      })
-      .slice(0, 3);
+    const topPieces = selectDailyPieceTop3(uniquePieces);
 
     console.log("하루의 조각 TOP3:", group.label, topPieces);
 
@@ -3165,6 +3589,47 @@ function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
       pieces: topPieces,
     };
   });
+}
+
+function sortDailyPiecesByImportance(left: DailyPiece, right: DailyPiece) {
+  const importanceDiff =
+    right.memoryPolicy.importance - left.memoryPolicy.importance;
+  if (importanceDiff !== 0) {
+    return importanceDiff;
+  }
+
+  return right.createdAt.localeCompare(left.createdAt);
+}
+
+function selectDailyPieceTop3(pieces: DailyPiece[]) {
+  const sensitivePieces = pieces
+    .filter((piece) => piece.memoryPolicy.type === "sensitive_event")
+    .sort(sortDailyPiecesByImportance);
+  const normalPieces = pieces
+    .filter((piece) => piece.memoryPolicy.type !== "sensitive_event")
+    .sort(sortDailyPiecesByImportance);
+  const selectedPieces: DailyPiece[] = [];
+
+  if (sensitivePieces[0]) {
+    selectedPieces.push(sensitivePieces[0]);
+  }
+
+  selectedPieces.push(...normalPieces.slice(0, 3 - selectedPieces.length));
+
+  if (selectedPieces.length < 3) {
+    const selectedIds = new Set(selectedPieces.map((piece) => piece.id));
+    const fallbackPieces = pieces
+      .filter(
+        (piece) =>
+          piece.memoryPolicy.type !== "sensitive_event" &&
+          !selectedIds.has(piece.id)
+      )
+      .sort(sortDailyPiecesByImportance);
+
+    selectedPieces.push(...fallbackPieces.slice(0, 3 - selectedPieces.length));
+  }
+
+  return selectedPieces.slice(0, 3);
 }
 
 function removeDuplicateDailyPieces(pieces: DailyPiece[]) {
@@ -3349,6 +3814,10 @@ function calculateMemoryImportance(
     idea: 70,
     schedule: 60,
     todo: 65,
+    task: 65,
+    daily_plan: 65,
+    note: 45,
+    important_note: 75,
     daily_context: 40,
     none: 0,
   };
@@ -3365,7 +3834,7 @@ function buildMemorySavePolicy(
       type,
       shouldSave: true,
       requiresConfirmation: true,
-      label: "사건",
+      label: "최근 사건",
     },
     achievement: {
       type,
@@ -3382,14 +3851,16 @@ function buildMemorySavePolicy(
     dream: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "꿈",
+      saveTargets: ["dream_piece", "daily_trace"],
     },
     goal: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "목표",
+      saveTargets: ["dream_piece", "daily_trace"],
     },
     idea: {
       type,
@@ -3400,14 +3871,43 @@ function buildMemorySavePolicy(
     schedule: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "일정",
+      saveTargets: ["daily_trace"],
     },
     todo: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "할 일",
+      saveTargets: ["daily_trace"],
+    },
+    task: {
+      type,
+      shouldSave: true,
+      requiresConfirmation: true,
+      label: "할 일",
+      saveTargets: ["daily_trace"],
+    },
+    daily_plan: {
+      type,
+      shouldSave: true,
+      requiresConfirmation: true,
+      label: "계획",
+      saveTargets: ["daily_trace"],
+    },
+    note: {
+      type,
+      shouldSave: true,
+      requiresConfirmation: false,
+      label: "기록",
+    },
+    important_note: {
+      type,
+      shouldSave: true,
+      requiresConfirmation: false,
+      label: "중요 기록",
+      saveTargets: ["daily_trace"],
     },
     daily_context: {
       type,
@@ -3419,7 +3919,7 @@ function buildMemorySavePolicy(
       type,
       shouldSave: false,
       requiresConfirmation: false,
-      label: "기록",
+      label: "저장 안 함",
     },
   };
 
@@ -3428,7 +3928,6 @@ function buildMemorySavePolicy(
     importance: calculateMemoryImportance(type, options),
   };
 }
-
 function getDailyPieceCategory(item: DailyTraceItem) {
   const text = `${item.title} ${item.memo ?? ""}`;
 
@@ -4576,6 +5075,41 @@ const styles = StyleSheet.create({
     color: "#f2f4f8",
     fontSize: 15,
     lineHeight: 23,
+  },
+  dreamPieceDate: {
+    color: "#777777",
+    fontSize: 11,
+    marginTop: 8,
+  },
+  dreamPieceActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  dreamPieceActionButton: {
+    borderColor: "#4a5568",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  dreamPieceActionButtonMuted: {
+    borderColor: "#333333",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  dreamPieceActionText: {
+    color: "#e5e7eb",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  dreamPieceActionTextMuted: {
+    color: "#9ca3af",
+    fontSize: 11,
+    fontWeight: "800",
   },
   traceHeaderRow: {
     flexDirection: "row",

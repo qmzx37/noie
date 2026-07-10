@@ -75,6 +75,10 @@ class UserView(BaseModel):
     primary_axis: PrimaryAxisLevel
     emotion_axis: EmotionAxisLevel
     state_summary: str
+    emotionOwner: Optional["EmotionOwner"] = None
+    analysisPerspective: Optional["AnalysisPerspective"] = None
+    subjectScope: Optional["SubjectScope"] = None
+    selfRelevance: Optional["SelfRelevance"] = None
 
 
 class PrimaryAxisRaw(BaseModel):
@@ -129,6 +133,48 @@ SaveTarget = Literal[
     "dream_piece",
 ]
 
+IntentCategory = Literal[
+    "identity_goal",
+    "future_dream",
+    "action_todo",
+    "scheduled_event",
+    "completed_achievement",
+    "sensitive_negative_event",
+    "relationship_positive",
+    "daily_note",
+    "casual_none",
+    "other_person_info",
+]
+
+EventTense = Literal["future", "present", "past", "unknown"]
+
+UiType = Literal[
+    "dream_confirm",
+    "trace_confirm",
+    "sensitive_confirm",
+    "auto_saved",
+    "none",
+]
+
+SubjectScope = Literal["self", "other_person", "shared", "unknown"]
+
+SelfRelevance = Literal[
+    "direct",
+    "indirect",
+    "none",
+    "explicit_store_request",
+    "unknown",
+]
+
+EmotionOwner = Literal["user", "other_person", "unknown"]
+
+AnalysisPerspective = Literal[
+    "self_emotion",
+    "observed_other_info",
+    "shared_event",
+    "neutral_info",
+]
+
 
 class SaveDecision(BaseModel):
     """noie가 사용자 문장을 저장할지 결정한 결과입니다."""
@@ -140,6 +186,14 @@ class SaveDecision(BaseModel):
     displayCategory: str = ""
     reason: str = ""
     askText: Optional[str] = None
+    confidence: float = 0.0
+    intentCategory: IntentCategory = "casual_none"
+    eventTense: EventTense = "unknown"
+    userActionRequired: bool = False
+    uiType: UiType = "none"
+    subjectScope: SubjectScope = "unknown"
+    selfRelevance: SelfRelevance = "unknown"
+    shouldStore: bool = True
 
 
 class AnalyzeEmotionResponse(BaseModel):
@@ -150,6 +204,10 @@ class AnalyzeEmotionResponse(BaseModel):
     admin_view: AdminView
     source: Literal["openai", "rule_based"]
     save_decision: Optional[SaveDecision] = None
+    emotionOwner: Optional[EmotionOwner] = None
+    analysisPerspective: Optional[AnalysisPerspective] = None
+    subjectScope: Optional[SubjectScope] = None
+    selfRelevance: Optional[SelfRelevance] = None
 
 
 class GenerateTitleRequest(BaseModel):

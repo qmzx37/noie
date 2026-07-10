@@ -96,6 +96,16 @@ SYSTEM_PROMPT = """
 - 예시 기준: "오늘은 편한 것 같은데 아무것도 의미가 없어 보여"는 편함보다 의미 없음이 핵심이면 D를 높이고 R을 낮춥니다.
 - 예시 기준: "사람들이 잘한다고 해주는데 나는 점점 작아지는 느낌이야"는 칭찬보다 자기 위축과 우울을 더 중요하게 봅니다.
 
+
+감정 분석 관점 보정:
+- noie는 문장 속 모든 사람의 감정을 분석하는 도구가 아니라, 사용자의 현재 감정 반응을 분석합니다.
+- 다른 사람의 꿈, 목표, 할 일, 사건, 성과, 관계를 사용자가 단순히 전달한 경우에는 그 사람의 감정을 사용자의 감정처럼 추정하지 않습니다.
+- 예: "지민이는 나중에 간호사가 되고 싶다고 했어"는 지민이의 미래 목표를 전달한 문장입니다. 사용자의 강한 감정 반응이 드러나지 않으면 G/J/T/D를 높이지 말고 대부분 Low로 둡니다.
+- 다른 사람의 꿈이나 목표만 보고 G 욕구 High, J 기쁨 High, T 긴장 High를 주지 않습니다.
+- 다른 사람의 실패나 사건만 보고 D 우울 High, F/T High를 주지 않습니다.
+- 사용자가 관련 있게 말한 정도라면 C 호기심만 Low~Mid 정도 가능하지만, 상태 요약은 "다른 사람의 이야기를 전달한 내용이며 사용자 본인의 감정은 중립에 가깝습니다"처럼 중립적으로 작성합니다.
+- 단, "지민이가 나한테 심하게 화냈어", "서아랑 크게 싸웠어", "나는 지민이 발표 준비를 도와줘야 해"처럼 사용자에게 직접 일어난 사건이나 사용자의 할 일은 기존처럼 사용자 관점에서 분석합니다.
+
 상태 요약(state_summary):
 - 사용자가 이해하기 쉬운 한국어 한 문장으로 씁니다.
 - 가장 두드러진 감정과 동시에 섞인 감정을 함께 요약합니다.
@@ -386,6 +396,185 @@ def generate_save_decision_with_openai(
                 "format": {
                     "type": "json_schema",
                     "name": "save_decision",
+                    "schema": SAVE_DECISION_SCHEMA,
+                    "strict": True,
+                }
+            },
+        )
+
+        return json.loads(extract_output_text(response))
+    except Exception as error:
+        print_openai_error(error)
+        raise
+
+
+SAVE_DECISION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "memoryType": {
+            "type": "string",
+            "enum": [
+                "sensitive_event",
+                "achievement",
+                "goal",
+                "dream",
+                "idea",
+                "relationship",
+                "schedule",
+                "todo",
+                "task",
+                "daily_plan",
+                "daily_context",
+                "none",
+            ],
+        },
+        "savePolicy": {"type": "string", "enum": ["ask", "auto", "none"]},
+        "saveTargets": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["daily_piece", "daily_trace", "dream_piece"],
+            },
+        },
+        "importance": {"type": "integer", "minimum": 0, "maximum": 100},
+        "displayCategory": {"type": "string"},
+        "reason": {"type": "string"},
+        "askText": {"type": ["string", "null"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "intentCategory": {
+            "type": "string",
+            "enum": [
+                "identity_goal",
+                "future_dream",
+                "action_todo",
+                "scheduled_event",
+                "completed_achievement",
+                "sensitive_negative_event",
+                "relationship_positive",
+                "daily_note",
+                "casual_none",
+                "other_person_info",
+            ],
+        },
+        "eventTense": {
+            "type": "string",
+            "enum": ["future", "present", "past", "unknown"],
+        },
+        "userActionRequired": {"type": "boolean"},
+        "uiType": {
+            "type": "string",
+            "enum": [
+                "dream_confirm",
+                "trace_confirm",
+                "sensitive_confirm",
+                "auto_saved",
+                "none",
+            ],
+        },
+        "subjectScope": {
+            "type": "string",
+            "enum": ["self", "other_person", "shared", "unknown"],
+        },
+        "selfRelevance": {
+            "type": "string",
+            "enum": ["direct", "indirect", "none", "explicit_store_request", "unknown"],
+        },
+        "shouldStore": {"type": "boolean"},
+    },
+    "required": [
+        "memoryType",
+        "savePolicy",
+        "saveTargets",
+        "importance",
+        "displayCategory",
+        "reason",
+        "askText",
+        "confidence",
+        "intentCategory",
+        "eventTense",
+        "userActionRequired",
+        "uiType",
+        "subjectScope",
+        "selfRelevance",
+        "shouldStore",
+    ],
+}
+
+
+def generate_save_decision_with_openai(
+    text: str,
+    user_view: dict,
+) -> dict[str, Any]:
+    """Build the v2 noie memory gate decision from semantic meaning."""
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are noie's memory gate. Classify the user's sentence by semantic intent, not by simple keyword matching. "
+                        "Decide whether this should be saved, where it should be saved, and whether the app should ask first. "
+                        "Use Korean UI text exactly as requested.\n\n"
+                        "Self relevance gate, before all other rules:\n"
+                        "noie is the user's personal AI. Store only content directly related to the user. "
+                        "First decide subjectScope and selfRelevance. "
+                        "If the sentence is only about another person's dream, goal, todo, event, achievement, or relationship, and the user is not directly affected and did not explicitly ask to save it, return memoryType none, savePolicy none, saveTargets [], shouldStore false, subjectScope other_person, selfRelevance none, uiType none, askText null. "
+                        "If the user explicitly asks to save/remember/record another person's content, use selfRelevance explicit_store_request and savePolicy ask. "
+                        "If another person's event directly affects the user, use shared or self with direct/indirect relevance and continue classification. "
+                        "Examples: '민수는 소방관이 되고 싶대' => none. '민수 꿈도 저장해줘' => ask. '민수가 나한테 욕했어' => sensitive_event. '나는 민수 발표 자료를 도와줘야 해' => todo/task.\n\n"
+                        "Hard block examples:\n"
+                        "'지민이는 나중에 간호사가 되고 싶다고 했어' => other_person, none, shouldStore false, no UI.\n"
+                        "'민수는 항공 정비사가 되고 싶대' => other_person, none, shouldStore false, no UI.\n"
+                        "'태호는 자기 카페를 차리는 게 목표래' => other_person, none, shouldStore false, no UI.\n"
+                        "'도현이는 자격증 공부를 해야 한대' => other_person, none, shouldStore false, no UI.\n"
+                        "'지민이가 나한테 심하게 화냈어' => shared/direct, sensitive_event.\n"
+                        "'나는 지민이 발표 준비를 도와줘야 해' => shared/direct, todo/task.\n\n"
+                        "Priority rules after the self relevance gate:\n"
+                        "1. sensitive_event has highest priority. Negative events, insults, gossip, conflict, failure, rejection, anxiety, depression, shock, loss, or burnout are sensitive_event. "
+                        "Friend/family/company words do not mean relationship if the event is harmful. Job/career words do not mean dream if the sentence says failure or rejection.\n"
+                        "2. todo/task/schedule is higher priority than dream/goal when the sentence means an action the user needs to do, prepare, train, organize, submit, visit, or schedule. "
+                        "Example: '소방관 체력 훈련도 해야겠어' is todo/task, not dream/goal. "
+                        "3. dream/goal means future identity, long-term direction, career dream, life direction, or something the user wants to become or complete. "
+                        "Example: '소방관이 되고 싶어' is dream/goal.\n"
+                        "4. failure expressions make the sentence sensitive_event, not achievement or goal. "
+                        "Example: '개발 프로젝트 실패했어' is sensitive_event.\n"
+                        "5. achievement means completed success, progress, implementation, commit, pass, resolution. "
+                        "6. relationship means positive or neutral relationship change only. Negative relationship events are sensitive_event. "
+                        "7. If confidence is low but the sentence may be worth saving, use savePolicy ask. If it is not worth saving, use none.\n\n"
+                        "Mapping:\n"
+                        "- dream/goal: savePolicy ask, saveTargets ['dream_piece'], askText '꿈의 조각에 저장할까요?', uiType dream_confirm, eventTense future.\n"
+                        "- todo/task/schedule/daily_plan: savePolicy ask, saveTargets ['daily_trace'], askText '하루의 흔적에 저장할까요?', uiType trace_confirm, eventTense future.\n"
+                        "- sensitive_event: savePolicy ask, saveTargets ['daily_piece'], askText '최근 사건을 저장할까요?', uiType sensitive_confirm, importance 100.\n"
+                        "- achievement: savePolicy auto or ask, saveTargets ['daily_piece','daily_trace'], uiType auto_saved or trace_confirm.\n"
+                        "- relationship: savePolicy auto or ask, saveTargets ['daily_piece'].\n"
+                        "- none: savePolicy none, saveTargets [], askText null, uiType none.\n\n"
+                        "Return JSON only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"sentence: {text}\n"
+                        f"emotion_analysis: {json.dumps(user_view, ensure_ascii=False)}"
+                    ),
+                },
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "save_decision_v2",
                     "schema": SAVE_DECISION_SCHEMA,
                     "strict": True,
                 }
