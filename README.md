@@ -1,20 +1,140 @@
-# Noie
+﻿# noie
 
-## Damoye / Emotion Wave AI Backend
+감정, 기억, 꿈, 목표를 정리하는 개인 AI 앱
 
-FastAPI backend MVP for emotion analysis chat.
+noie는 사용자의 대화를 감정, 기억, 꿈, 목표, 사건으로 분류하고, 저장 여부를 사용자가 직접 결정할 수 있게 돕는 개인 AI 프로젝트입니다.
 
-The frontend should not call OpenAI directly. OpenAI is called only from the backend. If the API key is missing, the OpenAI request fails, or JSON parsing fails, the server uses the rule-based fallback analyzer.
+## 프로젝트 개요
 
-### Windows Environment Variable
+noie는 사용자의 말에 단순히 답변하는 챗봇을 넘어, 사용자의 감정 상태를 분석하고 기억할 가치가 있는 말인지 판단하는 개인 AI 앱입니다. 꿈과 목표, 하루의 흔적, 민감 사건을 구분해 정리하고, 저장이 필요한 내용도 가능한 한 사용자 확인을 거치도록 설계하고 있습니다.
 
-```bat
-setx OPENAI_API_KEY "여기에_내_API_KEY"
+핵심 방향은 다음과 같습니다.
+
+- 사용자의 감정을 8축으로 분석합니다.
+- 모든 말을 무조건 저장하지 않습니다.
+- 사용자와 직접 관련 없는 다른 사람 이야기는 저장하지 않습니다.
+- 민감한 사건은 자동 저장하지 않고 저장 여부를 묻습니다.
+- 꿈과 목표는 "꿈의 조각"으로 정리합니다.
+- 대표 꿈은 "꿈의 횃불"로, 프로젝트와 하위 목표는 "꿈의 파편"으로 나눕니다.
+
+## 주요 기능
+
+### 감정 분석 채팅
+
+- 사용자의 문장을 분석해 현재 감정 상태를 보여줍니다.
+- 1차 반응: like / dislike
+- 2차 감정 8축: F, A, D, J, C, G, T, R
+
+8축 설명:
+
+- F: 공포
+- A: 분노
+- D: 우울
+- J: 기쁨
+- C: 호기심
+- G: 욕구
+- T: 긴장
+- R: 안정
+
+### save_decision 기반 저장 판단
+
+- 사용자의 문장을 보고 저장할지 판단합니다.
+- dream, goal, project, todo, sensitive_event, relationship, achievement 등을 구분합니다.
+- 자동 저장을 줄이고 사용자의 저장 버튼 선택을 우선합니다.
+
+### 자기 관련성 필터
+
+- noie는 개인 AI이므로 사용자 본인과 직접 관련된 내용만 저장합니다.
+- 다른 사람의 꿈, 할 일, 사건, 관계는 기본적으로 저장하지 않습니다.
+- 사용자가 직접 관련된 사건이거나 명시적으로 저장을 요청한 경우에만 저장 후보가 됩니다.
+
+예:
+
+- "지민이는 간호사가 되고 싶대" -> 저장하지 않음
+- "지민이가 나한테 화냈어" -> 최근 사건 저장 후보
+- "나는 지민이 발표를 도와줘야 해" -> 할 일 저장 후보
+
+### 꿈의 조각
+
+- 사용자의 꿈과 목표를 정리하는 공간입니다.
+- 꿈의 횃불: 대표 꿈 1개
+- 꿈의 파편: 프로젝트, 하위 목표, 만들고 싶은 서비스
+
+### 하루의 흔적
+
+- 할 일, 일정, 목표, 성과 등 하루에 남길 기록을 정리합니다.
+
+### 하루의 조각
+
+- 하루 중 의미 있는 기억 조각을 정리합니다.
+- 민감 사건이 화면을 과하게 점령하지 않도록 제한하는 방향으로 개선 중입니다.
+
+### 민감 사건 저장 확인
+
+- 실패, 갈등, 불안, 상처 같은 민감한 사건은 자동 저장하지 않습니다.
+- "최근 사건을 저장할까요?"처럼 사용자에게 먼저 확인합니다.
+
+## 저장 원칙
+
+noie는 모든 대화를 저장하지 않습니다.
+
+1. 사용자 본인과 직접 관련된 내용만 저장합니다.
+2. 다른 사람의 꿈, 목표, 할 일, 사건은 기본적으로 저장하지 않습니다.
+3. 민감한 사건은 자동 저장하지 않습니다.
+4. 가능한 저장은 사용자의 버튼 선택을 거칩니다.
+5. 꿈의 횃불은 대표 꿈 1개만 유지합니다.
+6. 꿈의 파편은 프로젝트와 하위 목표를 담습니다.
+7. 감정 분석은 문장 속 인물이 아니라 사용자 기준으로 해석합니다.
+
+## 기술 스택
+
+Frontend:
+
+- Expo
+- React Native
+- TypeScript
+- AsyncStorage
+
+Backend:
+
+- FastAPI
+- Python
+- Pydantic
+
+AI:
+
+- OpenAI API
+
+Storage:
+
+- 현재: AsyncStorage
+- 예정: Supabase PostgreSQL
+
+Development:
+
+- VS Code
+- Git / GitHub
+
+## 프로젝트 구조
+
+```text
+noie/
+├─ backend/
+│  ├─ main.py
+│  ├─ openai_analyzer.py
+│  └─ schemas.py
+│
+├─ mobile/
+│  ├─ App.tsx
+│  ├─ app.json
+│  └─ assets/
+│
+└─ README.md
 ```
 
-After running `setx`, open a new terminal so Windows can load the new environment variable.
+## 실행 방법
 
-### Run Backend
+### Backend
 
 ```bash
 cd C:\noie\backend
@@ -22,10 +142,44 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-### Test Curl
+환경 변수 예시:
+
+```env
+OPENAI_API_KEY=your_api_key_here
+```
+
+### Mobile
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/analyze-emotion" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"text\":\"나 개발은 하고 싶은데 너무 부담되고 지쳐\"}"
+cd C:\noie\mobile
+npm install
+npx expo start
 ```
+
+모바일 앱에서 백엔드 API를 호출하므로, 실제 기기에서 테스트할 때는 `mobile/App.tsx`의 `API_BASE_URL`을 개발 PC의 내부 IP 주소로 맞춰야 합니다.
+
+## 현재 구현된 것
+
+- FastAPI 기반 감정 분석 API
+- OpenAI API 기반 분석 및 rule-based fallback
+- React Native / Expo 모바일 앱
+- 감정 분석 채팅 UI
+- save_decision 기반 저장 판단
+- AsyncStorage 기반 로컬 저장
+- 꿈의 조각, 감정 창고, 하루의 흔적, 프로젝트 화면
+- 꿈의 횃불 / 꿈의 파편 저장 구조
+- 민감 사건 및 자기 관련성 저장 필터
+
+## 진행 중 / 예정
+
+- Supabase PostgreSQL 기반 영구 저장소 연동
+- 저장 정책 테스트 케이스 보강
+- 꿈의 조각 UX 개선
+- 민감 사건 표시 제한 고도화
+- 프로젝트별 기억 관리 개선
+
+## 보안 메모
+
+- OpenAI API Key는 모바일 앱에 넣지 않습니다.
+- API Key와 시크릿 값은 `.env` 또는 운영 환경 변수로 관리합니다.
+- 이 저장소에는 실제 API Key, 개인정보, 시크릿 값을 커밋하지 않습니다.
