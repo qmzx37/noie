@@ -165,6 +165,7 @@ type DailyTraceItem = {
   targetYear?: string;
   targetText?: string;
   sourceText?: string;
+  text?: string;
   sourceMessageId?: string;
   isDone?: boolean;
   memoryType?: MemorySavePolicyType;
@@ -1076,7 +1077,133 @@ export default function App() {
     }));
   };
 
-  const confirmDailyTrace = (messageId: string, dreamRole?: DreamRole) => {
+  const readStoredDailyTraces = async () => {
+    try {
+      const savedDailyTraces = await AsyncStorage.getItem(DAILY_TRACES_STORAGE_KEY);
+      const parsedDailyTraces = savedDailyTraces
+        ? (JSON.parse(savedDailyTraces) as DailyTraceItem[])
+        : dailyTraces;
+
+      return Array.isArray(parsedDailyTraces) ? parsedDailyTraces : dailyTraces;
+    } catch (error) {
+      console.log("[noie] 저장된 memories 읽기 실패", error);
+      return dailyTraces;
+    }
+  };
+
+  const applyDreamSaveResult = async (
+    messageId: string,
+    newItem: DailyTraceItem,
+    notice: string,
+    options: { replaceTorch: boolean }
+  ) => {
+    const storedMemories = await readStoredDailyTraces();
+    const now = new Date().toISOString();
+    const sourceMemories = options.replaceTorch
+      ? storedMemories.map((item) =>
+          item.pinnedAsDreamTorch
+            ? { ...item, pinnedAsDreamTorch: false, updatedAt: now }
+            : item
+        )
+      : storedMemories;
+    const updatedMemories = dedupeMemories([...sourceMemories, newItem]);
+
+    await AsyncStorage.setItem(
+      DAILY_TRACES_STORAGE_KEY,
+      JSON.stringify(updatedMemories)
+    );
+    setDailyTraces(updatedMemories);
+
+    if (options.replaceTorch) {
+      setDreamTorchId(newItem.id);
+    }
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === messageId
+          ? {
+              ...item,
+              dailyTraceStatus: "added",
+              dailyTraceNotice: notice,
+            }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const handleSaveAsDreamTorch = async (
+    message: ChatMessage,
+    candidate: DailyTraceCandidate,
+    messageText: string
+  ) => {
+    const now = new Date().toISOString();
+    const baseMemoryPolicy = message.dailyMemoryPolicy ?? buildMemorySavePolicy("dream");
+    const memoryPolicy: MemorySavePolicy = {
+      ...baseMemoryPolicy,
+      type: isDreamOrGoalType(baseMemoryPolicy.type) ? baseMemoryPolicy.type : "dream",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: baseMemoryPolicy.importance ?? 90,
+      label: baseMemoryPolicy.label ?? "꿈",
+      saveTargets: ["dream_torch"],
+      dreamRole: "torch",
+    };
+    const newItem: DailyTraceItem = {
+      ...buildDailyTraceItem(candidate, messageText, message.id, now, memoryPolicy),
+      title: makeMemoryTitle(messageText),
+      memo: messageText,
+      text: messageText,
+      sourceText: messageText,
+      memoryType: memoryPolicy.type,
+      saveTargets: ["dream_torch"],
+      importance: memoryPolicy.importance,
+      dreamRole: "torch",
+      pinnedAsDreamTorch: true,
+      hiddenFromDream: false,
+    };
+
+    await applyDreamSaveResult(message.id, newItem, "꿈의 횃불에 저장했어요.", {
+      replaceTorch: true,
+    });
+  };
+
+  const handleSaveAsDreamFragment = async (
+    message: ChatMessage,
+    candidate: DailyTraceCandidate,
+    messageText: string
+  ) => {
+    const now = new Date().toISOString();
+    const memoryPolicy: MemorySavePolicy = {
+      ...(message.dailyMemoryPolicy ?? buildMemorySavePolicy("project")),
+      type: "project",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: message.dailyMemoryPolicy?.importance ?? 70,
+      label: "프로젝트",
+      saveTargets: ["dream_fragment"],
+      dreamRole: "fragment",
+    };
+    const newItem: DailyTraceItem = {
+      ...buildDailyTraceItem(candidate, messageText, message.id, now, memoryPolicy),
+      title: makeMemoryTitle(messageText),
+      memo: messageText,
+      text: messageText,
+      sourceText: messageText,
+      memoryType: "project",
+      saveTargets: ["dream_fragment"],
+      importance: memoryPolicy.importance,
+      dreamRole: "fragment",
+      pinnedAsDreamTorch: false,
+      hiddenFromDream: false,
+    };
+
+    await applyDreamSaveResult(message.id, newItem, "꿈의 파편에 저장했어요.", {
+      replaceTorch: false,
+    });
+  };
+  const confirmDailyTrace = async (messageId: string, dreamRole?: DreamRole) => {
     if (!activeSession) {
       return;
     }
@@ -1094,6 +1221,23 @@ export default function App() {
       memo: candidate.memo,
       sourceText: sourceUserMessage?.text,
     });
+    if (dreamRole === "torch") {
+      await handleSaveAsDreamTorch(
+        message,
+        candidate,
+        sourceUserMessage?.text ?? memoryInput
+      );
+      return;
+    }
+
+    if (dreamRole === "fragment") {
+      await handleSaveAsDreamFragment(
+        message,
+        candidate,
+        sourceUserMessage?.text ?? memoryInput
+      );
+      return;
+    }
     const selectedMemoryPolicy: MemorySavePolicy | undefined = message.dailyMemoryPolicy
       ? {
           ...message.dailyMemoryPolicy,
@@ -3050,6 +3194,7 @@ function buildDailyTraceItem(
     targetYear: candidate.targetYear ?? undefined,
     targetText: candidate.targetText ?? undefined,
     sourceText,
+    text: sourceText,
     sourceMessageId,
     isDone: candidate.type === "todo" ? false : undefined,
     memoryType: memoryPolicy?.type,
@@ -3490,6 +3635,25 @@ function getMemoryNaturalScore(memory: NoieMemory) {
 function chooseRepresentativeMemory(left: NoieMemory, right: NoieMemory) {
   const leftPolicy = getMemoryPolicy(left);
   const rightPolicy = getMemoryPolicy(right);
+  const torchDiff = Number(Boolean(right.pinnedAsDreamTorch)) - Number(Boolean(left.pinnedAsDreamTorch));
+
+  if (torchDiff > 0) {
+    return right;
+  }
+
+  if (torchDiff < 0) {
+    return left;
+  }
+
+  const roleDiff = getDreamRolePriority(right) - getDreamRolePriority(left);
+  if (roleDiff > 0) {
+    return right;
+  }
+
+  if (roleDiff < 0) {
+    return left;
+  }
+
   const importanceDiff = rightPolicy.importance - leftPolicy.importance;
 
   if (importanceDiff > 0) {
@@ -3514,11 +3678,11 @@ function chooseRepresentativeMemory(left: NoieMemory, right: NoieMemory) {
 
   const createdAtDiff = left.createdAt.localeCompare(right.createdAt);
   if (createdAtDiff < 0) {
-    return left;
+    return right;
   }
 
   if (createdAtDiff > 0) {
-    return right;
+    return left;
   }
 
   return getMemoryNaturalScore(right) > getMemoryNaturalScore(left)
@@ -3526,6 +3690,17 @@ function chooseRepresentativeMemory(left: NoieMemory, right: NoieMemory) {
     : left;
 }
 
+function getDreamRolePriority(memory: NoieMemory) {
+  if (memory.pinnedAsDreamTorch || memory.dreamRole === "torch") {
+    return 3;
+  }
+
+  if (memory.dreamRole === "fragment" || memory.saveTargets?.includes("dream_fragment")) {
+    return 2;
+  }
+
+  return 0;
+}
 function dedupeMemories(memories: NoieMemory[]): NoieMemory[] {
   console.log("중복 제거 전:", memories.length);
 
@@ -3643,7 +3818,13 @@ function getDreamTorchCandidates(items: DailyTraceItem[]) {
         return false;
       }
 
-      return isDreamOrGoalType(getMemoryPolicy(item).type);
+      const memoryPolicy = getMemoryPolicy(item);
+      return (
+        item.pinnedAsDreamTorch === true ||
+        item.saveTargets?.includes("dream_torch") ||
+        memoryPolicy.saveTargets?.includes("dream_torch") ||
+        isDreamOrGoalType(memoryPolicy.type)
+      );
     })
     .sort(sortDreamItemsByImportance);
 }
@@ -5431,6 +5612,12 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 });
+
+
+
+
+
+
 
 
 
