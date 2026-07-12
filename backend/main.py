@@ -1,4 +1,4 @@
-"""noie FastAPI 백엔드 진입점입니다."""
+﻿"""noie FastAPI 백엔드 진입점입니다."""
 
 from __future__ import annotations
 
@@ -118,6 +118,7 @@ def normalize_save_decision(decision: dict, text: str, user_view: dict) -> dict:
         "achievement",
         "goal",
         "dream",
+        "project",
         "idea",
         "relationship",
         "schedule",
@@ -126,7 +127,7 @@ def normalize_save_decision(decision: dict, text: str, user_view: dict) -> dict:
         "none",
     }
     valid_policies = {"ask", "auto", "none"}
-    valid_targets = {"daily_piece", "daily_trace", "dream_piece"}
+    valid_targets = {"daily_piece", "daily_trace", "dream_piece", "dream_torch", "dream_fragment"}
 
     if memory_type not in valid_types or save_policy not in valid_policies:
         return fallback
@@ -217,7 +218,7 @@ def build_fallback_save_decision(text: str, user_view: dict) -> dict:
     if re.search(r"새로\s*사귀|친해|화해|좋은\s*대화|도움\s*받", normalized):
         return make_save_decision(
             "relationship",
-            "auto",
+            "ask",
             ["daily_piece"],
             80,
             "관계",
@@ -247,7 +248,7 @@ def build_fallback_save_decision(text: str, user_view: dict) -> dict:
     if re.search(r"완성|완료|성공|구현|해결|시작|통과|배포|고침|수정", normalized):
         return make_save_decision(
             "achievement",
-            "auto",
+            "ask",
             ["daily_piece", "daily_trace"],
             90,
             "성과",
@@ -499,7 +500,11 @@ def resolve_save_decision_policy(text: str, decision: dict, user_view: dict) -> 
             "trace_confirm",
         )
 
-    if is_schedule_memory_text(text) and decision.get("memoryType") in {"schedule", "todo", "none"}:
+    if (
+        is_schedule_memory_text(text)
+        and not is_achievement_memory_text(text)
+        and decision.get("memoryType") in {"schedule", "todo", "none"}
+    ):
         return make_save_decision(
             "schedule",
             "ask",
@@ -535,33 +540,33 @@ def resolve_save_decision_policy(text: str, decision: dict, user_view: dict) -> 
     if is_achievement_memory_text(text):
         return make_save_decision(
             "achievement",
-            "auto",
+            "ask",
             ["daily_piece", "daily_trace"],
             90,
             "성과",
             "완료, 성공, 구현, 해결 같은 성과가 드러납니다.",
-            None,
+            "성과로 저장할까요?",
             0.85,
             "completed_achievement",
             "past",
-            False,
-            "auto_saved",
+            True,
+            "trace_confirm",
         )
 
     if is_positive_relationship_text(text):
         return make_save_decision(
             "relationship",
-            "auto",
+            "ask",
             ["daily_piece"],
             80,
             "관계",
             "긍정적이거나 중립적인 관계 변화입니다.",
-            None,
+            "관계의 조각으로 저장할까요?",
             0.8,
             "relationship_positive",
             "past",
-            False,
-            "auto_saved",
+            True,
+            "trace_confirm",
         )
 
     confidence = float(decision.get("confidence", 0.6) or 0.6)
@@ -582,6 +587,7 @@ def normalize_save_decision(decision: dict, text: str, user_view: dict) -> dict:
         "achievement",
         "goal",
         "dream",
+        "project",
         "idea",
         "relationship",
         "schedule",
@@ -592,7 +598,7 @@ def normalize_save_decision(decision: dict, text: str, user_view: dict) -> dict:
         "none",
     }
     valid_policies = {"ask", "auto", "none"}
-    valid_targets = {"daily_piece", "daily_trace", "dream_piece"}
+    valid_targets = {"daily_piece", "daily_trace", "dream_piece", "dream_torch", "dream_fragment"}
 
     if memory_type not in valid_types or save_policy not in valid_policies:
         return fallback
@@ -824,7 +830,11 @@ def resolve_save_decision_policy(text: str, decision: dict, user_view: dict) -> 
         )
         return apply_self_relevance_fields(decision, self_relevance)
 
-    if is_schedule_memory_text(text) and decision.get("memoryType") in {"schedule", "todo", "none"}:
+    if (
+        is_schedule_memory_text(text)
+        and not is_achievement_memory_text(text)
+        and decision.get("memoryType") in {"schedule", "todo", "none"}
+    ):
         decision = make_save_decision(
             "schedule",
             "ask",
@@ -862,34 +872,34 @@ def resolve_save_decision_policy(text: str, decision: dict, user_view: dict) -> 
     if is_achievement_memory_text(text):
         decision = make_save_decision(
             "achievement",
-            "auto",
+            "ask",
             ["daily_piece", "daily_trace"],
             90,
             "성과",
             "사용자와 관련된 성과입니다.",
-            None,
+            "성과로 저장할까요?",
             0.85,
             "completed_achievement",
             "past",
-            False,
-            "auto_saved",
+            True,
+            "trace_confirm",
         )
         return apply_self_relevance_fields(decision, self_relevance)
 
     if is_positive_relationship_text(text):
         decision = make_save_decision(
             "relationship",
-            "auto",
+            "ask",
             ["daily_piece"],
             80,
             "관계",
             "사용자와 관련된 긍정적이거나 중립적인 관계 변화입니다.",
-            None,
+            "관계의 조각으로 저장할까요?",
             0.8,
             "relationship_positive",
             "past",
-            False,
-            "auto_saved",
+            True,
+            "trace_confirm",
         )
         return apply_self_relevance_fields(decision, self_relevance)
 
@@ -911,6 +921,7 @@ def normalize_save_decision(decision: dict, text: str, user_view: dict) -> dict:
         "achievement",
         "goal",
         "dream",
+        "project",
         "idea",
         "relationship",
         "schedule",
@@ -921,7 +932,7 @@ def normalize_save_decision(decision: dict, text: str, user_view: dict) -> dict:
         "none",
     }
     valid_policies = {"ask", "auto", "none"}
-    valid_targets = {"daily_piece", "daily_trace", "dream_piece"}
+    valid_targets = {"daily_piece", "daily_trace", "dream_piece", "dream_torch", "dream_fragment"}
 
     if memory_type not in valid_types or save_policy not in valid_policies:
         return fallback
@@ -997,13 +1008,13 @@ def resolve_self_relevance(text: str) -> dict:
     explicit_store_request = has_explicit_store_request(text)
     other_subject = text_matches(
         text,
-        r"(지민이|지민|민수|태호|서아|도현이|도현|하린이|하린|유나|유찬이|유찬|재윤이|재윤|민지|"
+        r"(지민이|지민|민수|태호|서아|세은이|세은|수아|도현이|도현|하린이|하린|유나|유찬이|유찬|재윤이|재윤|민지|"
         r"친구|동생|형|누나|엄마|아빠|선배|후배|동기|그\s*사람)"
         r"(는|은|이|가|도|랑|와|과|한테|에게)?",
     )
     clear_other_subject = text_matches(
         text,
-        r"(지민이는|지민은|민수는|태호는|서아는|도현이는|하린이는|유나는|유찬이는|재윤이는|민지는|"
+        r"(지민이는|지민은|민수는|태호는|서아는|세은이는|수아는|도현이는|하린이는|유나는|유찬이는|재윤이는|민지는|"
         r"친구는|동생은|형은|누나는|엄마는|아빠는|선배는|후배는|동기는|그\s*사람은)",
     )
     self_marker = text_matches(
@@ -1150,7 +1161,11 @@ def resolve_save_decision_policy(text: str, decision: dict, user_view: dict) -> 
         )
         return apply_self_relevance_gate(text, decision)
 
-    if is_schedule_memory_text(text) and decision.get("memoryType") in {"schedule", "todo", "none"}:
+    if (
+        is_schedule_memory_text(text)
+        and not is_achievement_memory_text(text)
+        and decision.get("memoryType") in {"schedule", "todo", "none"}
+    ):
         decision = make_save_decision(
             "schedule",
             "ask",
@@ -1188,34 +1203,34 @@ def resolve_save_decision_policy(text: str, decision: dict, user_view: dict) -> 
     if is_achievement_memory_text(text):
         decision = make_save_decision(
             "achievement",
-            "auto",
+            "ask",
             ["daily_piece", "daily_trace"],
             90,
             "성과",
             "사용자와 관련된 성과입니다.",
-            None,
+            "성과로 저장할까요?",
             0.85,
             "completed_achievement",
             "past",
-            False,
-            "auto_saved",
+            True,
+            "trace_confirm",
         )
         return apply_self_relevance_gate(text, decision)
 
     if is_positive_relationship_text(text):
         decision = make_save_decision(
             "relationship",
-            "auto",
+            "ask",
             ["daily_piece"],
             80,
             "관계",
             "사용자와 관련된 긍정적이거나 중립적인 관계 변화입니다.",
-            None,
+            "관계의 조각으로 저장할까요?",
             0.8,
             "relationship_positive",
             "past",
-            False,
-            "auto_saved",
+            True,
+            "trace_confirm",
         )
         return apply_self_relevance_gate(text, decision)
 
@@ -1361,3 +1376,9 @@ def extract_daily_trace(request: ExtractDailyTraceRequest) -> dict:
         if isinstance(target_text, str) and target_text.strip()
         else None,
     }
+
+
+
+
+
+

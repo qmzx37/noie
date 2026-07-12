@@ -1,4 +1,4 @@
-"""API 요청/응답 타입을 모아둔 파일입니다.
+﻿"""API 요청/응답 타입을 모아둔 파일입니다.
 
 처음 백엔드를 볼 때는 이 파일부터 보면 좋습니다.
 여기에는 "클라이언트가 무엇을 보내고", "서버가 무엇을 돌려주는지"가
@@ -113,6 +113,7 @@ MemoryType = Literal[
     "achievement",
     "goal",
     "dream",
+    "project",
     "idea",
     "relationship",
     "schedule",
@@ -131,6 +132,8 @@ SaveTarget = Literal[
     "daily_piece",
     "daily_trace",
     "dream_piece",
+    "dream_torch",
+    "dream_fragment",
 ]
 
 IntentCategory = Literal[
@@ -230,6 +233,9 @@ class ChatHistoryMessage(BaseModel):
 class ChatRequest(BaseModel):
     text: str = Field(min_length=1, examples=["나 오늘 친구랑 싸워서 힘들어"])
     messages: list[ChatHistoryMessage] = Field(default_factory=list)
+    is_project: bool = False
+    project_name: Optional[str] = None
+    project_goal: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -246,6 +252,7 @@ DailyTraceItemType = Literal[
     "quote",
     "goal",
     "dream",
+    "project",
     "achievement",
     "important_note",
     "note",
@@ -270,3 +277,7 @@ class ExtractDailyTraceResponse(BaseModel):
     targetDate: Optional[str] = None
     targetYear: Optional[str] = None
     targetText: Optional[str] = None
+
+
+
+

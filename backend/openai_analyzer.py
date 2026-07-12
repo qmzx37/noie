@@ -1,4 +1,4 @@
-"""OpenAI API를 사용하는 noie 감정 분석기입니다.
+﻿"""OpenAI API를 사용하는 noie 감정 분석기입니다.
 
 중요:
 - API 키는 코드에 직접 넣지 않습니다.
@@ -314,6 +314,7 @@ SAVE_DECISION_SCHEMA: dict[str, Any] = {
                 "achievement",
                 "goal",
                 "dream",
+                "project",
                 "idea",
                 "relationship",
                 "schedule",
@@ -327,7 +328,7 @@ SAVE_DECISION_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "string",
-                "enum": ["daily_piece", "daily_trace", "dream_piece"],
+                "enum": ["daily_piece", "daily_trace", "dream_piece", "dream_torch", "dream_fragment"],
             },
         },
         "importance": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -372,7 +373,7 @@ def generate_save_decision_with_openai(
                         "너는 사용자의 문장 전체 의미를 보고 noie 앱의 저장 정책을 결정한다. "
                         "단어 하나만 보고 판단하지 말고 문장 전체 맥락을 본다. "
                         "memoryType은 sensitive_event, achievement, goal, dream, idea, relationship, schedule, todo, daily_context, none 중 하나다. "
-                        "savePolicy는 ask, auto, none 중 하나다. saveTargets는 daily_piece, daily_trace, dream_piece 중 필요한 값을 넣고, none이면 빈 배열을 넣는다. "
+                        "savePolicy는 ask, auto, none 중 하나다. saveTargets는 daily_piece, daily_trace, dream_piece, dream_torch, dream_fragment 중 필요한 값을 넣고, none이면 빈 배열을 넣는다. "
                         "민감 사건 sensitive_event는 욕설/욕/뒷담화, 친구들이 나쁜 말을 함, 괴롭힘, 관계 갈등, 싸움, 상처, 배신, 차단, 실패, 탈락, 거절, 좌절, 상실, 불안, 공포, 우울, 번아웃, 충격, 무서운 꿈, 힘든 사건을 포함한다. "
                         "sensitive_event는 자동 저장하지 말고 savePolicy ask, saveTargets ['daily_piece'], importance 100, displayCategory '최근 사건', askText '최근 사건을 저장할까요?'로 한다. "
                         "'친구들이 내욕을 해'는 relationship이 아니라 sensitive_event다. "
@@ -419,6 +420,7 @@ SAVE_DECISION_SCHEMA: dict[str, Any] = {
                 "achievement",
                 "goal",
                 "dream",
+                "project",
                 "idea",
                 "relationship",
                 "schedule",
@@ -434,7 +436,7 @@ SAVE_DECISION_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "string",
-                "enum": ["daily_piece", "daily_trace", "dream_piece"],
+                "enum": ["daily_piece", "daily_trace", "dream_piece", "dream_torch", "dream_fragment"],
             },
         },
         "importance": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -557,8 +559,8 @@ def generate_save_decision_with_openai(
                         "- dream/goal: savePolicy ask, saveTargets ['dream_piece'], askText '꿈의 조각에 저장할까요?', uiType dream_confirm, eventTense future.\n"
                         "- todo/task/schedule/daily_plan: savePolicy ask, saveTargets ['daily_trace'], askText '하루의 흔적에 저장할까요?', uiType trace_confirm, eventTense future.\n"
                         "- sensitive_event: savePolicy ask, saveTargets ['daily_piece'], askText '최근 사건을 저장할까요?', uiType sensitive_confirm, importance 100.\n"
-                        "- achievement: savePolicy auto or ask, saveTargets ['daily_piece','daily_trace'], uiType auto_saved or trace_confirm.\n"
-                        "- relationship: savePolicy auto or ask, saveTargets ['daily_piece'].\n"
+                        "- achievement: savePolicy ask, saveTargets ['daily_piece','daily_trace'], uiType trace_confirm.\n"
+                        "- relationship: savePolicy ask, saveTargets ['daily_piece'].\n"
                         "- none: savePolicy none, saveTargets [], askText null, uiType none.\n\n"
                         "Return JSON only."
                     ),
@@ -688,3 +690,4 @@ def fallback_chat_reply(state_summary: str) -> str:
         f"{state_summary} 지금은 감정을 바로 해결하려 하기보다, 가장 크게 남는 감정이 무엇인지 "
         "천천히 짚어보면 좋을 것 같아."
     )
+

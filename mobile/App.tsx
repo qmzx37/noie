@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+﻿import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -43,6 +43,7 @@ type ScreenMode =
   | "project"
   | "projectCreate";
 type DailyTraceItemType = "schedule" | "record" | "todo" | "quote" | "goal";
+type DreamRole = "torch" | "fragment";
 type DailyTraceStatus = "pending" | "added" | "dismissed" | "duplicate";
 
 type PrimaryAxis = {
@@ -67,7 +68,7 @@ type NumericEmotionAxis = Record<EmotionKey, number>;
 type SaveDecision = {
   memoryType: MemorySavePolicyType;
   savePolicy: "ask" | "auto" | "none";
-  saveTargets: Array<"daily_piece" | "daily_trace" | "dream_piece">;
+  saveTargets: Array<"daily_piece" | "daily_trace" | "dream_piece" | "dream_torch" | "dream_fragment">;
   importance: number;
   displayCategory: string;
   reason: string;
@@ -171,6 +172,8 @@ type DailyTraceItem = {
   importance?: number;
   displayCategory?: string;
   hiddenFromDream?: boolean;
+  dreamRole?: DreamRole;
+  pinnedAsDreamTorch?: boolean;
   createdAt: string;
   updatedAt?: string;
 };
@@ -183,6 +186,7 @@ type MemorySavePolicyType =
   | "relationship"
   | "dream"
   | "goal"
+  | "project"
   | "idea"
   | "schedule"
   | "todo"
@@ -200,7 +204,10 @@ type MemorySavePolicy = {
   importance: number;
   label: string;
   saveTargets?: SaveDecision["saveTargets"];
+  dreamRole?: DreamRole;
 };
+
+type DreamSavePromptKind = "torch_first" | "fragment_first";
 
 type EmotionSignals = Partial<Record<EmotionKey, EmotionLevel | number>>;
 
@@ -234,6 +241,7 @@ type ChatMessage = {
   dailyTraceStatus?: DailyTraceStatus;
   dailyTraceNotice?: string;
   dailyMemoryPolicy?: MemorySavePolicy;
+  dreamSavePromptKind?: DreamSavePromptKind;
   createdAt: string;
 };
 
@@ -827,6 +835,9 @@ export default function App() {
                 dailyTraceStatus,
                 dailyTraceNotice,
                 dailyMemoryPolicy: memoryPolicy,
+                dreamSavePromptKind: isDreamOrGoalType(memoryPolicy.type)
+                  ? getDreamSavePromptKind(trimmedText)
+                  : undefined,
                 showAdminView: false,
                 createdAt: message.createdAt,
               }
@@ -1065,7 +1076,7 @@ export default function App() {
     }));
   };
 
-  const confirmDailyTrace = (messageId: string) => {
+  const confirmDailyTrace = (messageId: string, dreamRole?: DreamRole) => {
     if (!activeSession) {
       return;
     }
@@ -1083,18 +1094,29 @@ export default function App() {
       memo: candidate.memo,
       sourceText: sourceUserMessage?.text,
     });
+    const selectedMemoryPolicy: MemorySavePolicy | undefined = message.dailyMemoryPolicy
+      ? {
+          ...message.dailyMemoryPolicy,
+          dreamRole: dreamRole ?? message.dailyMemoryPolicy.dreamRole,
+          saveTargets:
+            dreamRole === "torch"
+              ? ["dream_piece", "dream_torch"]
+              : dreamRole === "fragment"
+              ? ["dream_piece", "dream_fragment"]
+              : message.dailyMemoryPolicy.saveTargets,
+        }
+      : undefined;
     const newItem = buildDailyTraceItem(
       candidate,
       sourceUserMessage?.text ?? memoryInput,
       messageId,
       now,
-      message.dailyMemoryPolicy
+      selectedMemoryPolicy
     );
     const saveResult = saveNoieMemory(dailyTraces, newItem, memoryInput, {
       shouldLog: false,
     });
-    const memoryPolicy = message.dailyMemoryPolicy ?? getMemoryPolicy(newItem);
-
+    const memoryPolicy = selectedMemoryPolicy ?? getMemoryPolicy(newItem);
     setDailyTraces((currentItems) => {
       return saveNoieMemory(currentItems, newItem, memoryInput).items;
     });
@@ -1178,6 +1200,21 @@ export default function App() {
 
   const pinDreamTorch = (itemId: string) => {
     setDreamTorchId(itemId);
+    setDailyTraces((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              dreamRole: "torch",
+              pinnedAsDreamTorch: true,
+              hiddenFromDream: false,
+              updatedAt: new Date().toISOString(),
+            }
+          : item.pinnedAsDreamTorch
+          ? { ...item, pinnedAsDreamTorch: false, updatedAt: new Date().toISOString() }
+          : item
+      )
+    );
   };
 
   const hideFromDreamVault = (itemId: string) => {
@@ -2103,32 +2140,26 @@ function DailyTraceCandidateCard({
   onDismiss,
 }: {
   message: ChatMessage;
-  onConfirm: (messageId: string) => void;
+  onConfirm: (messageId: string, dreamRole?: DreamRole) => void;
   onDismiss: (messageId: string) => void;
 }) {
   const candidate = message.dailyTraceCandidate;
-  if (!candidate) {
+  const memoryPolicy = message.dailyMemoryPolicy;
+
+  if (!candidate || shouldHideSaveUi(message.analysis?.save_decision, memoryPolicy)) {
     return null;
   }
 
   const isAdded = message.dailyTraceStatus === "added";
   const isDuplicate = message.dailyTraceStatus === "duplicate";
   const isDismissed = message.dailyTraceStatus === "dismissed";
-  const memoryType = message.dailyMemoryPolicy?.type;
+  const memoryType = memoryPolicy?.type;
   const isDreamOrGoal = isDreamOrGoalType(memoryType);
-  const isDailyTraceConfirm = isDailyTraceConfirmType(memoryType);
-  const isSensitiveEvent = memoryType === "sensitive_event";
-  const questionText =
-    message.dailyTraceNotice ??
-    (isDreamOrGoal
-      ? "꿈의 조각에 저장할까요?"
-      : isSensitiveEvent
-      ? "최근 사건을 저장할까요?"
-      : isDuplicate
-      ? "이미 하루의 조각에 있는 내용이에요."
-      : isAdded
-      ? "하루의 조각에 저장했어요."
-      : TRACE_QUESTION_LABELS[candidate.type]);
+  const questionText = message.dailyTraceNotice ?? getPendingMemoryNotice(
+    memoryPolicy ?? buildMemorySavePolicy("none"),
+    message.dreamSavePromptKind
+  );
+  const canRespond = !isAdded && !isDuplicate && !isDismissed;
 
   return (
     <View style={styles.traceCandidateCard}>
@@ -2146,34 +2177,46 @@ function DailyTraceCandidateCard({
       {candidate.memo ? (
         <Text style={styles.traceCandidateMemo}>{candidate.memo}</Text>
       ) : null}
-      {!isAdded && !isDuplicate && !isDismissed ? (
+      {canRespond ? (
         <View style={styles.traceCandidateActions}>
-          <TouchableOpacity
-            style={styles.traceConfirmButton}
-            onPress={() => onConfirm(message.id)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.traceConfirmButtonText}>
-              {isSensitiveEvent || isDreamOrGoal || isDailyTraceConfirm
-                ? "저장하기"
-                : TRACE_CONFIRM_LABELS[candidate.type]}
-            </Text>
-          </TouchableOpacity>
-          {isSensitiveEvent ? (
+          {isDreamOrGoal ? (
+            <>
+              {getDreamRoleButtonOrder(message.dreamSavePromptKind).map((role) => (
+                <TouchableOpacity
+                  key={role}
+                  style={styles.traceConfirmButton}
+                  onPress={() => onConfirm(message.id, role)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.traceConfirmButtonText}>
+                    {role === "torch" ? "꿈의 횃불로 저장" : "꿈의 파편으로 저장"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          ) : (
             <TouchableOpacity
-              style={styles.traceCancelButton}
-              onPress={() => onDismiss(message.id)}
+              style={styles.traceConfirmButton}
+              onPress={() => onConfirm(message.id)}
               activeOpacity={0.85}
             >
-              <Text style={styles.traceCancelButtonText}>안 할래</Text>
+              <Text style={styles.traceConfirmButtonText}>
+                {getConfirmButtonLabel(memoryType, candidate.type)}
+              </Text>
             </TouchableOpacity>
-          ) : null}
+          )}
+          <TouchableOpacity
+            style={styles.traceCancelButton}
+            onPress={() => onDismiss(message.id)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.traceCancelButtonText}>안 할래</Text>
+          </TouchableOpacity>
         </View>
       ) : null}
     </View>
   );
 }
-
 type MetricPillProps = {
   label: string;
   value: EmotionLevel;
@@ -2201,9 +2244,12 @@ function DreamVaultScreen({
   onHideFromDream: (itemId: string) => void;
   onBackToChat: () => void;
 }) {
-  const dreamPieces = getDreamPieces(dailyTraces);
-  const torchPiece = selectDreamTorchPiece(dreamPieces, dreamTorchId);
-  const dreamFragments = dreamPieces.filter((piece) => piece.id !== torchPiece?.id);
+  const dreamTorchCandidates = getDreamTorchCandidates(dailyTraces);
+  const torchPiece = selectDreamTorchPiece(dreamTorchCandidates, dreamTorchId);
+  const dreamFragments = getDreamFragments(dailyTraces).filter(
+    (piece) => piece.id !== torchPiece?.id
+  );
+  const hasDreamContent = Boolean(torchPiece) || dreamFragments.length > 0;
 
   return (
     <ScrollView
@@ -2225,7 +2271,7 @@ function DreamVaultScreen({
         </TouchableOpacity>
       </View>
 
-      {dreamPieces.length === 0 ? (
+      {!hasDreamContent ? (
         <View style={styles.flowCard}>
           <View style={styles.flowEmptyBox}>
             <Text style={styles.flowEmptyText}>
@@ -3010,6 +3056,8 @@ function buildDailyTraceItem(
     saveTargets: memoryPolicy?.saveTargets,
     importance: memoryPolicy?.importance,
     displayCategory: memoryPolicy?.label,
+    dreamRole: memoryPolicy?.dreamRole,
+    pinnedAsDreamTorch: memoryPolicy?.dreamRole === "torch" ? true : undefined,
     createdAt,
   };
 }
@@ -3044,7 +3092,7 @@ function getDailyTraceTypeForMemory(type: MemorySavePolicyType): DailyTraceItemT
     return "todo";
   }
 
-  if (type === "goal" || type === "dream") {
+  if (type === "goal" || type === "dream" || type === "project") {
     return "goal";
   }
 
@@ -3117,9 +3165,22 @@ function adjustMemoryPolicyForText(
   return memoryPolicy;
 }
 
-function getPendingMemoryNotice(memoryPolicy: MemorySavePolicy) {
+function getPendingMemoryNotice(
+  memoryPolicy: MemorySavePolicy,
+  dreamPromptKind?: DreamSavePromptKind
+) {
   if (isDreamOrGoalType(memoryPolicy.type)) {
-    return "꿈의 조각에 저장할까요?";
+    return dreamPromptKind === "fragment_first"
+      ? "꿈의 파편에 저장할까요?"
+      : "꿈으로 저장할까요?";
+  }
+
+  if (memoryPolicy.type === "relationship") {
+    return "관계의 조각으로 저장할까요?";
+  }
+
+  if (memoryPolicy.type === "achievement") {
+    return "성과로 저장할까요?";
   }
 
   if (isDailyTraceConfirmType(memoryPolicy.type)) {
@@ -3133,9 +3194,69 @@ function getPendingMemoryNotice(memoryPolicy: MemorySavePolicy) {
   return "";
 }
 
+function getConfirmButtonLabel(
+  memoryType: MemorySavePolicyType | undefined,
+  candidateType: DailyTraceItemType
+) {
+  if (memoryType === "relationship") {
+    return "관계 저장하기";
+  }
+
+  if (memoryType === "achievement") {
+    return "성과 저장하기";
+  }
+
+  if (
+    memoryType === "sensitive_event" ||
+    isDailyTraceConfirmType(memoryType)
+  ) {
+    return "저장하기";
+  }
+
+  return TRACE_CONFIRM_LABELS[candidateType] ?? "저장하기";
+}
+
+function getDreamRoleButtonOrder(kind?: DreamSavePromptKind): DreamRole[] {
+  return kind === "fragment_first" ? ["fragment", "torch"] : ["torch", "fragment"];
+}
+
+function getDreamSavePromptKind(text: string): DreamSavePromptKind {
+  return isDreamFragmentText(text) ? "fragment_first" : "torch_first";
+}
+
+function isDreamFragmentText(text: string) {
+  const normalizedText = text.trim().toLowerCase();
+  return /noie|노이에|개인\s*ai|앱|출시|포트폴리오|기능|서비스|완성하고\s*싶|만들고\s*싶|고도화/.test(
+    normalizedText
+  );
+}
+
+function shouldHideSaveUi(
+  decision?: SaveDecision,
+  memoryPolicy?: MemorySavePolicy
+) {
+  if (!memoryPolicy || !memoryPolicy.shouldSave || memoryPolicy.type === "none") {
+    return true;
+  }
+
+  if (!decision) {
+    return false;
+  }
+
+  return (
+    decision.shouldStore === false ||
+    decision.savePolicy === "none" ||
+    decision.uiType === "none" ||
+    decision.memoryType === "none" ||
+    decision.saveTargets.length === 0 ||
+    (decision.subjectScope === "other_person" && decision.selfRelevance === "none")
+  );
+}
 function getSavedMemoryNotice(memoryPolicy: MemorySavePolicy) {
   if (isDreamOrGoalType(memoryPolicy.type)) {
-    return "꿈의 조각에 저장했어요.";
+    return memoryPolicy.dreamRole === "fragment"
+      ? "꿈의 파편에 저장했어요."
+      : "꿈의 횃불에 저장했어요.";
   }
 
   if (memoryPolicy.type === "sensitive_event") {
@@ -3205,7 +3326,7 @@ function buildMemorySavePolicyFromDecision(decision: SaveDecision): MemorySavePo
   return {
     type: decision.memoryType,
     shouldSave: true,
-    requiresConfirmation: decision.savePolicy === "ask",
+    requiresConfirmation: true,
     importance: decision.importance,
     label: decision.displayCategory,
     saveTargets: decision.saveTargets,
@@ -3217,7 +3338,7 @@ function getMemoryPolicy(memory: NoieMemory): MemorySavePolicy {
     return {
       type: memory.memoryType,
       shouldSave: memory.memoryType !== "none",
-      requiresConfirmation: memory.memoryType === "sensitive_event",
+      requiresConfirmation: memory.memoryType !== "none",
       importance:
         memory.importance ??
         calculateMemoryImportance(memory.memoryType),
@@ -3330,6 +3451,7 @@ function getMemoryTypePriority(type: MemorySavePolicyType) {
   const priorityMap: Record<MemorySavePolicyType, number> = {
     goal: 6,
     dream: 5,
+    project: 4,
     achievement: 4,
     relationship: 3,
     idea: 2,
@@ -3465,78 +3587,98 @@ function saveNoieMemory(
   }
 
   return {
-    items: dedupeMemories([...currentItems, newItem]),
+    items: dedupeMemories(
+      newItem.pinnedAsDreamTorch
+        ? [
+            ...currentItems.map((item) =>
+              item.pinnedAsDreamTorch
+                ? { ...item, pinnedAsDreamTorch: false, updatedAt: new Date().toISOString() }
+                : item
+            ),
+            newItem,
+          ]
+        : [...currentItems, newItem]
+    ),
     saved: true,
     duplicate: false,
   };
 }
 
-function getDreamPieces(items: DailyTraceItem[]) {
+function isHiddenFromDream(item: DailyTraceItem) {
+  if (item.hiddenFromDream) {
+    return true;
+  }
+
+  const forbiddenTypes: MemorySavePolicyType[] = [
+    "sensitive_event",
+    "achievement",
+    "relationship",
+    "schedule",
+    "todo",
+    "task",
+    "daily_plan",
+    "daily_context",
+    "none",
+  ];
+
+  return forbiddenTypes.includes(getMemoryPolicy(item).type);
+}
+
+function sortDreamItemsByImportance(left: DailyTraceItem, right: DailyTraceItem) {
+  const leftPolicy = getMemoryPolicy(left);
+  const rightPolicy = getMemoryPolicy(right);
+  const importanceDiff = rightPolicy.importance - leftPolicy.importance;
+
+  if (importanceDiff !== 0) {
+    return importanceDiff;
+  }
+
+  return right.createdAt.localeCompare(left.createdAt);
+}
+
+function getDreamTorchCandidates(items: DailyTraceItem[]) {
   return dedupeMemories(items)
     .filter((item) => {
-      if (item.hiddenFromDream) {
+      if (isHiddenFromDream(item) || item.dreamRole === "fragment") {
+        return false;
+      }
+
+      return isDreamOrGoalType(getMemoryPolicy(item).type);
+    })
+    .sort(sortDreamItemsByImportance);
+}
+
+function getDreamFragments(items: DailyTraceItem[]) {
+  return dedupeMemories(items)
+    .filter((item) => {
+      if (isHiddenFromDream(item)) {
         return false;
       }
 
       const memoryPolicy = getMemoryPolicy(item);
-      const forbiddenTypes: MemorySavePolicyType[] = [
-        "sensitive_event",
-        "achievement",
-        "relationship",
-        "schedule",
-        "todo",
-        "task",
-        "daily_plan",
-        "daily_context",
-        "none",
-      ];
-
-      if (forbiddenTypes.includes(memoryPolicy.type)) {
-        return false;
-      }
-
-      return isDreamOrGoalType(memoryPolicy.type) || Boolean(
-        memoryPolicy.saveTargets?.includes("dream_piece")
+      return (
+        item.dreamRole === "fragment" ||
+        item.saveTargets?.includes("dream_fragment") ||
+        memoryPolicy.dreamRole === "fragment" ||
+        memoryPolicy.saveTargets?.includes("dream_fragment")
       );
     })
-    .sort((left, right) => {
-      const leftPolicy = getMemoryPolicy(left);
-      const rightPolicy = getMemoryPolicy(right);
-      const importanceDiff = rightPolicy.importance - leftPolicy.importance;
-
-      if (importanceDiff !== 0) {
-        return importanceDiff;
-      }
-
-      return right.createdAt.localeCompare(left.createdAt);
-    });
+    .sort(sortDreamItemsByImportance);
 }
 
 function selectDreamTorchPiece(
   dreamPieces: DailyTraceItem[],
   dreamTorchId: string | null
 ) {
-  const pinnedPiece = dreamTorchId
-    ? dreamPieces.find((piece) => piece.id === dreamTorchId)
-    : undefined;
+  const pinnedPiece = dreamPieces.find((piece) => piece.pinnedAsDreamTorch) ??
+    (dreamTorchId ? dreamPieces.find((piece) => piece.id === dreamTorchId) : undefined);
 
   if (pinnedPiece) {
     return pinnedPiece;
   }
 
-  return [...dreamPieces].sort((left, right) => {
-    const leftPolicy = getMemoryPolicy(left);
-    const rightPolicy = getMemoryPolicy(right);
-    const importanceDiff = rightPolicy.importance - leftPolicy.importance;
-
-    if (importanceDiff !== 0) {
-      return importanceDiff;
-    }
-
-    return right.createdAt.localeCompare(left.createdAt);
-  })[0];
+  return [...dreamPieces].sort(sortDreamItemsByImportance)[0];
 }
-
 function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -3811,6 +3953,7 @@ function calculateMemoryImportance(
     relationship: 80,
     dream: 85,
     goal: 78,
+    project: 76,
     idea: 70,
     schedule: 60,
     todo: 65,
@@ -3839,14 +3982,16 @@ function buildMemorySavePolicy(
     achievement: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "성과",
+      saveTargets: ["daily_piece", "daily_trace"],
     },
     relationship: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "관계",
+      saveTargets: ["daily_piece"],
     },
     dream: {
       type,
@@ -3862,11 +4007,20 @@ function buildMemorySavePolicy(
       label: "목표",
       saveTargets: ["dream_piece", "daily_trace"],
     },
+    project: {
+      type,
+      shouldSave: true,
+      requiresConfirmation: true,
+      label: "프로젝트",
+      saveTargets: ["dream_piece", "dream_fragment"],
+      dreamRole: "fragment",
+    },
     idea: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "아이디어",
+      saveTargets: ["daily_piece"],
     },
     schedule: {
       type,
@@ -3899,21 +4053,23 @@ function buildMemorySavePolicy(
     note: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "기록",
+      saveTargets: ["daily_piece"],
     },
     important_note: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "중요 기록",
       saveTargets: ["daily_trace"],
     },
     daily_context: {
       type,
       shouldSave: true,
-      requiresConfirmation: false,
+      requiresConfirmation: true,
       label: "기록",
+      saveTargets: ["daily_piece"],
     },
     none: {
       type,
@@ -5275,3 +5431,23 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
