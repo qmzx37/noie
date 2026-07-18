@@ -15,8 +15,12 @@ import {
 } from "react-native";
 import Svg, {
   Circle,
+  ClipPath,
+  Defs,
+  G,
   Line,
   Polyline,
+  Rect,
   Text as SvgText,
 } from "react-native-svg";
 import type {
@@ -191,6 +195,7 @@ type NoieSaveRoutingResult = {
   matchedRoutineId?: string | null;
   matchedProjectId?: string | null;
   matchedNextAction?: string | null;
+  hasExistingRoutineRecord?: boolean;
 };
 
 type PendingRoutineAdjustment = {
@@ -210,6 +215,7 @@ type RecordRoutineExecutionInput = {
   unit?: string;
   source: "chat" | "button" | "manual_adjustment";
   originalText?: string;
+  completedOnly?: boolean;
 };
 
 type RoutedChatMessage = ChatMessage & {
@@ -386,9 +392,10 @@ export default function App() {
       }
 
       if (normalizeDailyTraces(parsedDailyTraces).length >= 0) {
-        const dedupedDailyTraces = dedupeMemories(normalizeDailyTraces(parsedDailyTraces));
+        const repairedDailyTraces = repairRoutineTitlesFromOriginalText(normalizeDailyTraces(parsedDailyTraces));
+        const dedupedDailyTraces = dedupeMemories(repairedDailyTraces);
         setDailyTraces(dedupedDailyTraces);
-        if (dedupedDailyTraces.length !== parsedDailyTraces.length) {
+        if (dedupedDailyTraces.length !== parsedDailyTraces.length || dedupedDailyTraces !== repairedDailyTraces) {
           saveJsonValue(DAILY_TRACES_STORAGE_KEY, dedupedDailyTraces).catch((error) => console.log("[noie] 하루의 흔적 중복 정리 실패", error));
         }
       }
@@ -1299,12 +1306,21 @@ export default function App() {
       routineRecords: [],
     };
     const routineTitle = routingResult.title || candidate.title;
-    const duplicateRoutine = (targetTorch.routines ?? []).some((routine) =>
-      normalizeRoutineKey(routine.title, routine.repeatType, routine.targetValue, routine.unit) ===
-      normalizeRoutineKey(routineTitle, routingResult.repeatType ?? "daily", routingResult.targetValue ?? undefined, routingResult.unit)
+    const routineKey = normalizeRoutineKey(
+      routineTitle,
+      routingResult.repeatType ?? "daily",
+      routingResult.targetValue ?? undefined,
+      routingResult.unit
     );
+    const existingRoutine = (targetTorch.routines ?? []).find((routine) =>
+      normalizeRoutineKey(routine.title, routine.repeatType, routine.targetValue, routine.unit) ===
+      routineKey
+    );
+    const todayMeDreamFragments = getDreamFragments(dailyTraces).filter((piece) => piece.id !== targetTorch.id);
+    const activeCardCount = getVisibleTodayMeCards(targetTorch, todayMeDreamFragments, projects, today).length;
+    const isExistingRoutineVisible = existingRoutine ? isActiveTodayMeRoutine(existingRoutine) : false;
 
-    if (duplicateRoutine) {
+    if (existingRoutine && isExistingRoutineVisible) {
       updateSession(activeSession?.id ?? activeSessionId, (session) => ({
         ...session,
         messages: session.messages.map((item) =>
@@ -1317,9 +1333,7 @@ export default function App() {
       return;
     }
 
-    const activeProjects = getTodayMeProjects(targetTorch, getDreamFragments(dailyTraces), projects);
-    const activeRoutines = getActiveDreamRoutines(targetTorch, getActiveDreamSeason(targetTorch));
-    if (activeProjects.length + activeRoutines.length >= MAX_TODAY_ME_CARDS) {
+    if (activeCardCount >= MAX_TODAY_ME_CARDS) {
       updateSession(activeSession?.id ?? activeSessionId, (session) => ({
         ...session,
         messages: session.messages.map((item) =>
@@ -1329,6 +1343,49 @@ export default function App() {
                 dailyTraceStatus: "pending",
                 dailyTraceNotice: "오늘의 나는 네 가지에만 집중할 수 있어요.\n기존 목표나 프로젝트를 완료하거나 정리한 뒤 추가해보세요.",
               }
+            : item
+        ),
+        updatedAt: now,
+      }));
+      return;
+    }
+
+    if (existingRoutine) {
+      const nextTorch: DailyTraceItem = {
+        ...targetTorch,
+        routines: (targetTorch.routines ?? []).map((routine) =>
+          routine.id === existingRoutine.id
+            ? {
+                ...routine,
+                lifecycleStatus: "active",
+                archivedFromTodayMe: false,
+                active: true,
+                updatedAt: now,
+              }
+            : routine
+        ),
+        updatedAt: now,
+      };
+      const nextItems = torchPiece
+        ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
+        : dedupeMemories([
+            ...dailyTraces.map((item) =>
+              item.pinnedAsDreamTorch ? { ...item, pinnedAsDreamTorch: false, updatedAt: now } : item
+            ),
+            nextTorch,
+          ]);
+
+      setDailyTraces(nextItems);
+      await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+      if (!torchPiece) {
+        setDreamTorchId(nextTorch.id);
+      }
+
+      updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+        ...session,
+        messages: session.messages.map((item) =>
+          item.id === message.id
+            ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "기존 반복 목표를 오늘의 나에 다시 담았어요." }
             : item
         ),
         updatedAt: now,
@@ -1531,7 +1588,7 @@ export default function App() {
         originalText: routingResult.originalText,
         sourceText: routingResult.originalText,
         memoryType: "achievement" as MemorySavePolicyType,
-        saveTargets: ["daily_trace"] as SaveDecision["saveTargets"],
+        saveTargets: ["daily_piece", "daily_trace"] as SaveDecision["saveTargets"],
         importance: 94,
         displayCategory: "완료한 프로젝트",
         category: "completed_project",
@@ -1859,13 +1916,17 @@ export default function App() {
   };
 
   const hideFromDreamVault = (itemId: string) => {
-    setDailyTraces((currentItems) =>
-      currentItems.map((item) =>
+    setDailyTraces((currentItems) => {
+      const nextItems = currentItems.map((item) =>
         item.id === itemId
           ? { ...item, hiddenFromDream: true, updatedAt: new Date().toISOString() }
           : item
-      )
-    );
+      );
+      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+        console.error("[dream-fragment-delete-save-error]", error)
+      );
+      return nextItems;
+    });
 
     if (dreamTorchId === itemId) {
       setDreamTorchId(null);
@@ -1896,6 +1957,7 @@ export default function App() {
     unit,
     source,
     originalText,
+    completedOnly,
   }: RecordRoutineExecutionInput) => {
     const now = new Date().toISOString();
     const safeActualValue = Math.max(0, safeNumber(actualValue));
@@ -1925,17 +1987,25 @@ export default function App() {
         unit,
         routine.unit
       );
-      const score = calculateRoutineScore(routine, normalizedValue, dateKey);
-      const nextRecords = upsertDreamRoutineRecord(item.routineRecords ?? [], {
-        id: createId("routine-record"),
+      const existingRecord = findRoutineRecord(item.routineRecords ?? [], routineId, dateKey);
+      const score = completedOnly
+        ? existingRecord?.score ?? 1
+        : calculateRoutineScore(routine, normalizedValue, dateKey);
+      const nextRecord = {
+        ...existingRecord,
+        id: existingRecord?.id ?? createId("routine-record"),
         routineId,
         date: dateKey,
         score,
-        value: normalizedValue,
-        note: originalText,
-        createdAt: now,
+        value: completedOnly ? existingRecord?.value : normalizedValue,
+        note: originalText ?? existingRecord?.note,
+        createdAt: existingRecord?.createdAt ?? now,
         updatedAt: now,
-      });
+      } as DreamRoutineRecord & { completed?: boolean };
+      if (completedOnly) {
+        nextRecord.completed = true;
+      }
+      const nextRecords = upsertDreamRoutineRecord(item.routineRecords ?? [], nextRecord);
       didUpdate = true;
 
       return {
@@ -1947,8 +2017,11 @@ export default function App() {
     });
 
     if (didUpdate && source === "chat") {
-      const traceTitle = `${routineTitle || "반복 목표"} · ${formatRoutineTarget(safeActualValue, displayUnit)} 수행`;
-      const traceItem: DailyTraceItem = {
+      const traceTitle = completedOnly
+        ? `${routineTitle || "반복 목표"} 수행`
+        : `${routineTitle || "반복 목표"} · ${formatRoutineTarget(safeActualValue, displayUnit)} 수행`;
+      const traceSourceId = `routine_execution:${routineId}:${dateKey}`;
+      const traceItem = {
         id: createId("trace"),
         type: "record",
         date: dateKey,
@@ -1961,15 +2034,28 @@ export default function App() {
         saveTargets: ["daily_trace"],
         importance: 70,
         displayCategory: "반복 목표 수행",
+        sourceType: "routine_execution",
+        sourceId: traceSourceId,
         createdAt: now,
-      };
-      const exists = nextItems.some(
-        (item) =>
-          item.date === dateKey &&
-          item.displayCategory === "반복 목표 수행" &&
-          normalizeMemoryInput(item.title) === normalizeMemoryInput(traceTitle)
-      );
-      if (!exists) {
+      } as DailyTraceItem;
+      let didUpdateTrace = false;
+      nextItems = nextItems
+        .filter((item) => !isLegacyRoutineExecutionTrace(item, routineTitle, dateKey, traceSourceId))
+        .map((item) => {
+          const typedItem = item as DailyTraceItem & { sourceId?: string };
+          if (typedItem.sourceId !== traceSourceId) {
+            return item;
+          }
+          didUpdateTrace = true;
+          return {
+            ...item,
+            ...traceItem,
+            id: item.id,
+            createdAt: item.createdAt,
+            updatedAt: now,
+          };
+        });
+      if (!didUpdateTrace) {
         nextItems = [...nextItems, traceItem];
       }
     }
@@ -1994,8 +2080,34 @@ export default function App() {
       itemId,
       routineId,
       dateKey: today,
-      actualValue: value ?? (score > 0 ? 1 : 0),
+      actualValue: value ?? 0,
       source: "button",
+      completedOnly: value === undefined && score > 0,
+    });
+  };
+
+  const cancelRoutineTodayRecord = (itemId: string, routineId: string) => {
+    const today = getLocalDateString(new Date());
+    const now = new Date().toISOString();
+    setDailyTraces((currentItems) => {
+      const nextItems = currentItems.map((item) => {
+        if (item.id !== itemId) {
+          return item;
+        }
+        return {
+          ...item,
+          routineRecords: (item.routineRecords ?? []).filter(
+            (record) => !(record.routineId === routineId && record.date === today)
+          ),
+          progressUpdatedAt: now,
+          updatedAt: now,
+        };
+      });
+      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+        console.error("[routine-today-cancel-save-error]", error)
+      );
+      console.log("[routine-today-record-cancelled]", { routineId, dateKey: today });
+      return nextItems;
     });
   };
 
@@ -2085,6 +2197,35 @@ export default function App() {
     });
   };
 
+  const removeRoutineFromTodayMe = (itemId: string, routineId: string) => {
+    const now = new Date().toISOString();
+    setDailyTraces((currentItems) => {
+      const nextItems = currentItems.map((item) => {
+        if (item.id !== itemId) {
+          return item;
+        }
+        return {
+          ...item,
+          routines: (item.routines ?? []).map((routine) =>
+            routine.id === routineId
+              ? {
+                  ...routine,
+                  archivedFromTodayMe: true,
+                  updatedAt: now,
+                }
+              : routine
+          ),
+          updatedAt: now,
+        };
+      });
+      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+        console.error("[today-me-routine-remove-save-error]", error)
+      );
+      console.log("[today-me-card-removed]", { sourceType: "routine", sourceId: routineId });
+      return nextItems;
+    });
+  };
+
   const completeProjectFromTodayMe = (projectId: string) => {
     const now = new Date().toISOString();
     setProjects((currentProjects) => {
@@ -2102,6 +2243,27 @@ export default function App() {
         console.error("[today-me-project-complete-save-error]", error)
       );
       console.log("[today-me-card-archived]", { sourceType: "project", sourceId: projectId });
+      return nextProjects;
+    });
+  };
+
+  const removeProjectFromTodayMe = (projectId: string) => {
+    const now = new Date().toISOString();
+    setProjects((currentProjects) => {
+      const nextProjects = currentProjects.map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              archivedFromTodayMe: true,
+              pinnedToTodayMe: false,
+              updatedAt: now,
+            }
+          : project
+      );
+      saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects).catch((error) =>
+        console.error("[today-me-project-remove-save-error]", error)
+      );
+      console.log("[today-me-card-removed]", { sourceType: "project", sourceId: projectId });
       return nextProjects;
     });
   };
@@ -2143,9 +2305,31 @@ export default function App() {
   const getActiveTodayMeCardCount = (nextProjects: NoieProject[] = projects) => {
     const torchPiece = selectDreamTorchPiece(getDreamTorchCandidates(dailyTraces), dreamTorchId);
     const dreamFragments = getDreamFragments(dailyTraces).filter((piece) => piece.id !== torchPiece?.id);
-    const activeRoutines = torchPiece ? getActiveDreamRoutines(torchPiece, getActiveDreamSeason(torchPiece)) : [];
-    const activeTodayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, nextProjects);
-    return buildTodayMeCards(activeRoutines, activeTodayMeProjects, torchPiece, getLocalDateString(new Date())).length;
+    return getVisibleTodayMeCards(torchPiece, dreamFragments, nextProjects, getLocalDateString(new Date())).length;
+  };
+
+  const cancelProjectNextActionToday = (projectId: string) => {
+    const now = new Date().toISOString();
+    const today = getLocalDateString(new Date());
+    setProjects((currentProjects) => {
+      const nextProjects = currentProjects.map((project) => {
+        if (project.id !== projectId) {
+          return project;
+        }
+        const nextDailyActionRecords = { ...(project.dailyActionRecords ?? {}) };
+        delete nextDailyActionRecords[today];
+        return {
+          ...project,
+          dailyActionRecords: nextDailyActionRecords,
+          updatedAt: now,
+        };
+      });
+      saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects).catch((error) =>
+        console.error("[today-me-project-action-cancel-save-error]", error)
+      );
+      console.log("[today-me-project-action-cancelled]", { id: projectId, dateKey: today });
+      return nextProjects;
+    });
   };
 
   const handleStartProjectInTodayMe = async (input: StartProjectInput) => {
@@ -2185,6 +2369,7 @@ export default function App() {
           project.id === existingProject.id
             ? {
                 ...project,
+                isArchived: false,
                 pinnedToTodayMe: true,
                 archivedFromTodayMe: false,
                 todayMeOrder: typeof project.todayMeOrder === "number" ? project.todayMeOrder : getNextTodayMeOrder(safeProjects),
@@ -2433,10 +2618,14 @@ export default function App() {
               onUpdateDreamTorchPlan={updateDreamTorchPlan}
               onSelectGoalDuration={handleSelectGoalDuration}
               onRecordDreamRoutine={recordDreamRoutineQuick}
+              onCancelDreamRoutineToday={cancelRoutineTodayRecord}
               onCompleteProjectNextAction={completeProjectNextAction}
+              onCancelProjectNextActionToday={cancelProjectNextActionToday}
               onAdjustRoutineTodayTarget={adjustRoutineTodayTarget}
               onCompleteRoutineFromTodayMe={completeRoutineFromTodayMe}
               onCompleteProjectFromTodayMe={completeProjectFromTodayMe}
+              onRemoveRoutineFromTodayMe={removeRoutineFromTodayMe}
+              onRemoveProjectFromTodayMe={removeProjectFromTodayMe}
               todayMeFeedback={todayMeFeedback}
               isStartingProject={isStartingProject}
               isSavingGoalDuration={isSavingGoalDuration}
@@ -3475,7 +3664,17 @@ function DailyTraceCandidateCard({
                 activeOpacity={0.85}
               >
                 <Text style={styles.traceConfirmButtonText}>
-                  {isSaving ? "저장 중..." : "꿈의 횃불로 정하기"}
+                  {isSaving ? "저장 중..." : "꿈의 횃불로 밝히기"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id, "fragment")}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceConfirmButtonText}>
+                  {isSaving ? "저장 중..." : "꿈의 파편으로 남기기"}
                 </Text>
               </TouchableOpacity>
             </>
@@ -3488,7 +3687,7 @@ function DailyTraceCandidateCard({
                 activeOpacity={0.85}
               >
                 <Text style={styles.traceConfirmButtonText}>
-                  {isSaving ? "저장 중..." : "저장하기"}
+                  {isSaving ? "저장 중..." : "꿈의 파편으로 남기기"}
                 </Text>
               </TouchableOpacity>
             </>
@@ -3542,11 +3741,15 @@ function DreamVaultScreen({
   onUpdateDreamTorchPlan,
   onSelectGoalDuration,
   onRecordDreamRoutine,
+  onCancelDreamRoutineToday,
   onOpenProject,
   onCompleteProjectNextAction,
+  onCancelProjectNextActionToday,
   onAdjustRoutineTodayTarget,
   onCompleteRoutineFromTodayMe,
   onCompleteProjectFromTodayMe,
+  onRemoveRoutineFromTodayMe,
+  onRemoveProjectFromTodayMe,
   todayMeFeedback,
   isStartingProject,
   isSavingGoalDuration,
@@ -3562,10 +3765,14 @@ function DreamVaultScreen({
   onUpdateDreamTorchPlan: (itemId: string, values: Partial<DailyTraceItem>) => void;
   onSelectGoalDuration: (itemId: string, months: GoalDurationMonths) => Promise<void>;
   onRecordDreamRoutine: (itemId: string, routineId: string, score: DreamRoutineQuickScore, value?: number) => void;
+  onCancelDreamRoutineToday: (itemId: string, routineId: string) => void;
   onCompleteProjectNextAction: (projectId: string) => void;
+  onCancelProjectNextActionToday: (projectId: string) => void;
   onAdjustRoutineTodayTarget: (itemId: string, routineId: string, delta: number) => void;
   onCompleteRoutineFromTodayMe: (itemId: string, routineId: string) => void;
   onCompleteProjectFromTodayMe: (projectId: string) => void;
+  onRemoveRoutineFromTodayMe: (itemId: string, routineId: string) => void;
+  onRemoveProjectFromTodayMe: (projectId: string) => void;
   todayMeFeedback: string;
   isStartingProject: boolean;
   isSavingGoalDuration: boolean;
@@ -3579,6 +3786,9 @@ function DreamVaultScreen({
   );
   const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
   const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects);
+  const todayKey = getLocalDateString(new Date());
+  const todayMeCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
+  const unlinkedProjects = getUnlinkedDreamProjects(projects, torchPiece, dreamFragments);
 
   return (
     <ScrollView
@@ -3616,9 +3826,11 @@ function DreamVaultScreen({
             {torchPiece ? (
               <DreamTorchSimplePanel
                 piece={torchPiece}
+                todayMeCards={todayMeCards}
                 onSelectGoalDuration={onSelectGoalDuration}
                 isSavingGoalDuration={isSavingGoalDuration}
                 onRecordDreamRoutine={onRecordDreamRoutine}
+                onCompleteProjectNextAction={onCompleteProjectNextAction}
               />
             ) : null}
           </View>
@@ -3647,10 +3859,25 @@ function DreamVaultScreen({
               </View>
             )}
           </View>
+
+          {unlinkedProjects.length > 0 ? (
+            <View style={styles.flowCard}>
+              <Text style={styles.flowCardTitle}>연결되지 않은 프로젝트</Text>
+              <View style={styles.linkedProjectList}>
+                {unlinkedProjects.map((project) => (
+                  <ProjectSummaryRow
+                    key={`unlinked-project-${project.id}`}
+                    project={project}
+                    onOpenProject={onOpenProject}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
         </>
       )}
 
-      <CompletedTodayMeCardsSection torchPiece={torchPiece} projects={projects} />
+      <CompletedTodayMeCardsSection torchPiece={torchPiece} projects={projects} dailyTraces={dailyTraces} />
 
       <TodayMeSection
         torchPiece={torchPiece}
@@ -3662,6 +3889,8 @@ function DreamVaultScreen({
         onAdjustRoutineTodayTarget={onAdjustRoutineTodayTarget}
         onCompleteRoutineFromTodayMe={onCompleteRoutineFromTodayMe}
         onCompleteProjectFromTodayMe={onCompleteProjectFromTodayMe}
+        onRemoveRoutineFromTodayMe={onRemoveRoutineFromTodayMe}
+        onRemoveProjectFromTodayMe={onRemoveProjectFromTodayMe}
         onOpenProject={onOpenProject}
         externalFeedback={todayMeFeedback}
         isStartingProject={isStartingProject}
@@ -3674,9 +3903,11 @@ function DreamVaultScreen({
 function CompletedTodayMeCardsSection({
   torchPiece,
   projects,
+  dailyTraces,
 }: {
   torchPiece?: DailyTraceItem;
   projects: NoieProject[];
+  dailyTraces: DailyTraceItem[];
 }) {
   const completedRoutines = (torchPiece?.routines ?? []).filter(
     (routine) => routine.lifecycleStatus === "completed" || Boolean(routine.completedAt)
@@ -3684,7 +3915,8 @@ function CompletedTodayMeCardsSection({
   const completedProjects = projects.filter(
     (project) => project.status === "done" || Boolean(project.completedAt)
   );
-  const completedCount = completedRoutines.length + completedProjects.length;
+  const completedActions = dailyTraces.filter(isCompletedActionTrace);
+  const completedCount = completedRoutines.length + completedProjects.length + completedActions.length;
 
   return (
     <View style={styles.flowCard}>
@@ -3709,10 +3941,30 @@ function CompletedTodayMeCardsSection({
               <Text style={styles.todayMeStatus}>완료로 보관됨</Text>
             </View>
           ))}
+          {completedActions.map((action) => (
+            <View key={`completed-action-${action.id}`} style={styles.todayMeItem}>
+              <Text style={styles.todayMeTypeLabel}>완료한 행동</Text>
+              <Text style={styles.todayMeTitle}>{getCompletedActionDisplayText(action)}</Text>
+              <Text style={styles.todayMeStatus}>완료로 보관됨</Text>
+            </View>
+          ))}
         </View>
       )}
     </View>
   );
+}
+
+function isCompletedActionTrace(item: DailyTraceItem) {
+  const typedItem = item as DailyTraceItem & { sourceType?: string; category?: string };
+  return (
+    typedItem.sourceType === "completed_action" ||
+    typedItem.category === "completed_action" ||
+    (item.memoryType === "achievement" && item.displayCategory === "완료한 행동")
+  );
+}
+
+function getCompletedActionDisplayText(item: DailyTraceItem) {
+  return getMeaningfulDailyPieceText(item) || item.title;
 }
 
 type TodayMeCard =
@@ -3737,10 +3989,16 @@ type TodayMeSectionProps = {
   onAdjustRoutineTodayTarget: (itemId: string, routineId: string, delta: number) => void;
   onCompleteRoutineFromTodayMe: (itemId: string, routineId: string) => void;
   onCompleteProjectFromTodayMe: (projectId: string) => void;
+  onRemoveRoutineFromTodayMe: (itemId: string, routineId: string) => void;
+  onRemoveProjectFromTodayMe: (projectId: string) => void;
   onOpenProject: (projectId: string) => void;
   externalFeedback: string;
   isStartingProject: boolean;
 };
+
+type TodayMeDeleteTarget =
+  | { type: "routine"; itemId: string; id: string; title: string }
+  | { type: "project"; id: string; title: string };
 
 function TodayMeSection({
   torchPiece,
@@ -3752,6 +4010,8 @@ function TodayMeSection({
   onAdjustRoutineTodayTarget,
   onCompleteRoutineFromTodayMe,
   onCompleteProjectFromTodayMe,
+  onRemoveRoutineFromTodayMe,
+  onRemoveProjectFromTodayMe,
   onOpenProject,
   externalFeedback,
   isStartingProject,
@@ -3762,18 +4022,18 @@ function TodayMeSection({
   const [isDirectProjectOpen, setIsDirectProjectOpen] = useState(false);
   const [directProjectTitle, setDirectProjectTitle] = useState("");
   const [directProjectNextAction, setDirectProjectNextAction] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<TodayMeDeleteTarget | null>(null);
   const todayKey = getLocalDateString(new Date());
   const activeSeason = torchPiece ? getActiveDreamSeason(torchPiece) : undefined;
   const routines = torchPiece ? getActiveDreamRoutines(torchPiece, activeSeason) : [];
-  const cards = buildTodayMeCards(routines, projects, torchPiece, todayKey);
-  const visibleCards = cards.slice(0, MAX_TODAY_ME_CARDS);
+  const visibleCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
   const recommendation = visibleCards.length < MAX_TODAY_ME_CARDS
     ? selectTodayMeRecommendation(torchPiece, dreamFragments, visibleCards, dismissedRecommendationKeys)
     : undefined;
-  const completedRoutineCount = routines.filter((routine) => getTodayRoutineRecord(torchPiece, routine)?.score === 1).length;
+  const completedRoutineCount = routines.filter((routine) => isRoutineActionDoneToday(getTodayRoutineRecord(torchPiece, routine))).length;
   const partialRoutineCount = routines.filter((routine) => {
-    const score = getTodayRoutineRecord(torchPiece, routine)?.score ?? 0;
-    return score > 0 && score < 1;
+    const record = getTodayRoutineRecord(torchPiece, routine);
+    return Boolean(record && !isRoutineActionDoneToday(record) && record.score > 0);
   }).length;
   const completedProjectActionCount = projects.filter((project) => isProjectActionDone(project, todayKey)).length;
   const feedback = getTodayMeFeedback(routines.length, completedRoutineCount, partialRoutineCount, projects.length, completedProjectActionCount);
@@ -3820,6 +4080,18 @@ function TodayMeSection({
     setRoutineValueText("");
   };
 
+  const confirmDeleteTarget = () => {
+    if (!deleteTarget) {
+      return;
+    }
+    if (deleteTarget.type === "routine") {
+      onRemoveRoutineFromTodayMe(deleteTarget.itemId, deleteTarget.id);
+    } else {
+      onRemoveProjectFromTodayMe(deleteTarget.id);
+    }
+    setDeleteTarget(null);
+  };
+
   console.log("[today-me-cards]", { activeCount: visibleCards.length });
   console.log("[today-me-recommendation]", { hasRecommendation: Boolean(recommendation), type: recommendation?.type });
 
@@ -3854,18 +4126,42 @@ function TodayMeSection({
             if (card.cardType === "routine") {
               const routine = card.routine;
               const record = getTodayRoutineRecord(torchPiece, routine);
-              const isDone = record?.score === 1;
-              const isPartial = Boolean(record && record.score > 0 && record.score < 1);
+              const isDone = isRoutineActionDoneToday(record);
+              const isPartial = Boolean(record && !isDone && record.score > 0);
               const effectiveTarget = getEffectiveRoutineTargetValue(routine, todayKey);
               const unit = routine.unit ?? "";
+              const isDeleteConfirmOpen = deleteTarget?.type === "routine" && deleteTarget.id === routine.id;
               return (
                 <View key={card.id} style={styles.todayMeItem}>
-                  <Text style={styles.todayMeTypeLabel}>반복 목표</Text>
+                  <View style={styles.todayMeCardHeader}>
+                    <Text style={styles.todayMeTypeLabel}>반복 목표</Text>
+                    <TouchableOpacity
+                      style={styles.todayMeDeleteButton}
+                      onPress={() => torchPiece && setDeleteTarget({ type: "routine", itemId: torchPiece.id, id: routine.id, title: routine.title })}
+                      disabled={!torchPiece}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.todayMeDeleteButtonText}>삭제</Text>
+                    </TouchableOpacity>
+                  </View>
                   <View style={styles.todayMeItemMain}>
                     <Text style={styles.todayMeTitle}>{routine.title}</Text>
                     <Text style={styles.todayMeMeta}>오늘 목표 · {formatRoutineTarget(effectiveTarget, unit)}</Text>
                     <Text style={styles.todayMeStatus}>{isDone ? "오늘 완료" : isPartial ? "부분 기록" : "오늘은 아직 기록 전"}</Text>
                   </View>
+                  {isDeleteConfirmOpen ? (
+                    <View style={styles.todayMeDeleteConfirmBox}>
+                      <Text style={styles.todayMeDeleteConfirmText}>이 반복 목표를 오늘의 나에서 삭제할까요?</Text>
+                      <View style={styles.todayMeDeleteConfirmActions}>
+                        <TouchableOpacity style={styles.todayMeDeleteConfirmButton} onPress={confirmDeleteTarget} activeOpacity={0.85}>
+                          <Text style={styles.todayMeDeleteConfirmButtonText}>삭제</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.todayMeCancelConfirmButton} onPress={() => setDeleteTarget(null)} activeOpacity={0.85}>
+                          <Text style={styles.todayMeCancelConfirmButtonText}>취소</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : null}
                   <View style={styles.todayMeActionRow}>
                     <TouchableOpacity style={styles.todayMeTinyButton} onPress={() => torchPiece && onAdjustRoutineTodayTarget(torchPiece.id, routine.id, -getRoutineStep(routine))} activeOpacity={0.85}>
                       <Text style={styles.todayMeTinyButtonText}>-</Text>
@@ -3912,25 +4208,44 @@ function TodayMeSection({
 
             const project = card.project;
             const isDone = isProjectActionDone(project, todayKey);
-            const relatedDreamText = getProjectRelatedDreamText(project, dreamFragments, torchPiece);
+            const nextAction = project.nextAction?.trim();
+            const isDeleteConfirmOpen = deleteTarget?.type === "project" && deleteTarget.id === project.id;
+            if (!nextAction) {
+              return null;
+            }
             return (
               <View key={card.id} style={styles.todayMeItem}>
-                <Text style={styles.todayMeTypeLabel}>프로젝트</Text>
+                <View style={styles.todayMeCardHeader}>
+                  <Text style={styles.todayMeTypeLabel}>프로젝트 행동</Text>
+                  <TouchableOpacity
+                    style={styles.todayMeDeleteButton}
+                    onPress={() => setDeleteTarget({ type: "project", id: project.id, title: project.title })}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.todayMeDeleteButtonText}>삭제</Text>
+                  </TouchableOpacity>
+                </View>
                 <TouchableOpacity style={styles.todayMeItemMain} onPress={() => onOpenProject(project.id)} activeOpacity={0.85}>
-                  <Text style={styles.todayMeTitle}>{project.title}</Text>
-                  <Text style={styles.todayMeMeta}>상태: {formatDreamProjectStatus(project.status)}</Text>
-                  <Text style={styles.todayMeMeta}>다음 행동: {project.nextAction?.trim() || "다음 행동을 정하면 오늘 바로 시작할 수 있어요."}</Text>
-                  {relatedDreamText ? <Text style={styles.todayMeMeta}>연결된 꿈: {relatedDreamText}</Text> : null}
+                  <Text style={styles.todayMeTitle}>{nextAction}</Text>
+                  <Text style={styles.todayMeMeta}>프로젝트 · {project.title}</Text>
                   {isDone ? <Text style={styles.todayMeStatus}>다음 행동 완료</Text> : null}
                 </TouchableOpacity>
+                {isDeleteConfirmOpen ? (
+                  <View style={styles.todayMeDeleteConfirmBox}>
+                    <Text style={styles.todayMeDeleteConfirmText}>이 프로젝트를 오늘의 나에서 삭제할까요?</Text>
+                    <View style={styles.todayMeDeleteConfirmActions}>
+                      <TouchableOpacity style={styles.todayMeDeleteConfirmButton} onPress={confirmDeleteTarget} activeOpacity={0.85}>
+                        <Text style={styles.todayMeDeleteConfirmButtonText}>삭제</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.todayMeCancelConfirmButton} onPress={() => setDeleteTarget(null)} activeOpacity={0.85}>
+                        <Text style={styles.todayMeCancelConfirmButtonText}>취소</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null}
                 <View style={styles.todayMeActionRow}>
-                  {project.nextAction?.trim() ? (
-                    <TouchableOpacity style={[styles.todayMeButton, isDone && styles.todayMeButtonDone]} onPress={() => onCompleteProjectNextAction(project.id)} disabled={isDone} activeOpacity={0.85}>
-                      <Text style={styles.todayMeButtonText}>다음 행동 했어요</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  <TouchableOpacity style={styles.todayMeSecondaryButton} onPress={() => onCompleteProjectFromTodayMe(project.id)} activeOpacity={0.85}>
-                    <Text style={styles.todayMeSecondaryButtonText}>프로젝트 완료로 보관</Text>
+                  <TouchableOpacity style={[styles.todayMeButton, isDone && styles.todayMeButtonDone]} onPress={() => onCompleteProjectNextAction(project.id)} disabled={isDone} activeOpacity={0.85}>
+                    <Text style={styles.todayMeButtonText}>했어요</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -4062,26 +4377,32 @@ function DreamProjectSummaryCard({ summary }: { summary: DreamProjectSummary }) 
 
 function DreamTorchSimplePanel({
   piece,
+  todayMeCards,
   onSelectGoalDuration,
   isSavingGoalDuration,
   onRecordDreamRoutine,
+  onCompleteProjectNextAction,
 }: {
   piece: DailyTraceItem;
+  todayMeCards: TodayMeCard[];
   onSelectGoalDuration: (itemId: string, months: GoalDurationMonths) => Promise<void>;
   isSavingGoalDuration: boolean;
   onRecordDreamRoutine: (itemId: string, routineId: string, score: DreamRoutineQuickScore, value?: number) => void;
+  onCompleteProjectNextAction: (projectId: string) => void;
 }) {
   const selectedMonths = getSelectedGoalDuration(piece);
-  const activeSeason = getActiveDreamSeason(piece);
-  const activeRoutines = getActiveDreamRoutines(piece, activeSeason);
   const todayKey = getLocalDateString(new Date());
+  const fireRoutines = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "routine" }> => card.cardType === "routine");
+  const fireProjects = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "project" }> => card.cardType === "project");
   const displayText = getMemoryInputText(piece) || piece.title;
   const ddayLabel = getDreamDdayLabel(piece);
-  const completedRoutineCount = activeRoutines.filter(
-    (routine) => getTodayRoutineRecord(piece, routine)?.score === 1
+  const completedRoutineCount = fireRoutines.filter(
+    ({ routine }) => isRoutineActionDoneToday(getTodayRoutineRecord(piece, routine))
   ).length;
-  const totalRoutineCount = activeRoutines.length;
-  const isAllDoneToday = totalRoutineCount > 0 && completedRoutineCount === totalRoutineCount;
+  const completedProjectCount = fireProjects.filter(({ project }) => isProjectActionDone(project, todayKey)).length;
+  const totalFireCount = todayMeCards.length;
+  const completedFireCount = completedRoutineCount + completedProjectCount;
+  const isAllDoneToday = totalFireCount > 0 && completedFireCount === totalFireCount;
 
   return (
     <View style={styles.dreamTorchSimplePanel}>
@@ -4122,42 +4443,71 @@ function DreamTorchSimplePanel({
       <View style={styles.dreamTorchSection}>
         <View style={styles.dreamTorchFireHeader}>
           <Text style={styles.dreamTorchSectionTitle}>
-            {isAllDoneToday ? "오늘의 불씨를 모두 켰어요 ✓" : "오늘의 불씨"}
+            {isAllDoneToday ? "오늘의 불씨를 모두 켰어요 🔥" : "오늘의 불씨"}
           </Text>
-          <Text style={styles.dreamTorchCountText}>{completedRoutineCount} / {totalRoutineCount}</Text>
+          <Text style={styles.dreamTorchCountText}>{completedFireCount} / {totalFireCount}</Text>
         </View>
-        {activeRoutines.length > 0 ? (
+        {totalFireCount > 0 ? (
           <View style={styles.dreamTorchRoutineList}>
-            {activeRoutines.map((routine, index) => {
+            {fireRoutines.map(({ routine }, index) => {
               const record = getTodayRoutineRecord(piece, routine);
-              const isDone = record?.score === 1;
+              const isDone = isRoutineActionDoneToday(record);
               const targetValue = getEffectiveRoutineTargetValue(routine, todayKey);
               const routineTargetText =
                 targetValue > 0 ? `오늘 목표 · ${formatRoutineTarget(targetValue, routine.unit)}` : formatRoutineMeta(routine);
+              const showDivider = index < totalFireCount - 1;
 
               return (
                 <View key={routine.id}>
                   <View style={styles.dreamTorchRoutineRow}>
-                    <View style={styles.dreamTorchRoutineIconBox}>
-                      {isDone ? <Text style={styles.dreamTorchRoutineIcon}>✓</Text> : null}
-                    </View>
                     <View style={styles.dreamTorchRoutineTextBlock}>
-                      <Text style={styles.dreamTorchRoutineTitle}>{routine.title}</Text>
+                      <Text style={styles.dreamTorchRoutineTitle}>{isDone ? `🔥 ${routine.title}` : routine.title}</Text>
                       <Text style={styles.dreamTorchRoutineMeta}>
                         {isDone ? "오늘 행동했어요" : routineTargetText}
                       </Text>
                     </View>
                     {!isDone ? (
+                      <View style={styles.dreamTorchFireActionRow}>
                       <TouchableOpacity
                         style={styles.dreamTorchCompleteButton}
-                        onPress={() => onRecordDreamRoutine(piece.id, routine.id, 1, targetValue > 0 ? targetValue : 1)}
+                        onPress={() => onRecordDreamRoutine(piece.id, routine.id, 1)}
                         activeOpacity={0.85}
                       >
                         <Text style={styles.dreamTorchCompleteButtonText}>완료</Text>
                       </TouchableOpacity>
+                      </View>
                     ) : null}
                   </View>
-                  {index < activeRoutines.length - 1 ? <View style={styles.dreamTorchRoutineDivider} /> : null}
+                  {showDivider ? <View style={styles.dreamTorchRoutineDivider} /> : null}
+                </View>
+              );
+            })}
+            {fireProjects.map(({ project }, index) => {
+              const isDone = isProjectActionDone(project, todayKey);
+              const actionText = project.nextAction?.trim() || "다음 행동";
+
+              return (
+                <View key={`project-fire-${project.id}`}>
+                  <View style={styles.dreamTorchRoutineRow}>
+                    <View style={styles.dreamTorchRoutineTextBlock}>
+                      <Text style={styles.dreamTorchRoutineTitle}>{isDone ? `🔥 ${actionText}` : actionText}</Text>
+                      <Text style={styles.dreamTorchRoutineMeta}>
+                        {isDone ? "오늘 행동했어요" : `프로젝트 · ${project.title}`}
+                      </Text>
+                    </View>
+                    {!isDone ? (
+                      <View style={styles.dreamTorchFireActionRow}>
+                      <TouchableOpacity
+                        style={styles.dreamTorchCompleteButton}
+                        onPress={() => onCompleteProjectNextAction(project.id)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.dreamTorchCompleteButtonText}>완료</Text>
+                      </TouchableOpacity>
+                      </View>
+                    ) : null}
+                  </View>
+                  {fireRoutines.length + index < totalFireCount - 1 ? <View style={styles.dreamTorchRoutineDivider} /> : null}
                 </View>
               );
             })}
@@ -4264,7 +4614,9 @@ function DreamPieceCard({
   onOpenProject: (projectId: string) => void;
 }) {
   const [showResumeMaterial, setShowResumeMaterial] = useState(false);
-  const linkedProject = getLinkedProjectForFragment(piece, projects);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const linkedProjects = getLinkedProjectsForFragment(piece, projects);
+  const linkedProject = linkedProjects[0];
   const resumeMaterial = buildResumeMaterial(piece, linkedProject);
   const displayText = getMemoryInputText(piece) || piece.title;
   const memoText = piece.memo?.trim() ?? "";
@@ -4287,6 +4639,20 @@ function DreamPieceCard({
           />
         ) : null}
 
+        {!isTorch && linkedProjects.length > 0 ? (
+          <View style={styles.linkedProjectBox}>
+            <Text style={styles.linkedProjectSectionTitle}>연결된 프로젝트</Text>
+            <View style={styles.linkedProjectList}>
+              {linkedProjects.map((project) => (
+                <ProjectSummaryRow
+                  key={`fragment-project-${project.id}`}
+                  project={project}
+                  onOpenProject={onOpenProject}
+                />
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.dreamPieceActions}>
           {!isTorch ? (
@@ -4329,12 +4695,37 @@ function DreamPieceCard({
           ) : null}
           <TouchableOpacity
             style={styles.dreamPieceActionButtonMuted}
-            onPress={() => onHideFromDream(piece.id)}
+            onPress={() => setIsDeleteConfirmOpen(true)}
             activeOpacity={0.85}
           >
-            <Text style={styles.dreamPieceActionTextMuted}>꿈에서 제외</Text>
+            <Text style={styles.dreamPieceActionTextMuted}>삭제</Text>
           </TouchableOpacity>
         </View>
+
+        {isDeleteConfirmOpen ? (
+          <View style={styles.dreamPieceDeleteConfirmBox}>
+            <Text style={styles.dreamPieceDeleteConfirmText}>이 꿈의 파편을 삭제할까요?</Text>
+            <View style={styles.dreamPieceActions}>
+              <TouchableOpacity
+                style={styles.dreamPieceDeleteButton}
+                onPress={() => {
+                  setIsDeleteConfirmOpen(false);
+                  onHideFromDream(piece.id);
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.dreamPieceDeleteButtonText}>삭제</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.dreamPieceActionButtonMuted}
+                onPress={() => setIsDeleteConfirmOpen(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.dreamPieceActionTextMuted}>취소</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
 
 
         {showResumeMaterial && !isTorch ? (
@@ -4342,6 +4733,30 @@ function DreamPieceCard({
         ) : null}
       </View>
     </View>
+  );
+}
+
+function ProjectSummaryRow({
+  project,
+  onOpenProject,
+}: {
+  project: NoieProject;
+  onOpenProject: (projectId: string) => void;
+}) {
+  const nextAction = project.nextAction?.trim();
+
+  return (
+    <TouchableOpacity
+      style={styles.linkedProjectItem}
+      onPress={() => onOpenProject(project.id)}
+      activeOpacity={0.85}
+    >
+      <Text style={styles.linkedProjectTitle}>{project.title}</Text>
+      <Text style={styles.linkedProjectMeta}>
+        다음 행동 · {nextAction || "다음 행동을 정해보세요"}
+      </Text>
+      <Text style={styles.linkedProjectStatus}>{formatDreamProjectStatus(project.status)}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -4941,6 +5356,10 @@ function getRoutineRecordActualValue(record?: DreamRoutineRecord) {
   return clampRatio(record.score);
 }
 
+function isRoutineActionDoneToday(record?: DreamRoutineRecord) {
+  return Boolean(record && (getRoutineRecordActualValue(record) > 0 || record.score > 0));
+}
+
 function convertRoutineRecordValueToRoutineUnit(
   value: number,
   sourceUnit?: string | null,
@@ -5062,7 +5481,7 @@ function buildTodayMeCards(
     .filter((routine) => isActiveTodayMeRoutine(routine))
     .map((routine) => ({ cardType: "routine" as const, id: `routine-${routine.id}`, routine }));
   const projectCards: TodayMeCard[] = projects
-    .filter((project) => isActiveTodayMeProject(project))
+    .filter((project) => isActiveTodayMeProject(project) && Boolean(project.nextAction?.trim()))
     .map((project) => ({ cardType: "project" as const, id: `project-${project.id}`, project }));
 
   return [...routineCards, ...projectCards].sort((left, right) => {
@@ -5073,6 +5492,18 @@ function buildTodayMeCards(
     }
     return getTodayMeCardUpdatedAt(right).localeCompare(getTodayMeCardUpdatedAt(left));
   });
+}
+
+function getVisibleTodayMeCards(
+  torchPiece: DailyTraceItem | undefined,
+  dreamFragments: DailyTraceItem[],
+  projects: NoieProject[],
+  todayKey: string
+) {
+  const activeSeason = torchPiece ? getActiveDreamSeason(torchPiece) : undefined;
+  const routines = torchPiece ? getActiveDreamRoutines(torchPiece, activeSeason) : [];
+  const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
+  return buildTodayMeCards(routines, todayMeProjects, torchPiece, todayKey).slice(0, MAX_TODAY_ME_CARDS);
 }
 
 function isActiveTodayMeRoutine(routine: DreamRoutine) {
@@ -5289,29 +5720,62 @@ function getDreamProjectSummary(projects: NoieProject[], torchPiece?: DailyTrace
 
 function formatDreamProjectStatus(status?: DreamProjectStatus) {
   const labelMap: Record<DreamProjectStatus, string> = {
-    idea: "idea",
-    planning: "planning",
-    in_progress: "in_progress",
-    review: "review",
-    done: "done",
+    idea: "아이디어",
+    planning: "계획 중",
+    in_progress: "진행 중",
+    review: "검토 중",
+    done: "완료",
   };
 
-  return status ? labelMap[status] : "idea";
+  return status ? labelMap[status] : "아이디어";
 }
+
+function isProjectLinkedToFragment(project: NoieProject, fragment: DailyTraceItem) {
+  return (
+    project.id === fragment.linkedProjectId ||
+    project.sourceDreamFragmentId === fragment.id ||
+    project.sourceMemoryId === fragment.id ||
+    project.relatedDreamFragmentId === fragment.id
+  );
+}
+
+function getLinkedProjectsForFragment(
+  piece: DailyTraceItem,
+  projects: NoieProject[]
+) {
+  return projects.filter((project) => !project.isArchived && isProjectLinkedToFragment(project, piece));
+}
+
 function getLinkedProjectForFragment(
   piece: DailyTraceItem,
   projects: NoieProject[]
 ) {
-  return (
-    (piece.linkedProjectId
-      ? projects.find((project) => project.id === piece.linkedProjectId)
-      : undefined) ??
-    projects.find(
-      (project) =>
-        project.sourceDreamFragmentId === piece.id ||
-        project.sourceMemoryId === piece.id
-    )
-  );
+  return getLinkedProjectsForFragment(piece, projects)[0];
+}
+
+function getUnlinkedDreamProjects(
+  projects: NoieProject[],
+  torchPiece: DailyTraceItem | undefined,
+  dreamFragments: DailyTraceItem[]
+) {
+  const dreamIds = new Set<string>();
+  if (torchPiece?.id) {
+    dreamIds.add(torchPiece.id);
+  }
+  dreamFragments.forEach((fragment) => dreamIds.add(fragment.id));
+
+  return projects.filter((project) => {
+    if (project.isArchived || project.status === "done") {
+      return false;
+    }
+    const hasDreamLink =
+      (project.relatedDreamTorchId ? dreamIds.has(project.relatedDreamTorchId) : false) ||
+      (project.sourceDreamFragmentId ? dreamIds.has(project.sourceDreamFragmentId) : false) ||
+      (project.sourceMemoryId ? dreamIds.has(project.sourceMemoryId) : false) ||
+      (project.relatedDreamFragmentId ? dreamIds.has(project.relatedDreamFragmentId) : false) ||
+      dreamFragments.some((fragment) => fragment.linkedProjectId === project.id);
+    return !hasDreamLink;
+  });
 }
 
 
@@ -5627,7 +6091,7 @@ function DailyPiecesSection({ pieces }: { pieces: DailyPieceGroup[] }) {
               <View style={styles.dailyPieceList}>
                 {group.pieces.map((piece, index) => (
                   <Text key={piece.id} style={styles.dailyPieceText}>
-                    {index + 1}. {piece.memo || piece.title}
+                    {index + 1}. {getDayPieceText(piece)}
                   </Text>
                 ))}
               </View>
@@ -5933,6 +6397,16 @@ function LineChart({ records, selectedKeys, width }: LineChartProps) {
   return (
     <View style={styles.chartWrap}>
       <Svg width={width} height={height}>
+        <Defs>
+          <ClipPath id="emotionChartClip">
+            <Rect
+              x={paddingLeft}
+              y={paddingTop}
+              width={innerWidth}
+              height={innerHeight}
+            />
+          </ClipPath>
+        </Defs>
         {[0, 0.5, 1].map((tick) => {
           const y = getY(tick);
           return (
@@ -5984,25 +6458,27 @@ function LineChart({ records, selectedKeys, width }: LineChartProps) {
 
           return (
             <React.Fragment key={key}>
-              <Polyline
-                points={points}
-                fill="none"
-                stroke={EMOTION_COLORS[key]}
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {records.map((record, index) => (
-                <Circle
-                  key={`${key}-${record.id}`}
-                  cx={getX(index)}
-                  cy={getY(record.axis[key])}
-                  r="4"
-                  fill="#050505"
+              <G clipPath="url(#emotionChartClip)">
+                <Polyline
+                  points={points}
+                  fill="none"
                   stroke={EMOTION_COLORS[key]}
-                  strokeWidth="2"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
-              ))}
+                {records.map((record, index) => (
+                  <Circle
+                    key={`${key}-${record.id}`}
+                    cx={getX(index)}
+                    cy={getY(record.axis[key])}
+                    r="4"
+                    fill="#050505"
+                    stroke={EMOTION_COLORS[key]}
+                    strokeWidth="2"
+                  />
+                ))}
+              </G>
             </React.Fragment>
           );
         })}
@@ -6650,9 +7126,9 @@ function isOtherPersonOnlyText(text: string, decision?: SaveDecision) {
 
 function parseRoutineGoalCandidate(text: string): Pick<NoieSaveRoutingResult, "title" | "repeatType" | "targetValue" | "unit"> | null {
   const normalizedText = text.trim();
-  const hasRepeat = /매일|매주|주\s*\d+\s*회|하루에|매일마다|아침마다|저녁마다|꾸준히|반복해서/.test(normalizedText);
-  const hasIntent = /할래|하려고\s*해|하기로\s*했|목표로\s*할래|습관으로\s*만들|꾸준히\s*할\s*거야|할\s*거야/.test(normalizedText);
-  const targetMatch = normalizedText.match(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/);
+  const hasRepeat = /매일|매주|주\s*\d+\s*회|하루에|매일마다|아침마다|저녁마다|꾸준히|반복해서|\d+(?:\.\d+)?\s*(분|시간|회|개|페이지|세트|장)\s*씩/.test(normalizedText);
+  const hasIntent = /할래|그릴래|읽을래|운동할래|공부할래|하려고\s*해|하기로\s*했|목표로\s*할래|습관으로\s*만들|꾸준히\s*할\s*거야|할\s*거야/.test(normalizedText);
+  const targetMatch = normalizedText.match(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트|장)\s*씩?/);
   if (!hasRepeat || !hasIntent) {
     return null;
   }
@@ -6673,11 +7149,38 @@ function parseRoutineGoalCandidate(text: string): Pick<NoieSaveRoutingResult, "t
 function normalizeRoutineTitle(text: string) {
   let title = text
     .replace(/매일마다|매일|매주|주\s*\d+\s*회|하루에|아침마다|저녁마다|꾸준히|반복해서/g, "")
-    .replace(/\d+(?:\.\d+)?\s*(시간|분|회|개|페이지|세트)/g, "")
-    .replace(/공부할래|공부하려고\s*해|할래|하려고\s*해|하기로\s*했어|목표로\s*할래|습관으로\s*만들래|꾸준히\s*할\s*거야|할\s*거야/g, "")
+    .replace(/\d+(?:\.\d+)?\s*(시간|분|회|개|페이지|세트|장)\s*씩?/g, "")
+    .replace(/공부할래|공부하려고\s*해|연습할래|해볼래|시작할래|하고\s*싶어|할래|하려고\s*해|하기로\s*했어|목표로\s*할래|습관으로\s*만들래|꾸준히\s*할\s*거야|할\s*거야/g, "")
+    .replace(/씩/g, " ")
     .trim();
+  title = stripTrailingKoreanParticles(title);
+  title = title.replace(/잡는\s*연습/g, "잡기 연습");
   if (/파이썬/.test(text) && /공부/.test(text)) {
     return "파이썬 공부하기";
+  }
+  if (/영어/.test(text) && /공부/.test(text)) {
+    return "영어 공부";
+  }
+  if (/코딩/.test(text) && /공부/.test(text)) {
+    return "코딩 공부";
+  }
+  if (/제과\s*이론/.test(text) && /공부/.test(text)) {
+    return "제과 이론 공부";
+  }
+  if (/헤어\s*컬러\s*이론/.test(text) && /공부/.test(text)) {
+    return "헤어 컬러 이론 공부";
+  }
+  if (/공부/.test(text) && title && !/공부$|공부하기$/.test(title)) {
+    return `${title.replace(/\s+/g, " ")} 공부`;
+  }
+  if (/연습/.test(text) && title && !/연습$|연습하기$/.test(title)) {
+    return `${title.replace(/\s+/g, " ")} 연습`;
+  }
+  if (/운동/.test(text)) {
+    return "운동";
+  }
+  if (/공부$|연습$|운동$/.test(title)) {
+    return title.replace(/\s+/g, " ");
   }
   if (!/기$/.test(title)) {
     title = `${title || makeMemoryTitle(text)}하기`;
@@ -6685,8 +7188,78 @@ function normalizeRoutineTitle(text: string) {
   return title.replace(/\s+/g, " ");
 }
 
+function stripTrailingKoreanParticles(text: string) {
+  return text
+    .split(/\s+/)
+    .map((word) => word.replace(/^(.+?)(을|를|은|는|이|가|도|만)$/u, "$1"))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function repairRoutineTitlesFromOriginalText(items: DailyTraceItem[]) {
+  let changed = false;
+  const repairedItems = items.map((item) => {
+    const itemSourceText = getMemoryInputText(item) || item.originalText || item.text || item.sourceText || "";
+    if (!(item.routines ?? []).length) {
+      return item;
+    }
+    const repairedRoutines = (item.routines ?? []).map((routine) => {
+      const titleKey = normalizeMemoryInput(routine.title);
+      if (!/^(가위\s*)?위\s*잡\s*연습(하기)?$|^가위\s*잡\s*연습(하기)?$/.test(titleKey)) {
+        return routine;
+      }
+      const routineSource = routine as DreamRoutine & { originalText?: string; sourceText?: string; text?: string };
+      const sourceText = routineSource.originalText || routineSource.sourceText || routineSource.text || itemSourceText;
+      if (!/가위.*연습/.test(sourceText)) {
+        return routine;
+      }
+      const repairedTitle = normalizeRoutineTitle(sourceText);
+      if (!repairedTitle || repairedTitle === routine.title) {
+        return routine;
+      }
+      changed = true;
+      return {
+        ...routine,
+        title: repairedTitle,
+      };
+    });
+    return repairedRoutines === item.routines
+      ? item
+      : {
+          ...item,
+          routines: repairedRoutines,
+        };
+  });
+
+  return changed ? repairedItems : items;
+}
+
+function isLegacyRoutineExecutionTrace(
+  item: DailyTraceItem,
+  routineTitle: string,
+  dateKey: string,
+  currentSourceId: string
+) {
+  const typedItem = item as DailyTraceItem & { sourceId?: string; sourceType?: string };
+  if (typedItem.sourceId === currentSourceId) {
+    return false;
+  }
+  if (item.date !== dateKey || item.displayCategory !== "반복 목표 수행") {
+    return false;
+  }
+  const itemTitle = normalizeMemoryInput(item.title);
+  const routineKey = normalizeMemoryInput(routineTitle).replace(/하기$/g, "");
+  return routineKey.length > 0 && itemTitle.includes(routineKey);
+}
+
 function isRoutineRecordText(text: string) {
-  return /오늘|어제|방금/.test(text) && /했어|했다|완료했|끝냈|공부했|운동했|했는데|기록|남겨|바꿔|수정/.test(text);
+  const hasRecordEditIntent = /기록해줘|기록해|기록을|수정해줘|수정해|바꿔줘|바꿔|변경해줘|변경해/.test(text);
+  const hasValue = /(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/.test(text);
+  if (hasRecordEditIntent && hasValue) {
+    return true;
+  }
+  return /오늘|어제|방금/.test(text) && /했어|했다|완료했|끝냈|공부했|운동했|했는데|기록|남겨|바꿔|수정|변경/.test(text);
 }
 
 function isPlainDailyTraceText(text: string) {
@@ -6711,7 +7284,11 @@ function findRoutineRecordRoute(
       return null;
     }
     const targetUnit = matched.routine.unit ?? parsed.requestedUnit ?? parsed.observedUnit ?? "";
-    const sourceValue = parsed.requestedValue ?? parsed.observedValue ?? getEffectiveRoutineTargetValue(matched.routine, getLocalDateString(new Date()));
+    const effectiveTargetValue = getEffectiveRoutineTargetValue(matched.routine, getLocalDateString(new Date()));
+    const sourceValue =
+      parsed.requestedValue ??
+      parsed.observedValue ??
+      (effectiveTargetValue > 0 ? effectiveTargetValue : /완료|끝냈|했어|했다/.test(text) ? 1 : 0);
     const sourceUnit = parsed.requestedUnit ?? parsed.observedUnit ?? targetUnit;
     const actualValue = convertRoutineRecordValueToRoutineUnit(sourceValue, sourceUnit, targetUnit);
     if (!Number.isFinite(actualValue) || actualValue <= 0) {
@@ -6732,6 +7309,7 @@ function findRoutineRecordRoute(
       displayUnit: sourceUnit,
       unit: targetUnit,
       isExplicitOverride: parsed.isExplicitOverride,
+      hasExistingRoutineRecord: Boolean(findRoutineRecord(matched.item.routineRecords ?? [], matched.routine.id, getLocalDateString(new Date()))),
       reason: parsed.isExplicitOverride ? "명시적 반복 목표 수행 기록 수정" : "반복 목표 수행 기록",
     };
   } catch (error) {
@@ -6757,7 +7335,7 @@ function parseRoutineRecordRequest(text: string) {
   return {
     activityText: text
       .replace(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/g, " ")
-      .replace(/오늘|어제|방금|했어|했다|했는데|완료했어|끝냈어|기록해줘|기록하기|남겨줘|바꿔줘|수정해줘|으로|로/g, " ")
+      .replace(/오늘|어제|방금|했어|했다|했는데|했지만|완료했어|끝냈어|기록해줘|기록하기|남겨줘|바꿔줘|수정해줘|변경해줘|으로|로/g, " ")
       .replace(/\s+/g, " ")
       .trim(),
     observedValue: observedMatch?.value,
@@ -6766,6 +7344,26 @@ function parseRoutineRecordRequest(text: string) {
     requestedUnit: requestedMatch?.unit ?? selectedMatch?.unit,
     isExplicitOverride,
   };
+}
+
+function hasRoutineKeywordOverlap(textKey: string, routineKey: string) {
+  const normalizeToken = (value: string) =>
+    value
+      .replace(/하기$/g, "")
+      .replace(/공부$/g, "")
+      .replace(/를|을|은|는|이|가|도|만/g, "")
+      .trim();
+  const textTokens = new Set(
+    textKey
+      .split(/\s+/)
+      .map(normalizeToken)
+      .filter((token) => token.length >= 2)
+  );
+  return routineKey
+    .split(/\s+/)
+    .map(normalizeToken)
+    .filter((token) => token.length >= 2)
+    .some((token) => textTokens.has(token));
 }
 
 function findMatchingActiveRoutineForRecord(
@@ -6779,7 +7377,7 @@ function findMatchingActiveRoutineForRecord(
   }
   const textKey = normalizeMemoryInput(`${text} ${parsed.activityText}`);
   const scored = routines
-    .map(({ routine }) => {
+    .map(({ item, routine }) => {
       const titleKey = normalizeMemoryInput(routine.title);
       const compactTitleKey = titleKey.replace(/하기$/g, "");
       let score = 0;
@@ -6795,16 +7393,19 @@ function findMatchingActiveRoutineForRecord(
       if (/파이썬|코딩|개발|공부|학습/.test(textKey) && /파이썬|코딩|개발|공부|학습/.test(titleKey)) {
         score += 2;
       }
-      return { routine, score };
+      if (hasRoutineKeywordOverlap(textKey, titleKey)) {
+        score += 3;
+      }
+      return { item, routine, score };
     })
     .filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score);
 
   if (scored[0]) {
-    return { routine: scored[0].routine, confidence: Math.min(0.98, 0.72 + scored[0].score * 0.05) };
+    return { item: scored[0].item, routine: scored[0].routine, confidence: Math.min(0.98, 0.72 + scored[0].score * 0.05) };
   }
   if (routines.length === 1) {
-    return { routine: routines[0].routine, confidence: 0.62 };
+    return { item: routines[0].item, routine: routines[0].routine, confidence: 0.62 };
   }
   return null;
 }
@@ -6849,14 +7450,40 @@ function findDuplicateProjectRoute(routingResult: NoieSaveRoutingResult, project
 }
 
 function isDreamTorchCandidateText(text: string, memoryPolicy: MemorySavePolicy) {
-  if (!isDreamOrGoalType(memoryPolicy.type)) {
+  if (isLifeDirectionDreamText(text)) {
+    return true;
+  }
+  if (!isDreamOrGoalType(memoryPolicy.type) && !isCareerDreamText(text)) {
     return false;
   }
   const normalizedText = text.trim();
   if (isDreamFragmentText(normalizedText) || isDailyIdeaText(normalizedText) || parseRoutineGoalCandidate(normalizedText)) {
     return false;
   }
-  return /가장\s*큰\s*목표|가장\s*중요한\s*꿈|대표\s*꿈|내\s*꿈|꿈이야|장기적|진로|취업하고\s*싶|개발자로\s*취업|소방관이\s*되는/.test(normalizedText);
+  return /가장\s*큰\s*목표|가장\s*중요한\s*꿈|대표\s*꿈|내\s*꿈|꿈이야|되는\s*게\s*꿈|장래희망|언젠가|장기적|진로|취업하고\s*싶|개발자가\s*되고|개발자로\s*취업|소방관이\s*되는/.test(normalizedText) &&
+    (/되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|취업하고\s*싶/.test(normalizedText) || isCareerDreamText(normalizedText));
+}
+
+function isCareerDreamText(text: string) {
+  return /파티시에|개발자|인공지능\s*개발자|ai\s*개발자|요리사|의사|디자이너|헤어\s*디자이너|소방관|간호사|선생님|교사|변호사|작가/.test(text) &&
+    /되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|언젠가/.test(text);
+}
+
+function isLifeDirectionDreamText(text: string) {
+  return (
+    /되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|언젠가|장기적인/.test(text) &&
+    (/파티시에|디자이너|개발자|의사|요리사|브랜드|사람들에게\s*자신감을\s*주는/.test(text))
+  );
+}
+
+function makeDreamChoicePromptTitle(text: string) {
+  return text
+    .replace(/언젠가/g, "")
+    .replace(/나는|내\s*꿈은|내\s*꿈|장래희망/g, "")
+    .replace(/되고\s*싶어/g, "되고 싶은")
+    .replace(/되는\s*게\s*내\s*꿈이야|되는\s*게\s*꿈이야|꿈이야/g, "되는")
+    .replace(/\s+/g, " ")
+    .trim() || "이";
 }
 
 function isImportantDayEventText(text: string) {
@@ -6941,27 +7568,29 @@ function findCompletedProjectRoute(
   text: string,
   projects: NoieProject[]
 ): NoieSaveRoutingResult | null {
-  if (!/프로젝트/.test(text) || !/완료했|끝냈|마쳤|끝남|완성했|완료/.test(text)) {
+  if (!/프로젝트|전체\s*프로젝트/.test(text) || !/완료했|끝냈|마쳤|끝남|완성했|완료\s*처리|완료/.test(text)) {
     return null;
   }
 
   const normalizedText = normalizeMemoryInput(text);
   const activeProjects = projects.filter(
     (project) =>
+      isActiveTodayMeProject(project) &&
       project.status !== "done" &&
       project.isArchived !== true &&
       project.archivedFromTodayMe !== true
   );
-  const matchedProject =
-    activeProjects.find((project) => {
-      const titleKey = normalizeMemoryInput(project.title);
-      const goalKey = normalizeMemoryInput(project.goal);
-      return (
-        normalizedText.includes(titleKey) ||
-        normalizedText.includes(goalKey) ||
-        titleKey.includes(normalizedText.replace(/프로젝트|완료했어|완료|끝냈어|마쳤어|끝남/g, "").trim())
-      );
-    }) ?? (activeProjects.length === 1 ? activeProjects[0] : null);
+  const completionSubjectKey = normalizeProjectCompletionSubject(text);
+  const matchedProject = activeProjects.find((project) => {
+    const titleKey = normalizeMemoryInput(project.title);
+    const goalKey = normalizeMemoryInput(project.goal);
+    return (
+      isProjectTextMatch(normalizedText, titleKey) ||
+      isProjectTextMatch(normalizedText, goalKey) ||
+      isProjectTextMatch(completionSubjectKey, titleKey) ||
+      isProjectTextMatch(completionSubjectKey, goalKey)
+    );
+  });
 
   if (!matchedProject) {
     return null;
@@ -6976,6 +7605,23 @@ function findCompletedProjectRoute(
     matchedProjectId: matchedProject.id,
     reason: "진행 중인 프로젝트 완료 의도",
   };
+}
+
+function normalizeProjectCompletionSubject(text: string) {
+  return normalizeMemoryInput(
+    text
+      .replace(/전체\s*프로젝트|프로젝트/g, " ")
+      .replace(/완료\s*처리해줘|완료했어|완료|끝냈어|끝냄|마쳤어|끝남|완성했어/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+function isProjectTextMatch(sourceKey: string, projectKey: string) {
+  if (!sourceKey || !projectKey || projectKey.length < 2) {
+    return false;
+  }
+  return sourceKey.includes(projectKey) || projectKey.includes(sourceKey);
 }
 
 function findCompletedProjectActionRoute(
@@ -7022,14 +7668,14 @@ function findCompletedProjectActionRoute(
 
 function isCompletedActionText(text: string) {
   return (
-    /끝냈어|완료했어|다\s*했어|마쳤어|성공적으로\s*끝냈|통과했어|해냈어/.test(text) &&
+    /끝냈어|완료했어|완성했어|다\s*했어|마쳤어|성공적으로\s*끝냈|통과했어|해냈어/.test(text) &&
     !/프로젝트/.test(text)
   );
 }
 
 function makeCompletedActionTitle(text: string) {
   const title = text
-    .replace(/오늘|끝냈어|완료했어|다\s*했어|마쳤어|성공적으로\s*끝냈어|통과했어|해냈어/g, "")
+    .replace(/오늘|끝냈어|완료했어|완성했어|다\s*했어|마쳤어|성공적으로\s*끝냈어|통과했어|해냈어/g, "")
     .trim();
   return title || makeMemoryTitle(text);
 }
@@ -7101,6 +7747,8 @@ function applyRoutingFieldsToDailyTrace(
   }
 
   if (routingResult.route === "completed_action") {
+    const completedActionKey = normalizeMemoryInput(routingResult.title || originalText);
+    const dateKey = item.date || getLocalDateString(new Date());
     return {
       ...item,
       type: "record",
@@ -7115,6 +7763,7 @@ function applyRoutingFieldsToDailyTrace(
       displayCategory: "완료한 행동",
       category: "completed_action",
       sourceType: "completed_action",
+      sourceId: `completed_action:${dateKey}:${completedActionKey}`,
     } as DailyTraceItem;
   }
 
@@ -7203,7 +7852,7 @@ function getPendingMemoryNotice(
   routingResult?: NoieSaveRoutingResult
 ) {
   if (routingResult?.route === "routine_create") {
-    return `${routingResult.title.replace(/하기$/, "")}를 반복 목표로 시작할까요?`;
+    return `${routingResult.title.replace(/하기$/, "")}를 오늘의 나에 담을까요?`;
   }
 
   if (routingResult?.route === "project_create") {
@@ -7215,7 +7864,9 @@ function getPendingMemoryNotice(
       routingResult.displayValue ?? routingResult.actualValue ?? 0,
       routingResult.displayUnit ?? routingResult.actualUnit ?? routingResult.unit
     );
-    return `${routingResult.title.replace(/하기$/, "")} 기록을 ${amountText}으로 남길까요?`;
+    return routingResult.hasExistingRoutineRecord
+      ? `오늘 ${routingResult.title.replace(/하기$/, "")} 기록을 ${amountText}으로 수정할까요?`
+      : `오늘 ${routingResult.title.replace(/하기$/, "")} 수행량을 ${amountText}으로 기록할까요?`;
   }
 
   if (routingResult?.route === "routine_adjustment_intent") {
@@ -7241,15 +7892,15 @@ function getPendingMemoryNotice(
   }
 
   if (routingResult?.route === "completed_project") {
-    return `${routingResult.title} 프로젝트를 완료한 카드로 보관할까요?`;
+    return `${routingResult.title} 프로젝트를 완료할까요?`;
   }
 
   if (routingResult?.route === "completed_action") {
-    return "완료한 행동으로 남길까요?";
+    return `${routingResult.title}을 완료한 행동으로 남길까요?`;
   }
 
   if (routingResult?.route === "dream_torch") {
-    return "이 목표를 지금 가장 중요한 꿈으로 둘까요?";
+    return `${makeDreamChoicePromptTitle(routingResult.originalText || routingResult.title)} 꿈을 어디에 남길까요?`;
   }
 
   if (isDreamOrGoalType(memoryPolicy.type)) {
@@ -7295,7 +7946,7 @@ function getConfirmButtonLabel(
       routingResult.displayValue ?? routingResult.actualValue ?? 0,
       routingResult.displayUnit ?? routingResult.actualUnit ?? routingResult.unit
     );
-    return `${amountText}으로 기록`;
+    return routingResult.hasExistingRoutineRecord ? `${amountText}으로 수정하기` : `${amountText}으로 기록`;
   }
 
   if (routingResult?.route === "daily_idea") {
@@ -7303,7 +7954,7 @@ function getConfirmButtonLabel(
   }
 
   if (routingResult?.route === "completed_action") {
-    return "완료한 행동으로 저장";
+    return "완료한 행동으로 남기기";
   }
 
   if (memoryType === "relationship") {
@@ -7881,19 +8532,19 @@ function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
   );
 
   items.forEach((item) => {
-    const createdAtDate = new Date(item.createdAt);
-    if (Number.isNaN(createdAtDate.getTime())) {
+    const targetDateKey = getDailyPieceEventDateKey(item);
+    if (!targetDateKey) {
       return;
     }
 
-    const targetGroup = piecesByDate.get(getLocalDateString(createdAtDate));
+    const targetGroup = piecesByDate.get(targetDateKey);
     if (!targetGroup) {
       return;
     }
 
     const memoryPolicy = getMemoryPolicy(item);
 
-    if (!shouldSaveToDailyPieces(memoryPolicy)) {
+    if (!shouldSaveToDailyPieces(memoryPolicy) && !isDreamDayPiece(item)) {
       return;
     }
 
@@ -7918,12 +8569,6 @@ function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
 }
 
 function sortDailyPiecesByImportance(left: DailyPiece, right: DailyPiece) {
-  const leftDreamFragment = isDreamFragmentDayPiece(left);
-  const rightDreamFragment = isDreamFragmentDayPiece(right);
-  if (leftDreamFragment !== rightDreamFragment) {
-    return leftDreamFragment ? -1 : 1;
-  }
-
   const leftImportantEvent = left.memoryPolicy.type === "important_note";
   const rightImportantEvent = right.memoryPolicy.type === "important_note";
   if (leftImportantEvent !== rightImportantEvent) {
@@ -7939,10 +8584,37 @@ function sortDailyPiecesByImportance(left: DailyPiece, right: DailyPiece) {
   return right.createdAt.localeCompare(left.createdAt);
 }
 
+function getDailyPieceEventDateKey(item: DailyTraceItem) {
+  const timestamp = isDreamDayPiece(item)
+    ? item.progressUpdatedAt || item.updatedAt || item.createdAt
+    : item.createdAt;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return getLocalDateString(date);
+}
+
+function isDreamDayPiece(item: DailyPiece | DailyTraceItem) {
+  return isDreamTorchDayPiece(item) || isDreamFragmentDayPiece(item);
+}
+
+function isDreamTorchDayPiece(item: DailyPiece | DailyTraceItem) {
+  const memoryPolicy = getMemoryPolicy(item);
+  return (
+    item.pinnedAsDreamTorch === true ||
+    item.dreamRole === "torch" ||
+    item.saveTargets?.includes("dream_torch") ||
+    memoryPolicy.saveTargets?.includes("dream_torch")
+  );
+}
+
 function isDreamFragmentDayPiece(item: DailyPiece | DailyTraceItem) {
+  const memoryPolicy = getMemoryPolicy(item);
   return (
     item.dreamRole === "fragment" ||
     item.saveTargets?.includes("dream_fragment") ||
+    memoryPolicy.saveTargets?.includes("dream_fragment") ||
     Boolean((item as DailyTraceItem).linkedProjectId && item.memoryType === "project")
   );
 }
@@ -7962,30 +8634,26 @@ function selectDailyPieceTop3(pieces: DailyPiece[]) {
 
 function selectTopDayPiecesForDate(pieces: DailyPiece[]) {
   const sortedPieces = [...pieces].sort(sortDailyPiecesByImportance);
-  const dreamPieces = sortedPieces.filter(isDreamFragmentDayPiece);
-  const importantEvents = sortedPieces.filter(isImportantDayEventPiece);
-  const sensitivePieces = sortedPieces.filter((piece) => piece.memoryPolicy.type === "sensitive_event");
+  const dreamPieces = sortedPieces.filter(isDreamDayPiece);
   const normalPieces = sortedPieces.filter(
     (piece) =>
-      !isDreamFragmentDayPiece(piece) &&
-      !isImportantDayEventPiece(piece) &&
-      piece.memoryPolicy.type !== "sensitive_event"
+      !isDreamDayPiece(piece) &&
+      isDailyLifeActionOrEventPiece(piece)
   );
   const selectedPieces: DailyPiece[] = [];
 
-  if (importantEvents[0]) {
-    selectedPieces.push(importantEvents[0]);
+  for (const dreamPiece of dreamPieces) {
+    if (selectedPieces.length >= 2) {
+      break;
+    }
+    selectedPieces.push(dreamPiece);
   }
 
-  if (dreamPieces[0] && selectedPieces.length < 2) {
-    selectedPieces.push(dreamPieces[0]);
+  if (normalPieces[0] && selectedPieces.length < 3) {
+    selectedPieces.push(normalPieces[0]);
   }
 
-  if (sensitivePieces[0] && selectedPieces.length < 3) {
-    selectedPieces.push(sensitivePieces[0]);
-  }
-
-  for (const piece of [...normalPieces, ...importantEvents.slice(1)]) {
+  for (const piece of normalPieces.slice(1)) {
     if (selectedPieces.length >= 3) {
       break;
     }
@@ -7997,13 +8665,27 @@ function selectTopDayPiecesForDate(pieces: DailyPiece[]) {
   if (selectedPieces.length < 3) {
     const selectedIds = new Set(selectedPieces.map((piece) => piece.id));
     const fallbackPieces = sortedPieces.filter(
-      (piece) => !selectedIds.has(piece.id) && !isDreamFragmentDayPiece(piece)
+      (piece) => !selectedIds.has(piece.id) && !isDreamDayPiece(piece)
     );
 
     selectedPieces.push(...fallbackPieces.slice(0, 3 - selectedPieces.length));
   }
 
   return selectedPieces.slice(0, 3);
+}
+
+function isDailyLifeActionOrEventPiece(piece: DailyPiece) {
+  const type = piece.memoryPolicy.type;
+  return (
+    type === "achievement" ||
+    type === "important_note" ||
+    type === "relationship" ||
+    type === "idea" ||
+    type === "note" ||
+    type === "daily_context" ||
+    type === "sensitive_event" ||
+    isImportantDayEventPiece(piece)
+  );
 }
 
 function dedupeDayPiecesForDisplay(pieces: DailyPiece[]) {
@@ -8025,10 +8707,22 @@ function dedupeDayPiecesForDisplay(pieces: DailyPiece[]) {
 }
 
 function getDayPieceDisplayKey(piece: DailyPiece) {
-  const sourceId = (piece as DailyTraceItem & { sourceId?: string; sourceType?: string }).sourceId;
-  const sourceType = (piece as DailyTraceItem & { sourceId?: string; sourceType?: string }).sourceType;
-  if (sourceType && sourceId) {
-    return `${sourceType}:${sourceId}`;
+  const typedPiece = piece as DailyTraceItem & {
+    sourceId?: string;
+    sourceType?: string;
+    routineId?: string;
+    projectId?: string;
+    action?: string;
+    milestoneId?: string;
+  };
+  if (typedPiece.sourceId) {
+    return `source:${typedPiece.sourceId}`;
+  }
+  if (typedPiece.routineId) {
+    return `routine:${typedPiece.routineId}:${piece.date}`;
+  }
+  if (typedPiece.projectId && (typedPiece.action || typedPiece.milestoneId)) {
+    return `project:${typedPiece.projectId}:${normalizeDayPieceText(typedPiece.action ?? typedPiece.milestoneId ?? "")}`;
   }
   const textKey = normalizeDayPieceText(getDayPieceText(piece));
   if (!textKey) {
@@ -8037,12 +8731,111 @@ function getDayPieceDisplayKey(piece: DailyPiece) {
   if (isDreamFragmentDayPiece(piece)) {
     return `dream:${normalizeDreamFragmentKey(textKey)}`;
   }
+  if (isDreamTorchDayPiece(piece)) {
+    return `dream_torch:${normalizeDreamFragmentKey(textKey)}`;
+  }
   return `${piece.date}:${piece.memoryPolicy.type}:${textKey}`;
 }
 
 function getDayPieceText(piece: DailyPiece) {
-  const item = piece as DailyTraceItem & { normalizedText?: string; content?: string };
-  return item.normalizedText ?? item.text ?? item.originalText ?? item.title ?? item.content ?? "";
+  if (isDreamTorchDayPiece(piece)) {
+    return summarizeDreamTorchDailyPiece(piece);
+  }
+  if (isDreamFragmentDayPiece(piece)) {
+    return summarizeDreamFragmentDailyPiece(piece);
+  }
+  return getMeaningfulDailyPieceText(piece) || "";
+}
+
+function summarizeDreamTorchDailyPiece(piece: DailyPiece) {
+  return summarizeDreamSubject(piece);
+}
+
+function summarizeDreamFragmentDailyPiece(piece: DailyPiece) {
+  return summarizeDreamSubject(piece);
+}
+
+function summarizeDreamSubject(item: DailyTraceItem) {
+  const rawText = getMeaningfulDailyPieceText(item) || item.title;
+  return rawText
+    .replace(/^나는\s*/g, "")
+    .replace(/^내\s*꿈은\s*/g, "")
+    .replace(/^내\s*목표는\s*/g, "")
+    .replace(/꿈의\s*파편으로\s*남김$/g, "")
+    .replace(/꿈을\s*횃불로\s*정함$/g, "")
+    .replace(/장기\s*목표로\s*저장$/g, "")
+    .replace(/완료한\s*행동$/g, "")
+    .replace(/입니다$/g, "")
+    .replace(/이에요$/g, "")
+    .replace(/예요$/g, "")
+    .replace(/따고\s*싶어$/g, "따기")
+    .replace(/취득하고\s*싶어$/g, "취득하기")
+    .replace(/하고\s*싶어$/g, "하기")
+    .replace(/만들고\s*싶어$/g, "만들기")
+    .replace(/되고\s*싶어$/g, "되기")
+    .replace(/되는\s*게\s*꿈이야$/g, "되기")
+    .replace(/되는\s*게\s*목표야$/g, "되기")
+    .replace(/가\s*되기$/g, "되기")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getMeaningfulDailyPieceText(item: DailyTraceItem & { normalizedText?: string; content?: string }) {
+  const candidates = [
+    item.title,
+    item.originalText,
+    item.text,
+    item.sourceText,
+    item.content,
+    item.memo,
+    item.normalizedText,
+  ];
+  const selected = candidates.find((value) => isMeaningfulDailyPieceDisplayText(value));
+  if (!selected) {
+    return "";
+  }
+  return cleanDailyPieceDisplayText(selected);
+}
+
+function isMeaningfulDailyPieceDisplayText(value?: string | null) {
+  if (!value) {
+    return false;
+  }
+  const normalizedValue = normalizeDayPieceText(value);
+  if (!normalizedValue) {
+    return false;
+  }
+  return !isGenericDailyPieceLabel(normalizedValue);
+}
+
+function isGenericDailyPieceLabel(normalizedText: string) {
+  return [
+    "완료한 행동",
+    "오늘의 중요한 사건",
+    "중요한 사건",
+    "장기 목표",
+    "목표",
+    "아이디어",
+    "프로젝트",
+    "프로젝트 완료",
+    "반복 목표",
+    "오늘의 기록",
+    "행동 완료",
+    "기록",
+  ].some((label) => normalizeDayPieceText(label) === normalizedText);
+}
+
+function cleanDailyPieceDisplayText(text: string) {
+  return text
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/을\s*했어$/, "을 진행함")
+    .replace(/를\s*했어$/, "를 진행함")
+    .replace(/했어$/, "진행함")
+    .replace(/을\s*끝냈어$/, " 완료")
+    .replace(/를\s*끝냈어$/, " 완료")
+    .replace(/끝냈어$/, "완료")
+    .replace(/완료했어$/, "완료");
 }
 
 function normalizeDayPieceText(text: string) {
@@ -8061,7 +8854,7 @@ function compareDayPieceForDisplay(left: DailyPiece, right: DailyPiece) {
 function removeDuplicateDailyPieces(pieces: DailyPiece[]) {
   const pieceMap = new Map(pieces.map((piece) => [piece.id, piece]));
 
-  return dedupeMemories(pieces).map((memory) => {
+  const dedupedByMemory = dedupeMemories(pieces).map((memory) => {
     const existingPiece = pieceMap.get(memory.id);
     if (existingPiece) {
       return existingPiece;
@@ -8072,6 +8865,9 @@ function removeDuplicateDailyPieces(pieces: DailyPiece[]) {
       memoryPolicy: getMemoryPolicy(memory),
     };
   });
+
+  return dedupeDayPiecesForDisplay(dedupedByMemory)
+    .filter((piece) => Boolean(getDayPieceText(piece)));
 }
 
 function classifyMemorySavePolicy(
@@ -9608,6 +10404,12 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 12,
   },
+  todayMeCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+  },
   todayMeItemMain: {
     gap: 4,
   },
@@ -9658,6 +10460,67 @@ const styles = StyleSheet.create({
     color: "#d1d5db",
     fontSize: 12,
     fontWeight: "800",
+  },
+  todayMeDeleteButton: {
+    alignItems: "center",
+    borderColor: "#4b2a2a",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+    justifyContent: "center",
+    minHeight: 28,
+    paddingHorizontal: 10,
+  },
+  todayMeDeleteButtonText: {
+    color: "#fca5a5",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  todayMeDeleteConfirmBox: {
+    backgroundColor: "#1b1111",
+    borderColor: "#4b2a2a",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    padding: 10,
+  },
+  todayMeDeleteConfirmText: {
+    color: "#f5d0d0",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  todayMeDeleteConfirmActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  todayMeDeleteConfirmButton: {
+    alignItems: "center",
+    backgroundColor: "#ef4444",
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 12,
+  },
+  todayMeDeleteConfirmButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  todayMeCancelConfirmButton: {
+    alignItems: "center",
+    borderColor: "#3a3a3a",
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 12,
+  },
+  todayMeCancelConfirmButtonText: {
+    color: "#d1d5db",
+    fontSize: 12,
+    fontWeight: "900",
   },
   todayMeDetailBox: {
     backgroundColor: "#0b0b0b",
@@ -9905,10 +10768,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
+  dreamTorchFireActionRow: {
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: 6,
+  },
   dreamTorchCompleteButtonText: {
     color: "#e5e7eb",
     fontSize: 12,
     fontWeight: "900",
+  },
+  dreamTorchCancelButton: {
+    borderColor: "#3a3a3a",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  dreamTorchCancelButtonText: {
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  dreamTorchFireButtonDisabled: {
+    opacity: 0.45,
   },
   dreamTorchRoutineDivider: {
     backgroundColor: "#2a2a2a",
@@ -10010,6 +10894,76 @@ const styles = StyleSheet.create({
     color: "#9ca3af",
     fontSize: 11,
     fontWeight: "800",
+  },
+  dreamPieceDeleteConfirmBox: {
+    backgroundColor: "#1b1111",
+    borderColor: "#4b2a2a",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 10,
+    padding: 10,
+  },
+  dreamPieceDeleteConfirmText: {
+    color: "#f5d0d0",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  dreamPieceDeleteButton: {
+    alignItems: "center",
+    backgroundColor: "#ef4444",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 12,
+  },
+  dreamPieceDeleteButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  linkedProjectBox: {
+    backgroundColor: "#151515",
+    borderColor: "#2a2a2a",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 12,
+    padding: 10,
+  },
+  linkedProjectSectionTitle: {
+    color: "#f2f4f8",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  linkedProjectList: {
+    gap: 8,
+  },
+  linkedProjectItem: {
+    backgroundColor: "#0d0d0d",
+    borderColor: "#242424",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    padding: 10,
+  },
+  linkedProjectTitle: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 19,
+  },
+  linkedProjectMeta: {
+    color: "#aeb4c0",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  linkedProjectStatus: {
+    color: "#9ca3af",
+    fontSize: 11,
+    fontWeight: "900",
   },
   dreamFragmentInfoBox: {
     backgroundColor: "#161616",
