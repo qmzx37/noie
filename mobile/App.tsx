@@ -1490,6 +1490,92 @@ export default function App() {
     }));
   };
 
+  const addRoutineToTodayMe = async (input: { title: string; targetValue: number }) => {
+    const routineTitle = input.title.trim();
+    if (!routineTitle) {
+      setTodayMeFeedback("반복 목표 이름을 입력해 주세요.");
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    const today = getLocalDateString(new Date());
+    const torchPiece = selectDreamTorchPiece(getDreamTorchCandidates(dailyTraces), dreamTorchId);
+    const targetTorch = torchPiece ?? {
+      id: createId("dream"),
+      type: "goal" as DailyTraceItemType,
+      date: today,
+      title: "오늘의 나",
+      memo: "오늘 집중할 반복 목표",
+      text: "오늘의 나",
+      sourceText: "오늘의 나",
+      memoryType: "goal" as MemorySavePolicyType,
+      saveTargets: ["dream_torch"] as SaveDecision["saveTargets"],
+      importance: 60,
+      dreamRole: "torch" as DreamRole,
+      pinnedAsDreamTorch: true,
+      hiddenFromDream: false,
+      createdAt: now,
+      updatedAt: now,
+      routines: [],
+      routineRecords: [],
+    };
+    const titleKey = normalizeMemoryInput(routineTitle);
+    const existingRoutine = (targetTorch.routines ?? []).find(
+      (routine) => normalizeMemoryInput(routine.title) === titleKey
+    );
+
+    if (existingRoutine) {
+      setTodayMeFeedback("이미 같은 반복 목표가 있어요.");
+      return false;
+    }
+
+    const todayMeDreamFragments = getDreamFragments(dailyTraces).filter((piece) => piece.id !== targetTorch.id);
+    const activeRoutineCount = getVisibleTodayMeCards(targetTorch, todayMeDreamFragments, projects, today).filter(
+      (card) => card.cardType === "routine"
+    ).length;
+    if (activeRoutineCount >= MAX_TODAY_ME_CARDS) {
+      setTodayMeFeedback("오늘의 나는 네 가지에만 집중할 수 있어요. 기존 목표를 정리한 뒤 추가해보세요.");
+      return false;
+    }
+
+    const newRoutine: DreamRoutine = {
+      id: createId("routine"),
+      title: routineTitle,
+      recordType: "quantity",
+      repeatType: "daily",
+      targetValue: Math.max(30, input.targetValue),
+      minimumValue: 0,
+      unit: "분",
+      dailySettings: {},
+      lifecycleStatus: "active",
+      archivedFromTodayMe: false,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const nextTorch: DailyTraceItem = {
+      ...targetTorch,
+      routines: [...(targetTorch.routines ?? []), newRoutine],
+      updatedAt: now,
+    };
+    const nextItems = torchPiece
+      ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
+      : dedupeMemories([
+          ...dailyTraces.map((item) =>
+            item.pinnedAsDreamTorch ? { ...item, pinnedAsDreamTorch: false, updatedAt: now } : item
+          ),
+          nextTorch,
+        ]);
+
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    if (!torchPiece) {
+      setDreamTorchId(nextTorch.id);
+    }
+    setTodayMeFeedback("반복 목표를 오늘의 나에 담았어요.");
+    return true;
+  };
+
   const handleConfirmRoutineAdjustment = async (
     message: RoutedChatMessage,
     routingResult: NoieSaveRoutingResult,
@@ -2622,6 +2708,7 @@ export default function App() {
               onCompleteProjectNextAction={completeProjectNextAction}
               onCancelProjectNextActionToday={cancelProjectNextActionToday}
               onAdjustRoutineTodayTarget={adjustRoutineTodayTarget}
+              onAddRoutineToTodayMe={addRoutineToTodayMe}
               onCompleteRoutineFromTodayMe={completeRoutineFromTodayMe}
               onCompleteProjectFromTodayMe={completeProjectFromTodayMe}
               onRemoveRoutineFromTodayMe={removeRoutineFromTodayMe}
@@ -3746,6 +3833,7 @@ function DreamVaultScreen({
   onCompleteProjectNextAction,
   onCancelProjectNextActionToday,
   onAdjustRoutineTodayTarget,
+  onAddRoutineToTodayMe,
   onCompleteRoutineFromTodayMe,
   onCompleteProjectFromTodayMe,
   onRemoveRoutineFromTodayMe,
@@ -3769,6 +3857,7 @@ function DreamVaultScreen({
   onCompleteProjectNextAction: (projectId: string) => void;
   onCancelProjectNextActionToday: (projectId: string) => void;
   onAdjustRoutineTodayTarget: (itemId: string, routineId: string, delta: number) => void;
+  onAddRoutineToTodayMe: (input: { title: string; targetValue: number }) => Promise<boolean>;
   onCompleteRoutineFromTodayMe: (itemId: string, routineId: string) => void;
   onCompleteProjectFromTodayMe: (projectId: string) => void;
   onRemoveRoutineFromTodayMe: (itemId: string, routineId: string) => void;
@@ -3779,16 +3868,20 @@ function DreamVaultScreen({
   onOpenProject: (projectId: string) => void;
   onBackToChat: () => void;
 }) {
+  const [isCompletedDreamFragmentsOpen, setIsCompletedDreamFragmentsOpen] = useState(false);
   const dreamTorchCandidates = getDreamTorchCandidates(dailyTraces);
   const torchPiece = selectDreamTorchPiece(dreamTorchCandidates, dreamTorchId);
   const dreamFragments = getDreamFragments(dailyTraces).filter(
     (piece) => piece.id !== torchPiece?.id
   );
+  const activeDreamFragments = dreamFragments.filter((piece) => !getCompletedProjectForFragment(piece, projects));
+  const completedDreamFragments = dreamFragments
+    .map((piece) => ({ piece, project: getCompletedProjectForFragment(piece, projects) }))
+    .filter((item): item is { piece: DailyTraceItem; project: NoieProject } => Boolean(item.project));
   const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
   const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects);
   const todayKey = getLocalDateString(new Date());
   const todayMeCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
-  const unlinkedProjects = getUnlinkedDreamProjects(projects, torchPiece, dreamFragments);
 
   return (
     <ScrollView
@@ -3837,8 +3930,8 @@ function DreamVaultScreen({
 
           <View style={styles.flowCard}>
             <Text style={styles.flowCardTitle}>꿈의 파편</Text>
-            {dreamFragments.length > 0 ? (
-              dreamFragments.map((piece) => (
+            {activeDreamFragments.length > 0 ? (
+              activeDreamFragments.map((piece) => (
                 <DreamPieceCard
                   key={piece.id}
                   piece={piece}
@@ -3850,48 +3943,63 @@ function DreamVaultScreen({
                   onUpdateDreamTorchPlan={onUpdateDreamTorchPlan}
                   onRecordDreamRoutine={onRecordDreamRoutine}
                   onOpenProject={onOpenProject}
+                  onCompleteProjectFromTodayMe={onCompleteProjectFromTodayMe}
                 />
               ))
             ) : (
               <View style={styles.flowEmptyBox}>
-                <Text style={styles.flowEmptyText}>아직 꿈의 파편이 없어요.{"\n"}만들고 싶은 프로젝트나 하위 목표를 말하면 여기에 모여요.</Text>
-                <Text style={styles.flowEmptyExampleText}>예: noie를 완성하고 싶어{"\n"}예: 포트폴리오를 만들고 싶어{"\n"}예: 앱을 출시하고 싶어</Text>
+                <Text style={styles.flowEmptyText}>
+                  {dreamFragments.length > 0
+                    ? "진행 중인 꿈의 파편이 없어요."
+                    : "아직 꿈의 파편이 없어요.\n만들고 싶은 프로젝트나 하위 목표를 말하면 여기에 모여요."}
+                </Text>
+                {dreamFragments.length === 0 ? (
+                  <Text style={styles.flowEmptyExampleText}>예: noie를 완성하고 싶어{"\n"}예: 포트폴리오를 만들고 싶어{"\n"}예: 앱을 출시하고 싶어</Text>
+                ) : null}
               </View>
             )}
           </View>
 
-          {unlinkedProjects.length > 0 ? (
-            <View style={styles.flowCard}>
-              <Text style={styles.flowCardTitle}>연결되지 않은 프로젝트</Text>
-              <View style={styles.linkedProjectList}>
-                {unlinkedProjects.map((project) => (
-                  <ProjectSummaryRow
-                    key={`unlinked-project-${project.id}`}
-                    project={project}
-                    onOpenProject={onOpenProject}
-                  />
-                ))}
-              </View>
+          {completedDreamFragments.length > 0 ? (
+            <View style={styles.completedDreamFragmentsBox}>
+              <TouchableOpacity
+                style={styles.completedDreamFragmentsHeader}
+                onPress={() => setIsCompletedDreamFragmentsOpen((value) => !value)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.completedDreamFragmentsTitle}>
+                  ⭐ 지금까지 완료한 꿈의 파편 {completedDreamFragments.length}개
+                </Text>
+                <Text style={styles.completedDreamFragmentsToggle}>
+                  {isCompletedDreamFragmentsOpen ? "︿" : "〉"}
+                </Text>
+              </TouchableOpacity>
+              {isCompletedDreamFragmentsOpen ? (
+                <View style={styles.completedDreamFragmentsList}>
+                  {completedDreamFragments.map(({ piece, project }) => (
+                    <View key={`completed-dream-fragment-${piece.id}`} style={styles.completedDreamFragmentItem}>
+                      <Text style={styles.completedDreamFragmentTitle}>
+                        ⭐ {getMemoryInputText(piece) || piece.title}
+                      </Text>
+                      <Text style={styles.completedDreamFragmentMeta}>
+                        {getCompletedDreamFragmentMeta(project)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
         </>
       )}
 
-      <CompletedTodayMeCardsSection torchPiece={torchPiece} projects={projects} dailyTraces={dailyTraces} />
-
       <TodayMeSection
         torchPiece={torchPiece}
         projects={todayMeProjects}
         dreamFragments={dreamFragments}
-        onRecordDreamRoutine={onRecordDreamRoutine}
-        onCompleteProjectNextAction={onCompleteProjectNextAction}
-        onStartProjectInTodayMe={onStartProjectInTodayMe}
         onAdjustRoutineTodayTarget={onAdjustRoutineTodayTarget}
-        onCompleteRoutineFromTodayMe={onCompleteRoutineFromTodayMe}
-        onCompleteProjectFromTodayMe={onCompleteProjectFromTodayMe}
+        onAddRoutineToTodayMe={onAddRoutineToTodayMe}
         onRemoveRoutineFromTodayMe={onRemoveRoutineFromTodayMe}
-        onRemoveProjectFromTodayMe={onRemoveProjectFromTodayMe}
-        onOpenProject={onOpenProject}
         externalFeedback={todayMeFeedback}
         isStartingProject={isStartingProject}
       />
@@ -3983,53 +4091,40 @@ type TodayMeSectionProps = {
   torchPiece?: DailyTraceItem;
   projects: NoieProject[];
   dreamFragments: DailyTraceItem[];
-  onRecordDreamRoutine: (itemId: string, routineId: string, score: DreamRoutineQuickScore, value?: number) => void;
-  onCompleteProjectNextAction: (projectId: string) => void;
-  onStartProjectInTodayMe: (input: StartProjectInput) => Promise<boolean>;
   onAdjustRoutineTodayTarget: (itemId: string, routineId: string, delta: number) => void;
-  onCompleteRoutineFromTodayMe: (itemId: string, routineId: string) => void;
-  onCompleteProjectFromTodayMe: (projectId: string) => void;
+  onAddRoutineToTodayMe: (input: { title: string; targetValue: number }) => Promise<boolean>;
   onRemoveRoutineFromTodayMe: (itemId: string, routineId: string) => void;
-  onRemoveProjectFromTodayMe: (projectId: string) => void;
-  onOpenProject: (projectId: string) => void;
   externalFeedback: string;
   isStartingProject: boolean;
 };
 
 type TodayMeDeleteTarget =
-  | { type: "routine"; itemId: string; id: string; title: string }
-  | { type: "project"; id: string; title: string };
+  | { type: "routine"; itemId: string; id: string; title: string };
 
 function TodayMeSection({
   torchPiece,
   projects,
   dreamFragments,
-  onRecordDreamRoutine,
-  onCompleteProjectNextAction,
-  onStartProjectInTodayMe,
   onAdjustRoutineTodayTarget,
-  onCompleteRoutineFromTodayMe,
-  onCompleteProjectFromTodayMe,
+  onAddRoutineToTodayMe,
   onRemoveRoutineFromTodayMe,
-  onRemoveProjectFromTodayMe,
-  onOpenProject,
   externalFeedback,
   isStartingProject,
 }: TodayMeSectionProps) {
-  const [expandedRoutineId, setExpandedRoutineId] = useState<string | null>(null);
-  const [routineValueText, setRoutineValueText] = useState("");
   const [dismissedRecommendationKeys, setDismissedRecommendationKeys] = useState<string[]>([]);
-  const [isDirectProjectOpen, setIsDirectProjectOpen] = useState(false);
-  const [directProjectTitle, setDirectProjectTitle] = useState("");
-  const [directProjectNextAction, setDirectProjectNextAction] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<TodayMeDeleteTarget | null>(null);
+  const [isRoutineAddOpen, setIsRoutineAddOpen] = useState(false);
+  const [routineAddTitle, setRoutineAddTitle] = useState("");
+  const [routineAddMinutes, setRoutineAddMinutes] = useState(30);
   const todayKey = getLocalDateString(new Date());
   const activeSeason = torchPiece ? getActiveDreamSeason(torchPiece) : undefined;
   const routines = torchPiece ? getActiveDreamRoutines(torchPiece, activeSeason) : [];
   const visibleCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
-  const recommendation = visibleCards.length < MAX_TODAY_ME_CARDS
-    ? selectTodayMeRecommendation(torchPiece, dreamFragments, visibleCards, dismissedRecommendationKeys)
+  const visibleRoutineCards = visibleCards.filter((card): card is Extract<TodayMeCard, { cardType: "routine" }> => card.cardType === "routine");
+  const recommendation = visibleRoutineCards.length < MAX_TODAY_ME_CARDS
+    ? selectTodayMeRecommendation(torchPiece, dreamFragments, projects, visibleRoutineCards, dismissedRecommendationKeys)
     : undefined;
+  const routineRecommendation = recommendation?.type === "routine" ? recommendation : undefined;
   const completedRoutineCount = routines.filter((routine) => isRoutineActionDoneToday(getTodayRoutineRecord(torchPiece, routine))).length;
   const partialRoutineCount = routines.filter((routine) => {
     const record = getTodayRoutineRecord(torchPiece, routine);
@@ -4038,61 +4133,33 @@ function TodayMeSection({
   const completedProjectActionCount = projects.filter((project) => isProjectActionDone(project, todayKey)).length;
   const feedback = getTodayMeFeedback(routines.length, completedRoutineCount, partialRoutineCount, projects.length, completedProjectActionCount);
 
-  const startDirectProject = async () => {
-    const started = await onStartProjectInTodayMe({
-      title: extractProjectTitle(directProjectTitle),
-      originalText: directProjectTitle,
-      relatedDreamTorchId: torchPiece?.id ?? null,
-      nextAction: directProjectNextAction.trim(),
-      source: "direct",
-    });
-    if (started) {
-      setDirectProjectTitle("");
-      setDirectProjectNextAction("");
-      setIsDirectProjectOpen(false);
-    }
-  };
-
-  const startRecommendationProject = async (recommendation: TodayMeRecommendation) => {
-    const started = await onStartProjectInTodayMe({
-      title: extractProjectTitle(recommendation),
-      originalText: recommendation.title,
-      relatedDreamTorchId: torchPiece?.id ?? null,
-      relatedDreamFragmentId: recommendation.sourceDreamFragmentId ?? null,
-      source: "recommendation",
-    });
-    if (started) {
-      setDismissedRecommendationKeys((keys) =>
-        keys.includes(recommendation.semanticKey) ? keys : [...keys, recommendation.semanticKey]
-      );
-    }
-  };
-
-  const saveDetailedRoutineRecord = (routine: DreamRoutine) => {
-    if (!torchPiece) {
-      return;
-    }
-    const value = Number(routineValueText);
-    const normalizedValue = Number.isFinite(value) ? value : 0;
-    const score = calculateRoutineScore(routine, normalizedValue, todayKey);
-    onRecordDreamRoutine(torchPiece.id, routine.id, score, normalizedValue);
-    setExpandedRoutineId(null);
-    setRoutineValueText("");
-  };
-
   const confirmDeleteTarget = () => {
     if (!deleteTarget) {
       return;
     }
-    if (deleteTarget.type === "routine") {
-      onRemoveRoutineFromTodayMe(deleteTarget.itemId, deleteTarget.id);
-    } else {
-      onRemoveProjectFromTodayMe(deleteTarget.id);
-    }
+    onRemoveRoutineFromTodayMe(deleteTarget.itemId, deleteTarget.id);
     setDeleteTarget(null);
   };
 
-  console.log("[today-me-cards]", { activeCount: visibleCards.length });
+  const saveRoutineAdd = async () => {
+    const saved = await onAddRoutineToTodayMe({
+      title: routineAddTitle,
+      targetValue: routineAddMinutes,
+    });
+    if (saved) {
+      setRoutineAddTitle("");
+      setRoutineAddMinutes(30);
+      setIsRoutineAddOpen(false);
+    }
+  };
+
+  const openRoutineRecommendation = (recommendation: TodayMeRecommendation) => {
+    setRoutineAddTitle(recommendation.title);
+    setRoutineAddMinutes(30);
+    setIsRoutineAddOpen(true);
+  };
+
+  console.log("[today-me-cards]", { activeCount: visibleRoutineCards.length });
   console.log("[today-me-recommendation]", { hasRecommendation: Boolean(recommendation), type: recommendation?.type });
 
   return (
@@ -4100,54 +4167,114 @@ function TodayMeSection({
       <View style={styles.todayMeHeaderRow}>
         <View style={styles.todayMeHeaderText}>
           <Text style={styles.flowCardTitle}>오늘의 나</Text>
-          <Text style={styles.todayMeSubtitle}>지금 집중할 반복 목표와 프로젝트예요.</Text>
+          <Text style={styles.todayMeSubtitle}>오늘 이어갈 반복 목표 {visibleRoutineCards.length}개</Text>
         </View>
         <TouchableOpacity
-          style={[styles.todayMeSecondaryButton, visibleCards.length >= MAX_TODAY_ME_CARDS && styles.todayMeButtonDone]}
-          disabled={visibleCards.length >= MAX_TODAY_ME_CARDS}
-          onPress={() => setIsDirectProjectOpen((value) => !value)}
+          style={[styles.todayMeAddButton, visibleRoutineCards.length >= MAX_TODAY_ME_CARDS && styles.todayMeButtonDone]}
+          disabled={visibleRoutineCards.length >= MAX_TODAY_ME_CARDS}
+          onPress={() => setIsRoutineAddOpen((value) => !value)}
           activeOpacity={0.85}
         >
-          <Text style={styles.todayMeSecondaryButtonText}>직접 추가</Text>
+          <Text style={styles.todayMeAddButtonText}>＋</Text>
         </TouchableOpacity>
       </View>
-      {visibleCards.length >= MAX_TODAY_ME_CARDS ? (
+      {visibleRoutineCards.length >= MAX_TODAY_ME_CARDS ? (
         <Text style={styles.todayMeEmptyLine}>오늘의 나는 네 가지에만 집중할 수 있어요.</Text>
       ) : null}
 
-      {visibleCards.length === 0 ? (
+      {isRoutineAddOpen && visibleRoutineCards.length < MAX_TODAY_ME_CARDS ? (
+        <View style={styles.todayMeDetailBox}>
+          <Text style={styles.todayMeTypeLabel}>반복 목표 추가</Text>
+          <TextInput
+            style={styles.todayMeInput}
+            value={routineAddTitle}
+            onChangeText={setRoutineAddTitle}
+            placeholder="반복 목표 이름"
+            placeholderTextColor="#777"
+          />
+          <Text style={styles.todayMeMeta}>목표 시간</Text>
+          <View style={styles.todayMeTimeAdjustRow}>
+            <TouchableOpacity
+              style={styles.todayMeArrowButton}
+              onPress={() => setRoutineAddMinutes((value) => Math.max(30, value - 30))}
+              disabled={routineAddMinutes <= 30}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.todayMeArrowButtonText}>‹</Text>
+            </TouchableOpacity>
+            <Text style={styles.todayMeTargetTimeText}>{formatRoutineTarget(routineAddMinutes, "분")}</Text>
+            <TouchableOpacity
+              style={styles.todayMeArrowButton}
+              onPress={() => setRoutineAddMinutes((value) => value + 30)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.todayMeArrowButtonText}>›</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
+            style={[styles.todayMeButton, !routineAddTitle.trim() && styles.todayMeButtonDone]}
+            onPress={() => {
+              void saveRoutineAdd();
+            }}
+            disabled={!routineAddTitle.trim()}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.todayMeButtonText}>저장</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {visibleRoutineCards.length === 0 ? (
         <View style={styles.flowEmptyBox}>
-          <Text style={styles.flowEmptyText}>아직 오늘의 나를 움직이는 목표와 프로젝트가 없어요.</Text>
-          <Text style={styles.flowEmptyExampleText}>꿈의 파편을 프로젝트로 시작하거나 반복 목표를 설정해보세요.</Text>
+          <Text style={styles.flowEmptyText}>아직 오늘 이어갈 반복 목표가 없어요.</Text>
         </View>
       ) : (
         <View style={styles.todayMeGroup}>
-          {visibleCards.map((card) => {
-            if (card.cardType === "routine") {
+          {visibleRoutineCards.map((card) => {
               const routine = card.routine;
               const record = getTodayRoutineRecord(torchPiece, routine);
               const isDone = isRoutineActionDoneToday(record);
-              const isPartial = Boolean(record && !isDone && record.score > 0);
               const effectiveTarget = getEffectiveRoutineTargetValue(routine, todayKey);
+              const displayedTarget = Math.max(30, effectiveTarget || 30);
               const unit = routine.unit ?? "";
               const isDeleteConfirmOpen = deleteTarget?.type === "routine" && deleteTarget.id === routine.id;
               return (
                 <View key={card.id} style={styles.todayMeItem}>
                   <View style={styles.todayMeCardHeader}>
-                    <Text style={styles.todayMeTypeLabel}>반복 목표</Text>
+                    <Text style={styles.todayMeTitle}>{routine.title}</Text>
                     <TouchableOpacity
-                      style={styles.todayMeDeleteButton}
+                      style={styles.todayMeMoreButton}
                       onPress={() => torchPiece && setDeleteTarget({ type: "routine", itemId: torchPiece.id, id: routine.id, title: routine.title })}
                       disabled={!torchPiece}
                       activeOpacity={0.85}
                     >
-                      <Text style={styles.todayMeDeleteButtonText}>삭제</Text>
+                      <Text style={styles.todayMeMoreButtonText}>⋯</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={styles.todayMeItemMain}>
-                    <Text style={styles.todayMeTitle}>{routine.title}</Text>
-                    <Text style={styles.todayMeMeta}>오늘 목표 · {formatRoutineTarget(effectiveTarget, unit)}</Text>
-                    <Text style={styles.todayMeStatus}>{isDone ? "오늘 완료" : isPartial ? "부분 기록" : "오늘은 아직 기록 전"}</Text>
+                    <Text style={styles.todayMeMeta}>오늘 목표</Text>
+                    <View style={styles.todayMeTimeAdjustRow}>
+                      <TouchableOpacity
+                        style={styles.todayMeArrowButton}
+                        onPress={() => torchPiece && displayedTarget > 30 && onAdjustRoutineTodayTarget(torchPiece.id, routine.id, -30)}
+                        disabled={!torchPiece || displayedTarget <= 30}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.todayMeArrowButtonText}>‹</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.todayMeTargetTimeText}>{formatRoutineTarget(displayedTarget, unit)}</Text>
+                      <TouchableOpacity
+                        style={styles.todayMeArrowButton}
+                        onPress={() => torchPiece && onAdjustRoutineTodayTarget(torchPiece.id, routine.id, 30)}
+                        disabled={!torchPiece}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.todayMeArrowButtonText}>›</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.todayMeStatus}>
+                      {isDone ? "🔥 오늘의 불씨를 밝혔어요" : "완료는 오늘의 불씨에서 해요"}
+                    </Text>
                   </View>
                   {isDeleteConfirmOpen ? (
                     <View style={styles.todayMeDeleteConfirmBox}>
@@ -4162,146 +4289,25 @@ function TodayMeSection({
                       </View>
                     </View>
                   ) : null}
-                  <View style={styles.todayMeActionRow}>
-                    <TouchableOpacity style={styles.todayMeTinyButton} onPress={() => torchPiece && onAdjustRoutineTodayTarget(torchPiece.id, routine.id, -getRoutineStep(routine))} activeOpacity={0.85}>
-                      <Text style={styles.todayMeTinyButtonText}>-</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.todayMeTinyButton} onPress={() => torchPiece && onAdjustRoutineTodayTarget(torchPiece.id, routine.id, getRoutineStep(routine))} activeOpacity={0.85}>
-                      <Text style={styles.todayMeTinyButtonText}>+</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.todayMeButton, isDone && styles.todayMeButtonDone]}
-                      onPress={() => torchPiece && onRecordDreamRoutine(torchPiece.id, routine.id, 1, effectiveTarget || 1)}
-                      disabled={!torchPiece || isDone}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={styles.todayMeButtonText}>했어요</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {routine.recordType !== "check" ? (
-                    <TouchableOpacity
-                      style={styles.todayMeSecondaryButton}
-                      onPress={() => {
-                        setExpandedRoutineId(expandedRoutineId === routine.id ? null : routine.id);
-                        setRoutineValueText(record?.value ? String(record.value) : "");
-                      }}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={styles.todayMeSecondaryButtonText}>자세히 기록</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {expandedRoutineId === routine.id ? (
-                    <View style={styles.todayMeDetailBox}>
-                      <Text style={styles.todayMeMeta}>목표 {formatRoutineTarget(effectiveTarget, unit)} · 최소 {formatRoutineTarget(getEffectiveRoutineMinimumValue(routine, todayKey), unit)}</Text>
-                      <TextInput style={styles.todayMeInput} value={routineValueText} onChangeText={setRoutineValueText} placeholder="오늘 실행한 수치" placeholderTextColor="#777" keyboardType="numeric" />
-                      <TouchableOpacity style={styles.todayMeButton} onPress={() => saveDetailedRoutineRecord(routine)} activeOpacity={0.85}>
-                        <Text style={styles.todayMeButtonText}>저장</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : null}
-                  <TouchableOpacity style={styles.todayMeSecondaryButton} onPress={() => torchPiece && onCompleteRoutineFromTodayMe(torchPiece.id, routine.id)} activeOpacity={0.85}>
-                    <Text style={styles.todayMeSecondaryButtonText}>목표 완료로 보관</Text>
-                  </TouchableOpacity>
                 </View>
               );
-            }
-
-            const project = card.project;
-            const isDone = isProjectActionDone(project, todayKey);
-            const nextAction = project.nextAction?.trim();
-            const isDeleteConfirmOpen = deleteTarget?.type === "project" && deleteTarget.id === project.id;
-            if (!nextAction) {
-              return null;
-            }
-            return (
-              <View key={card.id} style={styles.todayMeItem}>
-                <View style={styles.todayMeCardHeader}>
-                  <Text style={styles.todayMeTypeLabel}>프로젝트 행동</Text>
-                  <TouchableOpacity
-                    style={styles.todayMeDeleteButton}
-                    onPress={() => setDeleteTarget({ type: "project", id: project.id, title: project.title })}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.todayMeDeleteButtonText}>삭제</Text>
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity style={styles.todayMeItemMain} onPress={() => onOpenProject(project.id)} activeOpacity={0.85}>
-                  <Text style={styles.todayMeTitle}>{nextAction}</Text>
-                  <Text style={styles.todayMeMeta}>프로젝트 · {project.title}</Text>
-                  {isDone ? <Text style={styles.todayMeStatus}>다음 행동 완료</Text> : null}
-                </TouchableOpacity>
-                {isDeleteConfirmOpen ? (
-                  <View style={styles.todayMeDeleteConfirmBox}>
-                    <Text style={styles.todayMeDeleteConfirmText}>이 프로젝트를 오늘의 나에서 삭제할까요?</Text>
-                    <View style={styles.todayMeDeleteConfirmActions}>
-                      <TouchableOpacity style={styles.todayMeDeleteConfirmButton} onPress={confirmDeleteTarget} activeOpacity={0.85}>
-                        <Text style={styles.todayMeDeleteConfirmButtonText}>삭제</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.todayMeCancelConfirmButton} onPress={() => setDeleteTarget(null)} activeOpacity={0.85}>
-                        <Text style={styles.todayMeCancelConfirmButtonText}>취소</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : null}
-                <View style={styles.todayMeActionRow}>
-                  <TouchableOpacity style={[styles.todayMeButton, isDone && styles.todayMeButtonDone]} onPress={() => onCompleteProjectNextAction(project.id)} disabled={isDone} activeOpacity={0.85}>
-                    <Text style={styles.todayMeButtonText}>했어요</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
           })}
         </View>
       )}
 
-      {isDirectProjectOpen && visibleCards.length < MAX_TODAY_ME_CARDS ? (
-        <View style={styles.todayMeDetailBox}>
-          <Text style={styles.todayMeTypeLabel}>프로젝트 시작</Text>
-          <TextInput
-            style={styles.todayMeInput}
-            value={directProjectTitle}
-            onChangeText={setDirectProjectTitle}
-            placeholder="오늘 시작할 프로젝트"
-            placeholderTextColor="#777"
-          />
-          <TextInput
-            style={styles.todayMeInput}
-            value={directProjectNextAction}
-            onChangeText={setDirectProjectNextAction}
-            placeholder="다음 행동"
-            placeholderTextColor="#777"
-          />
-          <TouchableOpacity
-            style={[styles.todayMeButton, isStartingProject && styles.todayMeButtonDone]}
-            onPress={() => {
-              void startDirectProject();
-            }}
-            disabled={isStartingProject}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.todayMeButtonText}>{isStartingProject ? "프로젝트 시작 중..." : "오늘의 나에서 프로젝트 시작하기"}</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
-      {recommendation ? (
+      {routineRecommendation ? (
         <View style={styles.todayMeRecommendationCard}>
-          <Text style={styles.todayMeTypeLabel}>noie의 추천</Text>
-          <Text style={styles.todayMeTitle}>{recommendation.title}</Text>
-          <Text style={styles.todayMeMeta}>{recommendation.reason}</Text>
+          <Text style={styles.todayMeTypeLabel}>노이에의 제안</Text>
+          <Text style={styles.todayMeTitle}>{routineRecommendation.title}을 반복 목표로 이어가 볼까요?</Text>
+          <Text style={styles.todayMeMeta}>{routineRecommendation.reason}</Text>
           <TouchableOpacity
-            style={[styles.todayMeButton, isStartingProject && styles.todayMeButtonDone]}
-            onPress={() => {
-              if (recommendation.type === "project") {
-                void startRecommendationProject(recommendation);
-              }
-            }}
-            disabled={isStartingProject || recommendation.type !== "project"}
+            style={styles.todayMeButton}
+            onPress={() => openRoutineRecommendation(routineRecommendation)}
             activeOpacity={0.85}
           >
-            <Text style={styles.todayMeButtonText}>{isStartingProject ? "프로젝트 시작 중..." : recommendation.type === "routine" ? "반복 목표로 담기" : "프로젝트로 시작하기"}</Text>
+            <Text style={styles.todayMeButtonText}>오늘의 나에 담기</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.todayMeSecondaryButton} onPress={() => setDismissedRecommendationKeys((keys) => [...keys, recommendation.semanticKey])} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.todayMeSecondaryButton} onPress={() => setDismissedRecommendationKeys((keys) => [...keys, routineRecommendation.semanticKey])} activeOpacity={0.85}>
             <Text style={styles.todayMeSecondaryButtonText}>지금은 괜찮아요</Text>
           </TouchableOpacity>
         </View>
@@ -4601,6 +4607,7 @@ function DreamPieceCard({
   onUpdateDreamTorchPlan,
   onRecordDreamRoutine,
   onOpenProject,
+  onCompleteProjectFromTodayMe,
 }: {
   piece: DailyTraceItem;
   isTorch?: boolean;
@@ -4612,12 +4619,15 @@ function DreamPieceCard({
   onUpdateDreamTorchPlan: (itemId: string, values: Partial<DailyTraceItem>) => void;
   onRecordDreamRoutine: (itemId: string, routineId: string, score: DreamRoutineQuickScore, value?: number) => void;
   onOpenProject: (projectId: string) => void;
+  onCompleteProjectFromTodayMe: (projectId: string) => void;
 }) {
-  const [showResumeMaterial, setShowResumeMaterial] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isCompleteConfirmOpen, setIsCompleteConfirmOpen] = useState(false);
   const linkedProjects = getLinkedProjectsForFragment(piece, projects);
-  const linkedProject = linkedProjects[0];
-  const resumeMaterial = buildResumeMaterial(piece, linkedProject);
+  const completedProject = getCompletedProjectForFragment(piece, projects);
+  const linkedProject = completedProject ?? linkedProjects.find((project) => project.status !== "done" && !project.completedAt);
+  const state = getDreamFragmentCardState(linkedProject);
   const displayText = getMemoryInputText(piece) || piece.title;
   const memoText = piece.memo?.trim() ?? "";
   const shouldShowMemo =
@@ -4626,9 +4636,9 @@ function DreamPieceCard({
   return (
     <View style={styles.traceListItem}>
       <View style={styles.traceListTextBlock}>
-        <Text style={styles.traceItemTitle}>{displayText}</Text>
+        <Text style={styles.traceItemTitle}>{state.icon} {displayText}</Text>
         {shouldShowMemo ? <Text style={styles.traceItemMemo}>{memoText}</Text> : null}
-        <Text style={styles.dreamPieceDate}>{formatRelativeTraceDate(piece.date)}</Text>
+        <Text style={styles.dreamPieceStatusText}>{state.label}</Text>
 
         {isTorch ? (
           <DreamTorchPlanPanel
@@ -4639,68 +4649,98 @@ function DreamPieceCard({
           />
         ) : null}
 
-        {!isTorch && linkedProjects.length > 0 ? (
-          <View style={styles.linkedProjectBox}>
-            <Text style={styles.linkedProjectSectionTitle}>연결된 프로젝트</Text>
-            <View style={styles.linkedProjectList}>
-              {linkedProjects.map((project) => (
-                <ProjectSummaryRow
-                  key={`fragment-project-${project.id}`}
-                  project={project}
-                  onOpenProject={onOpenProject}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null}
-
         <View style={styles.dreamPieceActions}>
           {!isTorch ? (
             <>
-              {linkedProject ? (
-                <TouchableOpacity
-                  style={styles.dreamPieceActionButton}
-                  onPress={() => onOpenProject(linkedProject.id)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.dreamPieceActionText}>프로젝트로 이동</Text>
-                </TouchableOpacity>
-              ) : (
+              {state.kind === "none" ? (
                 <TouchableOpacity
                   style={styles.dreamPieceActionButton}
                   onPress={() => onStartProjectFromFragment(piece.id)}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.dreamPieceActionText}>프로젝트로 시작하기</Text>
+                  <Text style={styles.dreamPieceActionText}>프로젝트 시작</Text>
                 </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                style={styles.dreamPieceActionButtonMuted}
-                onPress={() => setShowResumeMaterial((currentValue) => !currentValue)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.dreamPieceActionTextMuted}>{showResumeMaterial ? "자소서 추천 재료 접기" : "자소서 추천 재료 보기"}</Text>
-              </TouchableOpacity>
+              ) : null}
+              {state.kind === "progress" && linkedProject ? (
+                <TouchableOpacity
+                  style={styles.dreamPieceActionButton}
+                  onPress={() => onOpenProject(linkedProject.id)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.dreamPieceActionText}>이어가기</Text>
+                </TouchableOpacity>
+              ) : null}
+              {state.kind === "progress" && linkedProject ? (
+                <TouchableOpacity
+                  style={styles.dreamPieceActionButtonMuted}
+                  onPress={() => setIsCompleteConfirmOpen(true)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.dreamPieceActionTextMuted}>완료</Text>
+                </TouchableOpacity>
+              ) : null}
             </>
           ) : null}
           {!isTorch ? (
             <TouchableOpacity
               style={styles.dreamPieceActionButtonMuted}
-              onPress={() => onPinDreamTorch(piece.id)}
+              onPress={() => setIsMoreMenuOpen((value) => !value)}
               activeOpacity={0.85}
             >
-              <Text style={styles.dreamPieceActionTextMuted}>꿈의 횃불로 밝히기</Text>
+              <Text style={styles.dreamPieceActionTextMuted}>⋯</Text>
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity
-            style={styles.dreamPieceActionButtonMuted}
-            onPress={() => setIsDeleteConfirmOpen(true)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.dreamPieceActionTextMuted}>삭제</Text>
-          </TouchableOpacity>
         </View>
+
+        {isMoreMenuOpen && !isTorch ? (
+          <View style={styles.dreamPieceMoreMenu}>
+            <TouchableOpacity
+              style={styles.dreamPieceMoreMenuItem}
+              onPress={() => {
+                setIsMoreMenuOpen(false);
+                onPinDreamTorch(piece.id);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.dreamPieceMoreMenuText}>꿈의 횃불로 밝히기</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dreamPieceMoreMenuItem}
+              onPress={() => {
+                setIsMoreMenuOpen(false);
+                setIsDeleteConfirmOpen(true);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.dreamPieceMoreMenuText}>삭제</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {isCompleteConfirmOpen && linkedProject ? (
+          <View style={styles.dreamPieceCompleteConfirmBox}>
+            <Text style={styles.dreamPieceCompleteConfirmText}>이 꿈의 파편을 완성할까요?</Text>
+            <View style={styles.dreamPieceActions}>
+              <TouchableOpacity
+                style={styles.dreamPieceCompleteButton}
+                onPress={() => {
+                  setIsCompleteConfirmOpen(false);
+                  onCompleteProjectFromTodayMe(linkedProject.id);
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.dreamPieceCompleteButtonText}>완료하기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.dreamPieceActionButtonMuted}
+                onPress={() => setIsCompleteConfirmOpen(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.dreamPieceActionTextMuted}>취소</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
 
         {isDeleteConfirmOpen ? (
           <View style={styles.dreamPieceDeleteConfirmBox}>
@@ -4726,37 +4766,8 @@ function DreamPieceCard({
             </View>
           </View>
         ) : null}
-
-
-        {showResumeMaterial && !isTorch ? (
-          <ResumeMaterialCard material={resumeMaterial} />
-        ) : null}
       </View>
     </View>
-  );
-}
-
-function ProjectSummaryRow({
-  project,
-  onOpenProject,
-}: {
-  project: NoieProject;
-  onOpenProject: (projectId: string) => void;
-}) {
-  const nextAction = project.nextAction?.trim();
-
-  return (
-    <TouchableOpacity
-      style={styles.linkedProjectItem}
-      onPress={() => onOpenProject(project.id)}
-      activeOpacity={0.85}
-    >
-      <Text style={styles.linkedProjectTitle}>{project.title}</Text>
-      <Text style={styles.linkedProjectMeta}>
-        다음 행동 · {nextAction || "다음 행동을 정해보세요"}
-      </Text>
-      <Text style={styles.linkedProjectStatus}>{formatDreamProjectStatus(project.status)}</Text>
-    </TouchableOpacity>
   );
 }
 
@@ -5535,34 +5546,93 @@ function getTodayMeCardUpdatedAt(card: TodayMeCard) {
 function selectTodayMeRecommendation(
   torchPiece: DailyTraceItem | undefined,
   dreamFragments: DailyTraceItem[],
+  projects: NoieProject[],
   activeCards: TodayMeCard[],
   dismissedKeys: string[]
 ): TodayMeRecommendation | undefined {
   const activeKeys = new Set(
     activeCards.map((card) => normalizeMemoryInput(card.cardType === "routine" ? card.routine.title : card.project.title))
   );
-  const candidate = dreamFragments.find((fragment) => {
-    const text = getMemoryInputText(fragment) || fragment.title;
-    const key = normalizeMemoryInput(text);
-    return key.length > 0 && !activeKeys.has(key) && !dismissedKeys.includes(key) && isSpecificTodayMeRecommendationText(text);
-  });
+  const activeRoutineKeys = new Set(
+    (torchPiece?.routines ?? [])
+      .filter(isActiveTodayMeRoutine)
+      .map((routine) => normalizeMemoryInput(routine.title))
+  );
 
-  if (!candidate) {
+  for (const fragment of dreamFragments) {
+    if (getCompletedProjectForFragment(fragment, projects)) {
+      continue;
+    }
+    const text = getMemoryInputText(fragment) || fragment.title;
+    const recommendationTitle = makeRoutineRecommendationTitle(text);
+    if (!recommendationTitle) {
+      continue;
+    }
+    const recommendationKey = normalizeMemoryInput(recommendationTitle);
+    const sourceKey = normalizeMemoryInput(text);
+    if (
+      !recommendationKey ||
+      activeKeys.has(recommendationKey) ||
+      activeRoutineKeys.has(recommendationKey) ||
+      dismissedKeys.includes(recommendationKey) ||
+      dismissedKeys.includes(sourceKey)
+    ) {
+      continue;
+    }
+
+    return {
+      type: "routine",
+      title: recommendationTitle,
+      reason: sourceKey === recommendationKey
+        ? "반복해서 이어갈 수 있는 행동이에요."
+        : `‘${makeMemoryTitle(text)}’를 위한 반복 행동이에요.`,
+      sourceDreamFragmentId: fragment.id,
+      semanticKey: recommendationKey,
+    };
+  }
+
+  return undefined;
+}
+
+function makeRoutineRecommendationTitle(text: string) {
+  const title = makeMemoryTitle(text);
+  if (isRepeatableActionTitle(title)) {
+    return title;
+  }
+
+  if (!isResultGoalTitle(title) && !hasRoutineRepeatSignal(text)) {
     return undefined;
   }
 
-  const title = makeMemoryTitle(getMemoryInputText(candidate) || candidate.title);
-  return {
-    type: "project",
-    title,
-    reason: "꿈의 파편과 연결되는 실행 후보예요.",
-    sourceDreamFragmentId: candidate.id,
-    semanticKey: normalizeMemoryInput(getMemoryInputText(candidate) || candidate.title),
-  };
+  return convertResultGoalToRoutineTitle(title);
 }
 
-function isSpecificTodayMeRecommendationText(text: string) {
-  return /완성|출시|포트폴리오|테스트|구현|만들|개발|공부|연습|준비/.test(text);
+function isResultGoalTitle(title: string) {
+  return /(따기|합격하기|완성하기|만들기|열기|출시하기|취업하기|달성하기)$/.test(title);
+}
+
+function isRepeatableActionTitle(title: string) {
+  return /(공부하기|연습하기|운동하기|읽기|쓰기|복습하기|정리하기|훈련하기|작업하기)$/.test(title);
+}
+
+function hasRoutineRepeatSignal(text: string) {
+  return /매일|매주|주\s*\d+\s*회|\d+(?:\.\d+)?\s*(분|시간|회|개|페이지|세트|장)\s*씩|꾸준히|반복해서/.test(text);
+}
+
+function convertResultGoalToRoutineTitle(title: string) {
+  if (/자격증.*(따기|취득하기)$/.test(title)) {
+    return title.replace(/(따기|취득하기)$/g, "공부하기");
+  }
+  if (/시험.*합격하기$/.test(title)) {
+    return title.replace(/합격하기$/g, "공부하기");
+  }
+  if (/헤어.*기술.*익히기$/.test(title)) {
+    return title.replace(/익히기$/g, "연습하기");
+  }
+  if (/포트폴리오.*완성하기$/.test(title)) {
+    return title.replace(/완성하기$/g, "작업하기");
+  }
+  return undefined;
 }
 function getTodayRoutineRecord(piece: DailyTraceItem | undefined, routine: DreamRoutine) {
   const todayKey = getLocalDateString(new Date());
@@ -5746,6 +5816,15 @@ function getLinkedProjectsForFragment(
   return projects.filter((project) => !project.isArchived && isProjectLinkedToFragment(project, piece));
 }
 
+function getCompletedProjectForFragment(
+  piece: DailyTraceItem,
+  projects: NoieProject[]
+) {
+  return getLinkedProjectsForFragment(piece, projects).find(
+    (project) => project.status === "done" || Boolean(project.completedAt)
+  );
+}
+
 function getLinkedProjectForFragment(
   piece: DailyTraceItem,
   projects: NoieProject[]
@@ -5753,29 +5832,35 @@ function getLinkedProjectForFragment(
   return getLinkedProjectsForFragment(piece, projects)[0];
 }
 
-function getUnlinkedDreamProjects(
-  projects: NoieProject[],
-  torchPiece: DailyTraceItem | undefined,
-  dreamFragments: DailyTraceItem[]
-) {
-  const dreamIds = new Set<string>();
-  if (torchPiece?.id) {
-    dreamIds.add(torchPiece.id);
+function getDreamFragmentCardState(project?: NoieProject) {
+  if (!project) {
+    return {
+      kind: "none" as const,
+      icon: "✦",
+      label: "아직 시작하지 않은 꿈",
+    };
   }
-  dreamFragments.forEach((fragment) => dreamIds.add(fragment.id));
 
-  return projects.filter((project) => {
-    if (project.isArchived || project.status === "done") {
-      return false;
-    }
-    const hasDreamLink =
-      (project.relatedDreamTorchId ? dreamIds.has(project.relatedDreamTorchId) : false) ||
-      (project.sourceDreamFragmentId ? dreamIds.has(project.sourceDreamFragmentId) : false) ||
-      (project.sourceMemoryId ? dreamIds.has(project.sourceMemoryId) : false) ||
-      (project.relatedDreamFragmentId ? dreamIds.has(project.relatedDreamFragmentId) : false) ||
-      dreamFragments.some((fragment) => fragment.linkedProjectId === project.id);
-    return !hasDreamLink;
-  });
+  if (project.status === "done" || project.completedAt) {
+    return {
+      kind: "completed" as const,
+      icon: "⭐",
+      label: "프로젝트를 완료했어요",
+    };
+  }
+
+  return {
+    kind: "progress" as const,
+    icon: "🔥",
+    label: "프로젝트가 진행 중이에요",
+  };
+}
+
+function getCompletedDreamFragmentMeta(project: NoieProject) {
+  if (!project.completedAt) {
+    return "완료";
+  }
+  return `완료 · ${formatDateDot(project.completedAt)}`;
 }
 
 
@@ -10348,6 +10433,21 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   todayMeHeaderText: { flex: 1, minWidth: 180 },
+  todayMeAddButton: {
+    alignItems: "center",
+    borderColor: "#3a3a3a",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  todayMeAddButtonText: {
+    color: "#f2f4f8",
+    fontSize: 22,
+    fontWeight: "800",
+    lineHeight: 26,
+  },
   todayMeTypeLabel: {
     color: "#8f8f8f",
     fontSize: 11,
@@ -10372,6 +10472,35 @@ const styles = StyleSheet.create({
     color: "#f2f4f8",
     fontSize: 18,
     fontWeight: "900",
+  },
+  todayMeTimeAdjustRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 20,
+    paddingVertical: 10,
+  },
+  todayMeArrowButton: {
+    alignItems: "center",
+    borderColor: "#333333",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  todayMeArrowButtonText: {
+    color: "#d1d5db",
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 30,
+  },
+  todayMeTargetTimeText: {
+    color: "#ffffff",
+    fontSize: 22,
+    fontWeight: "900",
+    minWidth: 92,
+    textAlign: "center",
   },
   todayMeRecommendationCard: {
     backgroundColor: "#101820",
@@ -10412,6 +10541,22 @@ const styles = StyleSheet.create({
   },
   todayMeItemMain: {
     gap: 4,
+  },
+  todayMeMoreButton: {
+    alignItems: "center",
+    borderColor: "#333333",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+    height: 28,
+    justifyContent: "center",
+    width: 32,
+  },
+  todayMeMoreButtonText: {
+    color: "#d1d5db",
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 18,
   },
   todayMeTitle: {
     color: "#f2f4f8",
@@ -10895,6 +11040,32 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "800",
   },
+  dreamPieceStatusText: {
+    color: "#aeb4c0",
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 19,
+    marginTop: 6,
+  },
+  dreamPieceMoreMenu: {
+    backgroundColor: "#151515",
+    borderColor: "#2a2a2a",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    marginTop: 8,
+    padding: 8,
+  },
+  dreamPieceMoreMenuItem: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
+  dreamPieceMoreMenuText: {
+    color: "#d1d5db",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   dreamPieceDeleteConfirmBox: {
     backgroundColor: "#1b1111",
     borderColor: "#4b2a2a",
@@ -10909,6 +11080,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     lineHeight: 18,
+  },
+  dreamPieceCompleteConfirmBox: {
+    backgroundColor: "#071b12",
+    borderColor: "#1f7a4d",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 10,
+    padding: 10,
+  },
+  dreamPieceCompleteConfirmText: {
+    color: "#bbf7d0",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  dreamPieceCompleteButton: {
+    alignItems: "center",
+    backgroundColor: "#16a34a",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 12,
+  },
+  dreamPieceCompleteButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
   },
   dreamPieceDeleteButton: {
     alignItems: "center",
@@ -10964,6 +11163,82 @@ const styles = StyleSheet.create({
     color: "#9ca3af",
     fontSize: 11,
     fontWeight: "900",
+  },
+  unlinkedProjectFoldBox: {
+    borderColor: "#262626",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 10,
+  },
+  unlinkedProjectFoldRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  unlinkedProjectFoldText: {
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  unlinkedProjectFoldAction: {
+    color: "#d1d5db",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  unlinkedProjectList: {
+    gap: 6,
+    marginTop: 8,
+  },
+  unlinkedProjectRow: {
+    paddingVertical: 5,
+  },
+  unlinkedProjectTitle: {
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  completedDreamFragmentsBox: {
+    borderColor: "#262626",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 10,
+  },
+  completedDreamFragmentsHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  completedDreamFragmentsTitle: {
+    color: "#f2f4f8",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  completedDreamFragmentsToggle: {
+    color: "#d1d5db",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  completedDreamFragmentsList: {
+    gap: 10,
+    marginTop: 12,
+  },
+  completedDreamFragmentItem: {
+    gap: 3,
+  },
+  completedDreamFragmentTitle: {
+    color: "#f2f4f8",
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 19,
+  },
+  completedDreamFragmentMeta: {
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+    paddingLeft: 18,
   },
   dreamFragmentInfoBox: {
     backgroundColor: "#161616",
