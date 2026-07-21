@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  PanResponder,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -98,6 +99,7 @@ import {
 import {
   addMonths,
   addMonthsToLocalDate,
+  addDays,
   buildCalendarMonth,
   enumerateDateKeys,
   formatDateDot,
@@ -131,6 +133,17 @@ import {
 // 실제 휴대폰에서 Expo Go로 테스트할 때는 127.0.0.1 대신 PC의 내부 IPv4 주소로 바꿔주세요.
 // 예: const API_BASE_URL = "http://192.168.0.10:8000";
 const API_BASE_URL = "http://127.0.0.1:8000";
+const DAILY_LONG_RECORDS_STORAGE_KEY = "noie_daily_long_records_v1";
+
+type DailyLongRecord = {
+  id: string;
+  dateKey: string;
+  title?: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type NoieSaveRoute =
   | "routine_record"
   | "routine_create"
@@ -139,8 +152,22 @@ type NoieSaveRoute =
   | "project_create"
   | "completed_action"
   | "completed_project"
+  | "life_schedule_once"
+  | "life_schedule_repeat"
+  | "life_schedule_date_request"
+  | "life_schedule_missing_date"
+  | "life_schedule_reminder_update"
+  | "life_schedule_cancel"
+  | "life_action_record"
   | "dream_torch"
   | "dream_fragment"
+  | "dream_fragment_rename"
+  | "dream_fragment_complete"
+  | "dream_fragment_next_action_update"
+  | "daily_long_record_create"
+  | "daily_long_record_title_update"
+  | "daily_long_record_append"
+  | "daily_trace_update"
   | "daily_trace"
   | "important_day_event"
   | "daily_idea"
@@ -157,6 +184,7 @@ type NoieDestination =
   | "completed_action"
   | "completed_project"
   | "routine_execution"
+  | "life_schedule"
   | "routine_update"
   | "project_update"
   | "none";
@@ -171,6 +199,9 @@ type NoieSuggestionAction =
   | "update_routine"
   | "complete_action"
   | "complete_project"
+  | "save_life_schedule"
+  | "record_life_action"
+  | "select_schedule_date"
   | "end_routine"
   | "none";
 
@@ -181,6 +212,9 @@ type NoieSaveRoutingResult = {
   normalizedText: string;
   reason?: string;
   confidence: number;
+  scheduledDate?: string | null;
+  needsDateSelection?: boolean;
+  recurrence?: "daily" | "weekly" | null;
   repeatType?: "daily" | "weekly" | null;
   targetValue?: number | null;
   minimumValue?: number | null;
@@ -189,6 +223,9 @@ type NoieSaveRoutingResult = {
   actualUnit?: string | null;
   displayValue?: number | null;
   displayUnit?: string | null;
+  endTime?: string | null;
+  endDisplayUnit?: string | null;
+  reminder?: string | null;
   isExplicitOverride?: boolean;
   isSensitive?: boolean;
   isOtherPerson?: boolean;
@@ -196,6 +233,13 @@ type NoieSaveRoutingResult = {
   matchedProjectId?: string | null;
   matchedNextAction?: string | null;
   hasExistingRoutineRecord?: boolean;
+  matchedDailyTraceId?: string | null;
+  previousTitle?: string | null;
+  nextTitle?: string | null;
+  nextAction?: string | null;
+  longRecordBody?: string | null;
+  longRecordTitle?: string | null;
+  isAdditiveRecord?: boolean;
 };
 
 type PendingRoutineAdjustment = {
@@ -243,6 +287,7 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([fallbackSession]);
   const [activeSessionId, setActiveSessionId] = useState(fallbackSession.id);
   const [dailyTraces, setDailyTraces] = useState<DailyTraceItem[]>([]);
+  const [dailyLongRecords, setDailyLongRecords] = useState<DailyLongRecord[]>([]);
   const [dreamTorchId, setDreamTorchId] = useState<string | null>(null);
   const [projects, setProjects] = useState<NoieProject[]>([]);
   const [projectMessages, setProjectMessages] = useState<NoieProjectMessage[]>([]);
@@ -324,6 +369,9 @@ export default function App() {
     saveJsonValue(DAILY_TRACES_STORAGE_KEY, dailyTraces).catch(
       (error) => console.log("[noie] 하루의 흔적 저장 실패", error)
     );
+    saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, dailyLongRecords).catch(
+      (error) => console.log("[noie] 날짜별 긴 기록 저장 실패", error)
+    );
     if (dreamTorchId) {
       saveStringValue(DREAM_TORCH_ID_STORAGE_KEY, dreamTorchId).catch(
         (error) => console.log("[noie] dream torch save failed", error)
@@ -340,6 +388,7 @@ export default function App() {
   }, [
     activeSessionId,
     dailyTraces,
+    dailyLongRecords,
     dreamTorchId,
     isHydrated,
     projectMessages,
@@ -353,6 +402,7 @@ export default function App() {
         savedSessions,
         savedCurrentChatId,
         savedDailyTraces,
+        savedDailyLongRecords,
         savedDreamTorchId,
         savedProjects,
         savedProjectMessages,
@@ -361,6 +411,7 @@ export default function App() {
           loadStringValue(SESSIONS_STORAGE_KEY),
           loadStringValue(CURRENT_CHAT_ID_STORAGE_KEY),
           loadStringValue(DAILY_TRACES_STORAGE_KEY),
+          loadStringValue(DAILY_LONG_RECORDS_STORAGE_KEY),
           loadStringValue(DREAM_TORCH_ID_STORAGE_KEY),
           loadStringValue(PROJECTS_STORAGE_KEY),
           loadStringValue(PROJECT_MESSAGES_STORAGE_KEY),
@@ -370,6 +421,9 @@ export default function App() {
         : [];
       const parsedDailyTraces = savedDailyTraces
         ? (JSON.parse(savedDailyTraces) as DailyTraceItem[])
+        : [];
+      const parsedDailyLongRecords = savedDailyLongRecords
+        ? (JSON.parse(savedDailyLongRecords) as DailyLongRecord[])
         : [];
       const parsedProjects = savedProjects
         ? (JSON.parse(savedProjects) as NoieProject[])
@@ -399,6 +453,9 @@ export default function App() {
           saveJsonValue(DAILY_TRACES_STORAGE_KEY, dedupedDailyTraces).catch((error) => console.log("[noie] 하루의 흔적 중복 정리 실패", error));
         }
       }
+      if (Array.isArray(parsedDailyLongRecords)) {
+        setDailyLongRecords(normalizeDailyLongRecords(parsedDailyLongRecords));
+      }
       setDreamTorchId(savedDreamTorchId || null);
       if (Array.isArray(parsedProjects)) {
         setProjects(parsedProjects);
@@ -411,6 +468,7 @@ export default function App() {
       setSessions([newSession]);
       setActiveSessionId(newSession.id);
       setDailyTraces([]);
+      setDailyLongRecords([]);
       setDreamTorchId(null);
       setProjects([]);
       setProjectMessages([]);
@@ -648,15 +706,28 @@ export default function App() {
         baseMemoryPolicy,
         trimmedText
       );
+      const recentDreamReference = findRecentDreamReference(activeSession.messages, dailyTraces);
       const routingResult = resolvePrimarySaveRoute({
         userText: trimmedText,
         saveDecision,
         memoryPolicy,
         existingItems: dailyTraces,
+        dailyLongRecords,
         projects,
         pendingRoutineAdjustment,
+        recentDreamReference,
       });
       const routedMemoryPolicy = getMemoryPolicyForRoute(memoryPolicy, routingResult);
+      const assistantReply =
+        routingResult.route === "life_schedule_missing_date"
+          ? "날짜가 필요해요.\n“내일 오전 8시 30분에 일어나야 해”처럼\n날짜와 시간을 함께 말해 주세요."
+          : routingResult.route === "none" && routingResult.reason?.includes("일정을 찾지 못함")
+          ? "일정을 찾지 못했어요.\n날짜와 일정 이름을 함께 말해 주세요."
+          : routingResult.route === "none" && routingResult.reason?.includes("취소할 일정을 찾지 못함")
+          ? "취소할 일정을 찾지 못했어요.\n날짜와 일정 이름을 함께 말해 주세요."
+          : isExplicitTorchReferenceText(trimmedText) && !recentDreamReference
+          ? "어떤 꿈을 횃불로 밝힐까요?"
+          : chatData.reply;
       const resolvedTraceCandidate = routingResult.route === "none"
         ? null
         : resolveDailyTraceCandidate(
@@ -680,7 +751,7 @@ export default function App() {
         if (routingResult.route === "routine_record") {
           resolvedTraceCandidate.type = "record";
           resolvedTraceCandidate.title = routingResult.title;
-          resolvedTraceCandidate.memo = `기록할 수행량 · ${formatRoutineTarget(routingResult.displayValue ?? routingResult.actualValue ?? 0, routingResult.displayUnit ?? routingResult.actualUnit ?? routingResult.unit)}`;
+          resolvedTraceCandidate.memo = `실제 수행량 · ${formatRoutineTarget(routingResult.displayValue ?? routingResult.actualValue ?? 0, routingResult.displayUnit ?? routingResult.actualUnit ?? routingResult.unit)}`;
         }
         if (routingResult.route === "important_day_event") {
           resolvedTraceCandidate.type = "record";
@@ -694,8 +765,42 @@ export default function App() {
         }
         if (routingResult.route === "daily_trace") {
           resolvedTraceCandidate.type = "record";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
           resolvedTraceCandidate.title = routingResult.title;
           resolvedTraceCandidate.memo = "하루의 흔적";
+        }
+        if (routingResult.route === "daily_long_record_create") {
+          resolvedTraceCandidate.type = "record";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.title = getDailyLongRecordTitle(
+            resolvedTraceCandidate.date,
+            getLocalDateString(new Date())
+          );
+          resolvedTraceCandidate.memo = routingResult.longRecordBody ?? "";
+        }
+        if (routingResult.route === "daily_long_record_title_update") {
+          resolvedTraceCandidate.type = "record";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.title = getDailyLongRecordTitle(
+            resolvedTraceCandidate.date,
+            getLocalDateString(new Date())
+          );
+          resolvedTraceCandidate.memo = routingResult.longRecordTitle ?? "";
+        }
+        if (routingResult.route === "daily_long_record_append") {
+          resolvedTraceCandidate.type = "record";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.title = getDailyLongRecordTitle(
+            resolvedTraceCandidate.date,
+            getLocalDateString(new Date())
+          );
+          resolvedTraceCandidate.memo = routingResult.longRecordBody ?? "";
+        }
+        if (routingResult.route === "daily_trace_update") {
+          resolvedTraceCandidate.type = "record";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo = `${routingResult.previousTitle ?? ""}\n→ ${routingResult.nextTitle ?? ""}`;
         }
         if (routingResult.route === "completed_action") {
           resolvedTraceCandidate.type = "record";
@@ -707,6 +812,43 @@ export default function App() {
           resolvedTraceCandidate.title = routingResult.title;
           resolvedTraceCandidate.memo = "완료한 프로젝트";
         }
+        if (routingResult.route === "life_schedule_once" || routingResult.route === "life_schedule_repeat") {
+          resolvedTraceCandidate.type = "todo";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.time = routingResult.displayUnit ?? resolvedTraceCandidate.time;
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo =
+            routingResult.route === "life_schedule_repeat"
+              ? "생활 반복 · 매일\n알림 · 시간에 맞춰"
+              : "알림 · 시간에 맞춰";
+        }
+        if (routingResult.route === "life_schedule_date_request") {
+          resolvedTraceCandidate.type = "todo";
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.time = routingResult.displayUnit ?? resolvedTraceCandidate.time;
+          resolvedTraceCandidate.memo = "날짜 선택 필요";
+        }
+        if (routingResult.route === "life_action_record") {
+          resolvedTraceCandidate.type = "record";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.time = routingResult.displayUnit ?? resolvedTraceCandidate.time;
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo = "직접 기록";
+        }
+        if (routingResult.route === "life_schedule_reminder_update") {
+          resolvedTraceCandidate.type = "todo";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.time = routingResult.displayUnit ?? resolvedTraceCandidate.time;
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo = `${routingResult.previousTitle ?? ""}\n→ ${routingResult.unit ?? ""}`;
+        }
+        if (routingResult.route === "life_schedule_cancel") {
+          resolvedTraceCandidate.type = "todo";
+          resolvedTraceCandidate.date = routingResult.scheduledDate ?? resolvedTraceCandidate.date;
+          resolvedTraceCandidate.time = routingResult.displayUnit ?? resolvedTraceCandidate.time;
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo = "일정 취소";
+        }
         if (routingResult.route === "routine_adjustment_intent") {
           resolvedTraceCandidate.type = "todo";
           resolvedTraceCandidate.title = routingResult.title;
@@ -717,11 +859,30 @@ export default function App() {
         if (routingResult.route === "routine_adjustment_confirm") {
           resolvedTraceCandidate.type = "todo";
           resolvedTraceCandidate.title = routingResult.title;
-          resolvedTraceCandidate.memo = `변경 목표 · ${routingResult.targetValue ?? ""}${routingResult.unit ?? ""}`;
+          resolvedTraceCandidate.memo = `변경 목표 · ${formatRoutineTargetForDisplay(routingResult.targetValue ?? 0, routingResult.unit)}`;
         }
         if (routingResult.route === "dream_fragment") {
           resolvedTraceCandidate.type = "goal";
           resolvedTraceCandidate.title = routingResult.title;
+        }
+        if (routingResult.route === "dream_torch") {
+          resolvedTraceCandidate.type = "goal";
+          resolvedTraceCandidate.title = routingResult.title;
+        }
+        if (routingResult.route === "dream_fragment_rename") {
+          resolvedTraceCandidate.type = "goal";
+          resolvedTraceCandidate.title = routingResult.previousTitle ?? routingResult.title;
+          resolvedTraceCandidate.memo = `${routingResult.previousTitle ?? ""}\n→ ${routingResult.nextTitle ?? ""}`;
+        }
+        if (routingResult.route === "dream_fragment_complete") {
+          resolvedTraceCandidate.type = "goal";
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo = "꿈의 파편 완료";
+        }
+        if (routingResult.route === "dream_fragment_next_action_update") {
+          resolvedTraceCandidate.type = "goal";
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo = `다음 할 일\n→ ${routingResult.nextAction ?? ""}`;
         }
       }
       let dailyTraceStatus: DailyTraceStatus | undefined;
@@ -735,6 +896,9 @@ export default function App() {
         if (routingResult.route === "dream_fragment" && isDuplicateDreamFragmentRoute(routingResult, dailyTraces)) {
           dailyTraceStatus = "duplicate";
           dailyTraceNotice = "이미 꿈의 파편에 남아 있어요.";
+        } else if (isDuplicateLifeScheduleRoute(routingResult, dailyTraces)) {
+          dailyTraceStatus = "duplicate";
+          dailyTraceNotice = "이미 하루의 흔적에 같은 생활 반복이 있어요.";
         } else if (isDuplicateRoutineRoute(routingResult, dailyTraces)) {
           dailyTraceStatus = "duplicate";
           dailyTraceNotice = "이미 오늘의 나에 같은 반복 목표가 있어요.";
@@ -795,8 +959,8 @@ export default function App() {
             ? {
                 id: assistantMessageId,
                 role: "assistant",
-                text: chatData.reply,
-                reply: chatData.reply,
+                text: assistantReply,
+                reply: assistantReply,
                 stateSummary:
                   chatData.state_summary ||
                   chatData.analysis.user_view.state_summary,
@@ -1194,6 +1358,48 @@ export default function App() {
     messageText: string
   ) => {
     const now = new Date().toISOString();
+    const routingResult = (message as RoutedChatMessage).saveRoutingResult;
+    if (routingResult?.matchedDailyTraceId) {
+      const targetItem = dailyTraces.find((item) => item.id === routingResult.matchedDailyTraceId);
+      if (targetItem) {
+        const nextItems = dailyTraces.map((item) => {
+          if (item.id === targetItem.id) {
+            return {
+              ...item,
+              saveTargets: Array.from(new Set([...(item.saveTargets ?? []), "dream_torch"])) as SaveDecision["saveTargets"],
+              dreamRole: "torch" as DreamRole,
+              pinnedAsDreamTorch: true,
+              hiddenFromDream: false,
+              updatedAt: now,
+            };
+          }
+
+          return item.pinnedAsDreamTorch || item.dreamRole === "torch"
+            ? {
+                ...item,
+                pinnedAsDreamTorch: false,
+                dreamRole: item.dreamRole === "torch" ? undefined : item.dreamRole,
+                updatedAt: now,
+              }
+            : item;
+        });
+        setDailyTraces(nextItems);
+        setDreamTorchId(targetItem.id);
+        await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+        await saveStringValue(DREAM_TORCH_ID_STORAGE_KEY, targetItem.id);
+        updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+          ...session,
+          messages: session.messages.map((item) =>
+            item.id === message.id
+              ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "꿈의 횃불로 밝혔어요." }
+              : item
+          ),
+          updatedAt: now,
+        }));
+        return;
+      }
+    }
+
     const baseMemoryPolicy = message.dailyMemoryPolicy ?? buildMemorySavePolicy("dream");
     const memoryPolicy: MemorySavePolicy = {
       ...baseMemoryPolicy,
@@ -1207,10 +1413,10 @@ export default function App() {
     };
     const newItem: DailyTraceItem = {
       ...buildDailyTraceItem(candidate, messageText, message.id, now, memoryPolicy),
-      title: makeMemoryTitle(messageText),
-      memo: messageText,
-      text: messageText,
-      sourceText: messageText,
+      title: routingResult?.title ?? makeMemoryTitle(messageText),
+      memo: routingResult?.title ?? messageText,
+      text: routingResult?.title ?? messageText,
+      sourceText: routingResult?.title ?? messageText,
       memoryType: memoryPolicy.type,
       saveTargets: ["dream_torch"],
       importance: memoryPolicy.importance,
@@ -1306,15 +1512,9 @@ export default function App() {
       routineRecords: [],
     };
     const routineTitle = routingResult.title || candidate.title;
-    const routineKey = normalizeRoutineKey(
-      routineTitle,
-      routingResult.repeatType ?? "daily",
-      routingResult.targetValue ?? undefined,
-      routingResult.unit
-    );
-    const existingRoutine = (targetTorch.routines ?? []).find((routine) =>
-      normalizeRoutineKey(routine.title, routine.repeatType, routine.targetValue, routine.unit) ===
-      routineKey
+    const routineKey = normalizeRoutineTitleKey(routineTitle);
+    const existingRoutine = (targetTorch.routines ?? []).find(
+      (routine) => isRoutineAvailableForTodayMe(routine) && normalizeRoutineTitleKey(routine.title) === routineKey
     );
     const todayMeDreamFragments = getDreamFragments(dailyTraces).filter((piece) => piece.id !== targetTorch.id);
     const activeCardCount = getVisibleTodayMeCards(targetTorch, todayMeDreamFragments, projects, today).length;
@@ -1579,14 +1779,14 @@ export default function App() {
   const handleConfirmRoutineAdjustment = async (
     message: RoutedChatMessage,
     routingResult: NoieSaveRoutingResult,
-    action?: "today" | "default" | "archive" | "continue"
+    action?: "today" | "tomorrow" | "default" | "archive" | "continue" | "open_calendar"
   ) => {
     if (!routingResult.matchedRoutineId || typeof routingResult.targetValue !== "number") {
       return;
     }
     const now = new Date().toISOString();
     const today = getLocalDateString(new Date());
-    const applyMode = action === "default" ? "default" : "today";
+    const applyMode = action === "today" ? "today" : "default";
     const nextItems = dailyTraces.map((item) => ({
       ...item,
       routines: (item.routines ?? []).map((routine) => {
@@ -1628,7 +1828,14 @@ export default function App() {
       ...session,
       messages: session.messages.map((item) =>
         item.id === message.id
-          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: applyMode === "default" ? "기본 목표를 변경했어요." : "오늘 목표만 변경했어요." }
+          ? {
+              ...item,
+              dailyTraceStatus: "added",
+              dailyTraceNotice:
+                applyMode === "default"
+                  ? `기본 목표를 ${formatRoutineTarget(routingResult.targetValue ?? 0, routingResult.unit)}으로 변경했어요.`
+                  : `오늘 목표만 ${formatRoutineTarget(routingResult.targetValue ?? 0, routingResult.unit)}으로 변경했어요.`,
+            }
           : item
       ),
       updatedAt: now,
@@ -1700,6 +1907,141 @@ export default function App() {
     }));
   };
 
+  const handleRenameDreamFragment = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    if (!routingResult.matchedDailyTraceId || !routingResult.nextTitle?.trim()) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextTitle = routingResult.nextTitle.trim();
+    const nextItems = dailyTraces.map((item) =>
+      item.id === routingResult.matchedDailyTraceId
+        ? {
+            ...item,
+            title: nextTitle,
+            updatedAt: now,
+          }
+        : item
+    );
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "꿈의 파편 이름을 바꿨어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const handleCompleteDreamFragment = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    if (!routingResult.matchedDailyTraceId) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const today = getLocalDateString(new Date());
+    const fragment = dailyTraces.find((item) => item.id === routingResult.matchedDailyTraceId);
+    if (!fragment) {
+      return;
+    }
+
+    const completionSourceId = `dream_fragment_complete:${fragment.id}:${today}`;
+    const nextItemsBase = dailyTraces.map((item) =>
+      item.id === fragment.id
+        ? {
+            ...item,
+            projectStatus: "done" as DreamProjectStatus,
+            completedAt: (item as DailyTraceItem & { completedAt?: string }).completedAt ?? now,
+            updatedAt: now,
+          } as DailyTraceItem
+        : item
+    );
+    const hasCompletionTrace = nextItemsBase.some((item) => {
+      const typedItem = item as DailyTraceItem & { sourceId?: string };
+      return typedItem.sourceId === completionSourceId;
+    });
+    const nextItems = hasCompletionTrace
+      ? nextItemsBase
+      : [
+          ...nextItemsBase,
+          {
+            id: createId("trace"),
+            type: "record" as DailyTraceItemType,
+            date: today,
+            title: `${fragment.title} 완료`,
+            memo: "꿈의 파편",
+            text: routingResult.originalText,
+            originalText: routingResult.originalText,
+            sourceText: routingResult.originalText,
+            memoryType: "achievement" as MemorySavePolicyType,
+            saveTargets: ["daily_piece", "daily_trace"] as SaveDecision["saveTargets"],
+            importance: 94,
+            displayCategory: "꿈의 파편 완료",
+            category: "dream_fragment_complete",
+            sourceType: "dream_fragment_complete",
+            sourceId: completionSourceId,
+            relatedDreamTorchId: fragment.relatedDreamTorchId,
+            createdAt: now,
+          } as DailyTraceItem,
+        ];
+
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "꿈의 파편을 완료했어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const handleUpdateDreamFragmentNextAction = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    if (!routingResult.matchedDailyTraceId || !routingResult.nextAction?.trim()) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextAction = routingResult.nextAction.trim();
+    const nextItems = dailyTraces.map((item) =>
+      item.id === routingResult.matchedDailyTraceId
+        ? {
+            ...item,
+            nextAction,
+            updatedAt: now,
+          }
+        : item
+    );
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "다음 할 일을 바꿨어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
   const markMatchedProjectNextActionDone = async (
     routingResult: NoieSaveRoutingResult,
     completedAt: string
@@ -1735,7 +2077,7 @@ export default function App() {
   const confirmDailyTrace = async (
     messageId: string,
     dreamRole?: DreamRole,
-    action?: "today" | "default" | "archive" | "continue"
+    action?: "today" | "tomorrow" | "default" | "archive" | "continue" | "open_calendar"
   ) => {
     if (!activeSession || savingDailyTraceMessageIds.includes(messageId)) {
       return;
@@ -1767,8 +2109,77 @@ export default function App() {
       });
       const routingResult = (message as RoutedChatMessage).saveRoutingResult;
 
+      if (routingResult?.route === "life_schedule_date_request") {
+        if (action === "open_calendar") {
+          setScreenMode("dailyTrace");
+          updateSession(activeSession.id, (session) => ({
+            ...session,
+            messages: session.messages.map((item) =>
+              item.id === messageId
+                ? { ...item, dailyTraceStatus: "dismissed", dailyTraceNotice: "하루의 흔적에서 날짜를 선택해 주세요." }
+                : item
+            ),
+            updatedAt: now,
+          }));
+          return;
+        }
+
+        if (action !== "today" && action !== "tomorrow") {
+          updateSession(activeSession.id, (session) => ({
+            ...session,
+            messages: session.messages.map((item) =>
+              item.id === messageId
+                ? { ...item, dailyTraceStatus: "dismissed", dailyTraceNotice: "저장하지 않았어요." }
+                : item
+            ),
+            updatedAt: now,
+          }));
+          return;
+        }
+
+        const selectedDateKey = getLocalDateString(addDays(new Date(), action === "tomorrow" ? 1 : 0));
+        candidate.date = selectedDateKey;
+        candidate.type = "todo";
+        candidate.title = routingResult.title;
+        candidate.time = routingResult.displayUnit ?? candidate.time;
+        candidate.memo = "알림 · 시간에 맞춰";
+        routingResult.route = "life_schedule_once";
+        routingResult.scheduledDate = selectedDateKey;
+        routingResult.needsDateSelection = false;
+      }
+
       if (routingResult?.route === "routine_create") {
         await handleSaveTodayMeRoutine(message as RoutedChatMessage, candidate, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "daily_long_record_create") {
+        await saveChatDailyLongRecord(message as RoutedChatMessage, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "daily_long_record_title_update") {
+        await updateChatDailyLongRecordTitle(message as RoutedChatMessage, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "daily_long_record_append") {
+        await appendChatDailyLongRecord(message as RoutedChatMessage, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "daily_trace_update") {
+        await updateRecentDailyTraceLine(message as RoutedChatMessage, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "life_schedule_reminder_update") {
+        await updateLifeScheduleReminder(message as RoutedChatMessage, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "life_schedule_cancel") {
+        await cancelLifeSchedule(message as RoutedChatMessage, routingResult);
         return;
       }
 
@@ -1818,6 +2229,21 @@ export default function App() {
           ),
           updatedAt: now,
         }));
+        return;
+      }
+
+      if (routingResult?.route === "dream_fragment_rename") {
+        await handleRenameDreamFragment(message as RoutedChatMessage, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "dream_fragment_complete") {
+        await handleCompleteDreamFragment(message as RoutedChatMessage, routingResult);
+        return;
+      }
+
+      if (routingResult?.route === "dream_fragment_next_action_update") {
+        await handleUpdateDreamFragmentNextAction(message as RoutedChatMessage, routingResult);
         return;
       }
 
@@ -1968,18 +2394,359 @@ export default function App() {
     }
   };
 
-  const toggleDailyTraceDone = (itemId: string) => {
+  const toggleDailyTraceDone = (itemId: string, dateKey?: string) => {
+    const now = new Date().toISOString();
     setDailyTraces((currentItems) =>
-      currentItems.map((item) =>
-        item.id === itemId && item.type === "todo"
-          ? {
-              ...item,
-              isDone: !item.isDone,
-              updatedAt: new Date().toISOString(),
-            }
-          : item
-      )
+      currentItems.map((item) => {
+        if (item.id !== itemId || item.type !== "todo") {
+          return item;
+        }
+
+        if (isLifeRepeatTraceItem(item)) {
+          const targetDateKey = dateKey ?? getLocalDateString(new Date());
+          const typedItem = item as DailyTraceItem & { completedDates?: Record<string, string> };
+          if (typedItem.completedDates?.[targetDateKey]) {
+            return item;
+          }
+          return {
+            ...item,
+            completedDates: {
+              ...(typedItem.completedDates ?? {}),
+              [targetDateKey]: now,
+            },
+            updatedAt: now,
+          } as DailyTraceItem;
+        }
+
+        const nextDone = !item.isDone;
+        return {
+          ...item,
+          isDone: nextDone,
+          ...(nextDone ? { completedAt: now } : { completedAt: undefined }),
+          updatedAt: now,
+        } as DailyTraceItem;
+      })
     );
+  };
+
+  const addManualDailyTraceItem = (input: {
+    type: "todo" | "schedule" | "record";
+    date: string;
+    title: string;
+    time?: string;
+    endTime?: string;
+    reminder?: string;
+  }) => {
+    const title = input.title.trim();
+    if (!title) {
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    const sourceKind =
+      input.type === "todo"
+        ? "manual_todo"
+        : input.type === "schedule"
+        ? "manual_schedule"
+        : "manual_record";
+    const nextItem = {
+      id: createId("trace"),
+      type: input.type,
+      date: input.date,
+      title,
+      memo: input.type === "record" ? undefined : input.reminder,
+      time: input.time || undefined,
+      sourceText: title,
+      text: title,
+      originalText: title,
+      sourceId: `${sourceKind}:${input.date}:${normalizeMemoryInput(title)}:${now}`,
+      sourceType: sourceKind,
+      reminder: input.reminder || "none",
+      endTime: input.endTime || undefined,
+      isDone: input.type === "todo" ? false : undefined,
+      memoryType: input.type === "schedule" ? "schedule" : input.type === "todo" ? "todo" : "daily_context",
+      saveTargets: ["daily_trace"],
+      displayCategory:
+        input.type === "schedule"
+          ? "일정"
+          : input.type === "todo"
+          ? "할 일"
+          : "직접 기록",
+      createdAt: now,
+      updatedAt: now,
+    } as DailyTraceItem;
+
+    setDailyTraces((currentItems) => [...currentItems, nextItem]);
+    return true;
+  };
+
+  const saveDailyLongRecord = (input: {
+    dateKey: string;
+    title?: string;
+    body: string;
+  }) => {
+    const body = input.body.trim();
+    if (!body) {
+      return false;
+    }
+
+    const title = input.title?.trim();
+    const now = new Date().toISOString();
+    setDailyLongRecords((currentRecords) => {
+      const existingRecord = currentRecords.find((record) => record.dateKey === input.dateKey);
+      if (existingRecord) {
+        return currentRecords.map((record) =>
+          record.dateKey === input.dateKey
+            ? {
+                ...record,
+                title: title || undefined,
+                body,
+                updatedAt: now,
+              }
+            : record
+        );
+      }
+
+      return [
+        ...currentRecords,
+        {
+          id: createId("daily-long-record"),
+          dateKey: input.dateKey,
+          title: title || undefined,
+          body,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+    });
+
+    return true;
+  };
+
+  const saveChatDailyLongRecord = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    const dateKey = routingResult.scheduledDate ?? getLocalDateString(new Date());
+    const body = routingResult.longRecordBody?.trim();
+    if (!body) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    let didSave = false;
+    const nextRecords = normalizeDailyLongRecords([
+      ...dailyLongRecords.filter((record) => record.dateKey !== dateKey),
+      {
+        id: dailyLongRecords.find((record) => record.dateKey === dateKey)?.id ?? createId("daily-long-record"),
+        dateKey,
+        title: dailyLongRecords.find((record) => record.dateKey === dateKey)?.title,
+        body,
+        createdAt: dailyLongRecords.find((record) => record.dateKey === dateKey)?.createdAt ?? now,
+        updatedAt: now,
+      },
+    ]);
+    didSave = true;
+    setDailyLongRecords(nextRecords);
+    await saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, nextRecords);
+    setSelectedTraceDate(dateKey);
+
+    if (didSave) {
+      updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+        ...session,
+        messages: session.messages.map((item) =>
+          item.id === message.id
+            ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "오늘의 기록에 남겼어요." }
+            : item
+        ),
+        updatedAt: now,
+      }));
+    }
+  };
+
+  const updateChatDailyLongRecordTitle = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    const dateKey = routingResult.scheduledDate ?? getLocalDateString(new Date());
+    const title = routingResult.longRecordTitle?.trim();
+    if (!title) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existingRecord = dailyLongRecords.find((record) => record.dateKey === dateKey);
+    if (!existingRecord) {
+      return;
+    }
+
+    const nextRecords = dailyLongRecords.map((record) =>
+      record.dateKey === dateKey
+        ? {
+            ...record,
+            title,
+            updatedAt: now,
+          }
+        : record
+    );
+    setDailyLongRecords(nextRecords);
+    await saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, nextRecords);
+    setSelectedTraceDate(dateKey);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "기록 제목을 바꿨어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const appendChatDailyLongRecord = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    const dateKey = routingResult.scheduledDate ?? getLocalDateString(new Date());
+    const body = routingResult.longRecordBody?.trim();
+    if (!body) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existingRecord = dailyLongRecords.find((record) => record.dateKey === dateKey);
+    const nextRecords = normalizeDailyLongRecords([
+      ...dailyLongRecords.filter((record) => record.dateKey !== dateKey),
+      existingRecord
+        ? {
+            ...existingRecord,
+            body: `${existingRecord.body.trim()}\n\n${body}`,
+            updatedAt: now,
+          }
+        : {
+            id: createId("daily-long-record"),
+            dateKey,
+            body,
+            createdAt: now,
+            updatedAt: now,
+          },
+    ]);
+    setDailyLongRecords(nextRecords);
+    await saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, nextRecords);
+    setSelectedTraceDate(dateKey);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "기록에 덧붙였어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const updateRecentDailyTraceLine = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    if (!routingResult.matchedDailyTraceId || !routingResult.nextTitle?.trim()) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextText = routingResult.nextTitle.trim();
+    const nextItems = dailyTraces.map((item) =>
+      item.id === routingResult.matchedDailyTraceId
+        ? {
+            ...item,
+            title: nextText,
+            text: nextText,
+            memo: nextText,
+            updatedAt: now,
+          }
+        : item
+    );
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "방금 남긴 기록을 수정했어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const updateLifeScheduleReminder = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    if (!routingResult.matchedDailyTraceId || !routingResult.reminder) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const reminder = routingResult.reminder;
+    const nextItems = dailyTraces.map((item) =>
+      item.id === routingResult.matchedDailyTraceId
+        ? {
+            ...item,
+            reminder,
+            memo: `🔔 ${routingResult.unit ?? getReminderLabelByValue(reminder)}`,
+            updatedAt: now,
+          }
+        : item
+    );
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "일정 알림을 바꿨어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const cancelLifeSchedule = async (
+    message: RoutedChatMessage,
+    routingResult: NoieSaveRoutingResult
+  ) => {
+    if (!routingResult.matchedDailyTraceId) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const nextItems = dailyTraces.map((item) =>
+      item.id === routingResult.matchedDailyTraceId
+        ? {
+            ...item,
+            status: "cancelled",
+            cancelledAt: now,
+            updatedAt: now,
+          }
+        : item
+    );
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "일정을 취소했어요." }
+          : item
+      ),
+      updatedAt: now,
+    }));
   };
 
   const pinDreamTorch = (itemId: string) => {
@@ -2105,14 +2872,14 @@ export default function App() {
     if (didUpdate && source === "chat") {
       const traceTitle = completedOnly
         ? `${routineTitle || "반복 목표"} 수행`
-        : `${routineTitle || "반복 목표"} · ${formatRoutineTarget(safeActualValue, displayUnit)} 수행`;
+        : `${routineTitle || "반복 목표"} ${formatRoutineTarget(safeActualValue, displayUnit)}`;
       const traceSourceId = `routine_execution:${routineId}:${dateKey}`;
       const traceItem = {
         id: createId("trace"),
         type: "record",
         date: dateKey,
         title: traceTitle,
-        memo: traceTitle,
+        memo: "오늘의 불씨",
         text: originalText ?? traceTitle,
         originalText: originalText ?? traceTitle,
         sourceText: originalText ?? traceTitle,
@@ -2734,12 +3501,15 @@ export default function App() {
           ) : screenMode === "dailyTrace" ? (
             <DailyTraceScreen
               dailyTraces={dailyTraces}
+              dailyLongRecords={dailyLongRecords}
               selectedTraceDate={selectedTraceDate}
               calendarMonth={calendarMonth}
               onSelectTraceDate={setSelectedTraceDate}
               onChangeCalendarMonth={setCalendarMonth}
               onToggleDailyTraceDone={toggleDailyTraceDone}
               onDeleteDailyTraceGoal={deleteDailyTraceGoal}
+              onAddDailyTraceItem={addManualDailyTraceItem}
+              onSaveDailyLongRecord={saveDailyLongRecord}
               onCleanupDuplicateMemories={cleanupDuplicateMemories}
               cleanupMessage={dailyTraceCleanupMessage}
               onBackToChat={returnToChat}
@@ -3619,6 +4389,18 @@ function formatSaveDecisionValue(value: unknown) {
 
   return String(value);
 }
+
+function shouldShowDreamChoiceButtons(
+  routingResult: NoieSaveRoutingResult | undefined,
+  isDreamOrGoal: boolean
+) {
+  return (
+    routingResult?.route === "dream_torch" ||
+    routingResult?.route === "dream_fragment" ||
+    (isDreamOrGoal && !routingResult)
+  );
+}
+
 function DailyTraceCandidateCard({
   message,
   onConfirm,
@@ -3626,7 +4408,7 @@ function DailyTraceCandidateCard({
   isSaving,
 }: {
   message: ChatMessage;
-  onConfirm: (messageId: string, dreamRole?: DreamRole, action?: "today" | "default" | "archive" | "continue") => void;
+  onConfirm: (messageId: string, dreamRole?: DreamRole, action?: "today" | "tomorrow" | "default" | "archive" | "continue" | "open_calendar") => void;
   onDismiss: (messageId: string) => void;
   isSaving: boolean;
 }) {
@@ -3651,6 +4433,7 @@ function DailyTraceCandidateCard({
   const isRoutineCandidate = routingResult?.route === "routine_create";
   const isProjectCandidate = routingResult?.route === "project_create";
   const isRoutineAdjustment = routingResult?.route === "routine_adjustment_intent" || routingResult?.route === "routine_adjustment_confirm";
+  const showDreamChoiceButtons = shouldShowDreamChoiceButtons(routingResult, isDreamOrGoal);
   const canRespond = !isAdded && !isDuplicate && !isDismissed;
   const noieDestination = getNoieDestination(routingResult);
   const noieSuggestionAction = getNoieSuggestionAction(routingResult);
@@ -3676,7 +4459,34 @@ function DailyTraceCandidateCard({
       ) : null}
       {canRespond ? (
         <View style={styles.traceCandidateActions}>
-          {isRoutineCandidate ? (
+          {routingResult?.route === "life_schedule_date_request" ? (
+            <>
+              <TouchableOpacity
+                style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id, undefined, "today")}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceConfirmButtonText}>오늘</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id, undefined, "tomorrow")}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceConfirmButtonText}>내일</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.traceCancelButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id, undefined, "open_calendar")}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceCancelButtonText}>날짜 선택</Text>
+              </TouchableOpacity>
+            </>
+          ) : isRoutineCandidate ? (
             <>
               <TouchableOpacity
                 style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
@@ -3703,25 +4513,64 @@ function DailyTraceCandidateCard({
           ) : isRoutineAdjustment ? (
             <>
               {routingResult.route === "routine_adjustment_confirm" ? (
-                <>
-                  <TouchableOpacity
-                    style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
-                    onPress={() => onConfirm(message.id, undefined, "today")}
-                    disabled={isSaving}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.traceConfirmButtonText}>오늘만 {routingResult.targetValue ?? ""}{routingResult.unit ?? ""}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
-                    onPress={() => onConfirm(message.id, undefined, "default")}
-                    disabled={isSaving}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.traceConfirmButtonText}>기본 목표를 {routingResult.targetValue ?? ""}{routingResult.unit ?? ""}으로 변경</Text>
-                  </TouchableOpacity>
-                </>
+                <TouchableOpacity
+                  style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+                  onPress={() => onConfirm(message.id, undefined, "default")}
+                  disabled={isSaving}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.traceConfirmButtonText}>{isSaving ? "저장 중..." : "바꾸기"}</Text>
+                </TouchableOpacity>
               ) : null}
+            </>
+          ) : routingResult?.route === "dream_fragment_rename" ||
+            routingResult?.route === "dream_fragment_next_action_update" ||
+            routingResult?.route === "life_schedule_reminder_update" ? (
+            <TouchableOpacity
+              style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+              onPress={() => onConfirm(message.id)}
+              disabled={isSaving}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.traceConfirmButtonText}>{isSaving ? "저장 중..." : "바꾸기"}</Text>
+            </TouchableOpacity>
+          ) : routingResult?.route === "dream_fragment_complete" ? (
+            <>
+              <TouchableOpacity
+                style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id)}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceConfirmButtonText}>{isSaving ? "저장 중..." : "완료"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.traceCancelButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onDismiss(message.id)}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceCancelButtonText}>아직</Text>
+              </TouchableOpacity>
+            </>
+          ) : routingResult?.route === "life_schedule_cancel" ? (
+            <>
+              <TouchableOpacity
+                style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id)}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceConfirmButtonText}>{isSaving ? "저장 중..." : "취소하기"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.traceCancelButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onDismiss(message.id)}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceCancelButtonText}>유지하기</Text>
+              </TouchableOpacity>
             </>
           ) : routingResult?.route === "completed_project" ? (
             <>
@@ -3742,7 +4591,7 @@ function DailyTraceCandidateCard({
                 <Text style={styles.traceCancelButtonText}>계속 진행</Text>
               </TouchableOpacity>
             </>
-          ) : routingResult?.route === "dream_torch" ? (
+          ) : showDreamChoiceButtons ? (
             <>
               <TouchableOpacity
                 style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
@@ -3754,19 +4603,6 @@ function DailyTraceCandidateCard({
                   {isSaving ? "저장 중..." : "꿈의 횃불로 밝히기"}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
-                onPress={() => onConfirm(message.id, "fragment")}
-                disabled={isSaving}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.traceConfirmButtonText}>
-                  {isSaving ? "저장 중..." : "꿈의 파편으로 남기기"}
-                </Text>
-              </TouchableOpacity>
-            </>
-          ) : isDreamOrGoal || routingResult?.route === "dream_fragment" ? (
-            <>
               <TouchableOpacity
                 style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
                 onPress={() => onConfirm(message.id, "fragment")}
@@ -3790,14 +4626,16 @@ function DailyTraceCandidateCard({
               </Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity
-            style={[styles.traceCancelButton, isSaving && styles.traceConfirmButtonDisabled]}
-            onPress={() => onDismiss(message.id)}
-            disabled={isSaving}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.traceCancelButtonText}>{isRoutineAdjustment ? "취소" : "안 할래"}</Text>
-          </TouchableOpacity>
+          {routingResult?.route !== "dream_fragment_complete" && routingResult?.route !== "life_schedule_cancel" ? (
+            <TouchableOpacity
+              style={[styles.traceCancelButton, isSaving && styles.traceConfirmButtonDisabled]}
+              onPress={() => onDismiss(message.id)}
+              disabled={isSaving}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.traceCancelButtonText}>{isRoutineAdjustment ? "취소" : "안 할래"}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -3874,10 +4712,10 @@ function DreamVaultScreen({
   const dreamFragments = getDreamFragments(dailyTraces).filter(
     (piece) => piece.id !== torchPiece?.id
   );
-  const activeDreamFragments = dreamFragments.filter((piece) => !getCompletedProjectForFragment(piece, projects));
+  const activeDreamFragments = dreamFragments.filter((piece) => piece.projectStatus !== "done" && !getCompletedProjectForFragment(piece, projects));
   const completedDreamFragments = dreamFragments
     .map((piece) => ({ piece, project: getCompletedProjectForFragment(piece, projects) }))
-    .filter((item): item is { piece: DailyTraceItem; project: NoieProject } => Boolean(item.project));
+    .filter((item) => item.piece.projectStatus === "done" || Boolean(item.project));
   const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
   const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects);
   const todayKey = getLocalDateString(new Date());
@@ -3982,7 +4820,7 @@ function DreamVaultScreen({
                         ⭐ {getMemoryInputText(piece) || piece.title}
                       </Text>
                       <Text style={styles.completedDreamFragmentMeta}>
-                        {getCompletedDreamFragmentMeta(project)}
+                        {project ? getCompletedDreamFragmentMeta(project) : `완료 · ${formatDateDot((piece as DailyTraceItem & { completedAt?: string }).completedAt ?? piece.updatedAt ?? piece.createdAt)}`}
                       </Text>
                     </View>
                   ))}
@@ -4952,7 +5790,7 @@ function getActiveDreamSeason(piece: DailyTraceItem) {
 
 function getActiveDreamRoutines(piece: DailyTraceItem, activeSeason?: DreamSeason) {
   return (piece.routines ?? []).filter((routine) => {
-    if (routine.active === false) {
+    if (!isRoutineVisibleInTodayMe(routine)) {
       return false;
     }
 
@@ -5479,7 +6317,19 @@ function getEffectiveRoutineMinimumValue(routine: DreamRoutine, dateKey: string)
 }
 
 function formatRoutineTarget(value: number, unit?: string) {
-  return value > 0 ? `${value}${unit ?? ""}` : "체크";
+  if (value <= 0) {
+    return "체크";
+  }
+  return formatRoutineTargetForDisplay(value, unit);
+}
+
+function formatRoutineTargetForDisplay(value: number, unit?: string) {
+  if (unit === "분" && value >= 60) {
+    const hours = Math.floor(value / 60);
+    const minutes = value % 60;
+    return minutes > 0 ? `${hours}시간 ${minutes}분` : `${hours}시간`;
+  }
+  return `${value}${unit ?? ""}`;
 }
 
 function buildTodayMeCards(
@@ -5518,8 +6368,24 @@ function getVisibleTodayMeCards(
 }
 
 function isActiveTodayMeRoutine(routine: DreamRoutine) {
+  return isRoutineVisibleInTodayMe(routine);
+}
+
+function isRoutineVisibleInTodayMe(routine: DreamRoutine) {
+  return isRoutineAvailableForTodayMe(routine);
+}
+
+function isRoutineAvailableForTodayMe(routine: DreamRoutine) {
+  const typedRoutine = routine as DreamRoutine & {
+    deletedAt?: string | null;
+    hidden?: boolean;
+    status?: string;
+  };
   return (
-    routine.active !== false &&
+    typedRoutine.deletedAt == null &&
+    typedRoutine.hidden !== true &&
+    typedRoutine.status !== "deleted" &&
+    typedRoutine.status !== "hidden" &&
     routine.lifecycleStatus !== "completed" &&
     routine.lifecycleStatus !== "archived" &&
     routine.archivedFromTodayMe !== true
@@ -6190,23 +7056,40 @@ function DailyPiecesSection({ pieces }: { pieces: DailyPieceGroup[] }) {
 
 function DailyTraceScreen({
   dailyTraces,
+  dailyLongRecords,
   selectedTraceDate,
   calendarMonth,
   onSelectTraceDate,
   onChangeCalendarMonth,
   onToggleDailyTraceDone,
-  onDeleteDailyTraceGoal,
+  onDeleteDailyTraceGoal: _onDeleteDailyTraceGoal,
+  onAddDailyTraceItem,
+  onSaveDailyLongRecord,
   onCleanupDuplicateMemories,
   cleanupMessage,
   onBackToChat,
 }: {
   dailyTraces: DailyTraceItem[];
+  dailyLongRecords: DailyLongRecord[];
   selectedTraceDate: string;
   calendarMonth: Date;
   onSelectTraceDate: (date: string) => void;
   onChangeCalendarMonth: (date: Date) => void;
-  onToggleDailyTraceDone: (itemId: string) => void;
+  onToggleDailyTraceDone: (itemId: string, dateKey?: string) => void;
   onDeleteDailyTraceGoal: (itemId: string) => void;
+  onAddDailyTraceItem: (input: {
+    type: "todo" | "schedule" | "record";
+    date: string;
+    title: string;
+    time?: string;
+    endTime?: string;
+    reminder?: string;
+  }) => boolean;
+  onSaveDailyLongRecord: (input: {
+    dateKey: string;
+    title?: string;
+    body: string;
+  }) => boolean;
   onCleanupDuplicateMemories: () => void;
   cleanupMessage: string;
   onBackToChat: () => void;
@@ -6221,7 +7104,7 @@ function DailyTraceScreen({
         <View style={styles.flowHeaderTextBlock}>
           <Text style={styles.flowTitle}>하루의 흔적</Text>
           <Text style={styles.flowSubtitle}>
-            날짜별 일정, 오늘의 기록, 할 일, 남긴 말을 모아봅니다.
+            이번 주에 남긴 흔적이에요
           </Text>
         </View>
         <TouchableOpacity
@@ -6229,27 +7112,28 @@ function DailyTraceScreen({
           onPress={onBackToChat}
           activeOpacity={0.85}
         >
-          <Text style={styles.backToChatButtonText}>채팅으로 돌아가기</Text>
+          <Text style={styles.backToChatButtonText}>채팅</Text>
         </TouchableOpacity>
       </View>
 
       <DailyTraceCalendar
         items={dailyTraces}
+        dailyLongRecords={dailyLongRecords}
         selectedDate={selectedTraceDate}
         calendarMonth={calendarMonth}
         onSelectDate={onSelectTraceDate}
         onChangeMonth={onChangeCalendarMonth}
         onToggleDone={onToggleDailyTraceDone}
-        onDeleteGoal={onDeleteDailyTraceGoal}
+        onAddItem={onAddDailyTraceItem}
+        onSaveLongRecord={onSaveDailyLongRecord}
       />
 
-      {/* 개발 테스트용 버튼 */}
       <TouchableOpacity
-        style={styles.projectSecondaryButton}
+        style={styles.traceCleanupTextButton}
         onPress={onCleanupDuplicateMemories}
         activeOpacity={0.85}
       >
-        <Text style={styles.projectSecondaryButtonText}>중복 기록 정리</Text>
+        <Text style={styles.traceCleanupTextButtonText}>중복 기록 정리</Text>
       </TouchableOpacity>
       {cleanupMessage ? (
         <Text style={styles.traceCandidateMemo}>{cleanupMessage}</Text>
@@ -6260,151 +7144,1186 @@ function DailyTraceScreen({
 
 function DailyTraceCalendar({
   items,
+  dailyLongRecords,
   selectedDate,
   calendarMonth,
   onSelectDate,
   onChangeMonth,
   onToggleDone,
-  onDeleteGoal,
+  onAddItem,
+  onSaveLongRecord,
 }: {
   items: DailyTraceItem[];
+  dailyLongRecords: DailyLongRecord[];
   selectedDate: string;
   calendarMonth: Date;
   onSelectDate: (date: string) => void;
   onChangeMonth: (date: Date) => void;
-  onToggleDone: (itemId: string) => void;
-  onDeleteGoal: (itemId: string) => void;
+  onToggleDone: (itemId: string, dateKey?: string) => void;
+  onAddItem: (input: {
+    type: "todo" | "schedule" | "record";
+    date: string;
+    title: string;
+    time?: string;
+    endTime?: string;
+    reminder?: string;
+  }) => boolean;
+  onSaveLongRecord: (input: {
+    dateKey: string;
+    title?: string;
+    body: string;
+  }) => boolean;
 }) {
+  const [isMonthCalendarOpen, setIsMonthCalendarOpen] = useState(false);
+  const [isAddPanelOpen, setIsAddPanelOpen] = useState(false);
+  const [isLongRecordEditorOpen, setIsLongRecordEditorOpen] = useState(false);
+  const [isLongRecordExpanded, setIsLongRecordExpanded] = useState(false);
+  const [longRecordTitle, setLongRecordTitle] = useState("");
+  const [longRecordBody, setLongRecordBody] = useState("");
+  const [showAllUpcomingSchedules, setShowAllUpcomingSchedules] = useState(false);
+  const [addMode, setAddMode] = useState<"todo" | "schedule" | "record" | null>(null);
+  const [addTitle, setAddTitle] = useState("");
+  const [addTime, setAddTime] = useState("");
+  const [addEndTime, setAddEndTime] = useState("");
+  const [addReminder, setAddReminder] = useState("none");
   const monthCells = buildCalendarMonth(calendarMonth);
-  const datesWithItems = useMemo(
-    () =>
-      new Set(
-        dedupeMemories(items)
-          .filter((item) => {
-            const memoryPolicy = getMemoryPolicy(item);
-            return shouldSaveToDailyTrace(memoryPolicy);
-          })
-          .map((item) => item.date)
-      ),
-    [items]
+  const weekDates = useMemo(() => buildWeeklyTraceDates(selectedDate), [selectedDate]);
+  const selectedItems = useMemo(
+    () => getDailyTraceItemsForDate(items, selectedDate),
+    [items, selectedDate]
   );
-  const selectedItems = dedupeMemories(items)
-    .filter((item) => {
-      const memoryPolicy = getMemoryPolicy(item);
+  const scheduledItems = selectedItems.filter((item) => isScheduledDailyTraceItemForDate(item, selectedDate));
+  const remainingItems = selectedItems.filter((item) => !isScheduledDailyTraceItemForDate(item, selectedDate));
+  const todayKey = getLocalDateString(new Date());
+  const isSelectedToday = selectedDate === todayKey;
+  const isSelectedFuture = isFutureDateKey(selectedDate, todayKey);
+  const hasSelectedDayItems = scheduledItems.length > 0 || remainingItems.length > 0;
+  const selectedLongRecord = dailyLongRecords.find((record) => record.dateKey === selectedDate);
+  const upcomingSchedules = useMemo(
+    () => buildUpcomingTraceSchedules(items, todayKey),
+    [items, todayKey]
+  );
+  const displayedUpcomingSchedules = showAllUpcomingSchedules
+    ? upcomingSchedules
+    : upcomingSchedules.slice(0, 3);
 
-      return item.date === selectedDate && shouldSaveToDailyTrace(memoryPolicy);
-    })
-    .sort(sortDailyTraceItems);
+  useEffect(() => {
+    setIsLongRecordEditorOpen(false);
+    setIsLongRecordExpanded(false);
+  }, [selectedDate]);
+
+  const selectTraceDate = (dateKey: string) => {
+    onSelectDate(dateKey);
+    const nextMonth = parseDateOnly(dateKey);
+    if (nextMonth) {
+      onChangeMonth(getMonthStart(nextMonth));
+    }
+  };
+
+  const moveWeek = (dayDelta: number) => {
+    const nextDate = shiftTraceDateKey(selectedDate, dayDelta);
+    selectTraceDate(nextDate);
+  };
+  const openLongRecordEditor = () => {
+    setLongRecordTitle(selectedLongRecord?.title ?? "");
+    setLongRecordBody(selectedLongRecord?.body ?? "");
+    setIsLongRecordEditorOpen(true);
+  };
+  const saveLongRecord = () => {
+    const saved = onSaveLongRecord({
+      dateKey: selectedDate,
+      title: longRecordTitle,
+      body: longRecordBody,
+    });
+
+    if (saved) {
+      setIsLongRecordEditorOpen(false);
+      setIsLongRecordExpanded(false);
+    }
+  };
+  const resetAddForm = () => {
+    setAddTitle("");
+    setAddTime("");
+    setAddEndTime("");
+    setAddReminder("none");
+    setAddMode(null);
+  };
+  const openAddMode = (mode: "todo" | "schedule" | "record") => {
+    resetAddForm();
+    setAddMode(mode);
+  };
+  const saveAddedItem = () => {
+    if (isSelectedFuture && addMode === "record") {
+      return;
+    }
+
+    if (addMode === "schedule" && addEndTime && addTime && addEndTime < addTime) {
+      return;
+    }
+
+    const saved = onAddItem({
+      type: addMode ?? "record",
+      date: selectedDate,
+      title: addTitle,
+      time: addTime,
+      endTime: addMode === "schedule" ? addEndTime : undefined,
+      reminder: addReminder,
+    });
+
+    if (saved) {
+      resetAddForm();
+      setIsAddPanelOpen(false);
+    }
+  };
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gestureState) =>
+          Math.abs(gestureState.dx) > 22 && Math.abs(gestureState.dy) < 16,
+        onPanResponderRelease: (_event, gestureState) => {
+          if (gestureState.dx > 42) {
+            moveWeek(-7);
+          } else if (gestureState.dx < -42) {
+            moveWeek(7);
+          }
+        },
+      }),
+    [selectedDate]
+  );
 
   return (
-    <View style={styles.flowCard}>
-      <View style={styles.traceHeaderRow}>
-        <View>
-          <Text style={styles.flowCardTitle}>하루의 흔적</Text>
-          <Text style={styles.flowCardHint}>
-            일정, 오늘의 기록, 할 일, 남긴 말을 날짜별로 보관합니다.
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.calendarHeader}>
+    <View style={styles.traceSurface}>
+      <View style={styles.traceWeekHeader}>
         <TouchableOpacity
           style={styles.calendarNavButton}
-          onPress={() => onChangeMonth(addMonths(calendarMonth, -1))}
+          onPress={() => moveWeek(-7)}
           activeOpacity={0.85}
         >
           <Text style={styles.calendarNavText}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.calendarMonthTitle}>{formatMonthTitle(calendarMonth)}</Text>
+        <TouchableOpacity
+          style={styles.traceMonthToggle}
+          onPress={() => setIsMonthCalendarOpen((value) => !value)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.calendarMonthTitle}>
+            {formatMonthTitle(calendarMonth)} {isMonthCalendarOpen ? "▴" : "▾"}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.calendarNavButton}
-          onPress={() => onChangeMonth(addMonths(calendarMonth, 1))}
+          onPress={() => moveWeek(7)}
           activeOpacity={0.85}
         >
           <Text style={styles.calendarNavText}>›</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.weekdayRow}>
-        {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
-          <Text key={day} style={styles.weekdayText}>
-            {day}
-          </Text>
-        ))}
+      <View style={styles.traceConstellation} {...panResponder.panHandlers}>
+        <View style={styles.traceWeekDateRow}>
+          {weekDates.map((dateKey) => {
+            const date = parseDateOnly(dateKey) ?? new Date();
+            const isToday = dateKey === todayKey;
+            return (
+              <TouchableOpacity
+                key={`date-${dateKey}`}
+                style={styles.traceWeekDayButton}
+                onPress={() => selectTraceDate(dateKey)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.traceWeekDateText,
+                    isToday && styles.traceWeekDateTextToday,
+                    dateKey === selectedDate && styles.traceWeekDateTextSelected,
+                  ]}
+                >
+                  {date.getDate()}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <View style={styles.traceStarRow}>
+          {weekDates.map((dateKey, index) => (
+            <React.Fragment key={`star-${dateKey}`}>
+              <View style={styles.traceStarSlot}>
+                <TouchableOpacity
+                  style={styles.traceStarButton}
+                  onPress={() => selectTraceDate(dateKey)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.traceStarSymbol,
+                      dateKey === todayKey && dateKey !== selectedDate && styles.traceStarSymbolToday,
+                      dateKey === selectedDate && styles.traceStarSymbolSelected,
+                    ]}
+                  >
+                    {getTraceDaySymbol(items, dateKey, selectedDate)}
+                  </Text>
+                </TouchableOpacity>
+                {dateKey === todayKey ? <Text style={styles.traceTodayLabel}>오늘</Text> : null}
+              </View>
+              {index < weekDates.length - 1 ? <View style={styles.traceStarLine} /> : null}
+            </React.Fragment>
+          ))}
+        </View>
       </View>
 
-      <View style={styles.calendarGrid}>
-        {monthCells.map((cell) => {
-          const dateKey = getLocalDateString(cell.date);
-          const isSelected = dateKey === selectedDate;
-          const hasItems = datesWithItems.has(dateKey);
-
-          return (
+      {isMonthCalendarOpen ? (
+        <View style={styles.traceMonthPanel}>
+          <View style={styles.calendarHeader}>
             <TouchableOpacity
-              key={dateKey}
-              style={[
-                styles.calendarDayCell,
-                !cell.isCurrentMonth && styles.calendarDayMuted,
-                isSelected && styles.calendarDaySelected,
-              ]}
-              onPress={() => onSelectDate(dateKey)}
+              style={styles.calendarNavButton}
+              onPress={() => onChangeMonth(addMonths(calendarMonth, -1))}
               activeOpacity={0.85}
             >
-              <Text
-                style={[
-                  styles.calendarDayText,
-                  !cell.isCurrentMonth && styles.calendarDayTextMuted,
-                  isSelected && styles.calendarDayTextSelected,
-                ]}
-              >
-                {cell.date.getDate()}
-              </Text>
-              {hasItems ? <View style={styles.calendarDot} /> : null}
+              <Text style={styles.calendarNavText}>‹</Text>
             </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <View style={styles.traceDetail}>
-        <Text style={styles.traceDateTitle}>{formatKoreanDate(selectedDate)}</Text>
-        <Text style={styles.traceDetailTitle}>하루의 흔적</Text>
-
-        {selectedItems.length === 0 ? (
-          <View style={styles.traceEmptyBox}>
-            <Text style={styles.traceEmptyText}>
-              이 날짜에는 아직 남긴 흔적이 없습니다.
-            </Text>
+            <Text style={styles.calendarMonthTitle}>{formatMonthTitle(calendarMonth)}</Text>
+            <TouchableOpacity
+              style={styles.calendarNavButton}
+              onPress={() => onChangeMonth(addMonths(calendarMonth, 1))}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.calendarNavText}>›</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          ([
-            "schedule",
-            "record",
-            "todo",
-            "quote",
-            "goal",
-          ] as DailyTraceItemType[]).map(
-            (type) => {
-              const groupItems = selectedItems.filter((item) => item.type === type);
-              if (groupItems.length === 0) {
-                return null;
-              }
+
+          <View style={styles.weekdayRow}>
+            {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
+              <Text key={day} style={styles.weekdayText}>
+                {day}
+              </Text>
+            ))}
+          </View>
+
+          <View style={styles.calendarGrid}>
+            {monthCells.map((cell) => {
+              const dateKey = getLocalDateString(cell.date);
+              const isSelected = dateKey === selectedDate;
+              const dayItems = getDailyTraceItemsForDate(items, dateKey);
+              const hasItems = dayItems.length > 0;
 
               return (
-                <View key={type} style={styles.traceGroup}>
-                  <Text style={styles.traceGroupTitle}>{TRACE_TYPE_LABELS[type]}</Text>
-                  {groupItems.map((item) => (
-                    <DailyTraceListItem
+                <TouchableOpacity
+                  key={dateKey}
+                  style={[
+                    styles.calendarDayCell,
+                    !cell.isCurrentMonth && styles.calendarDayMuted,
+                    isSelected && styles.calendarDaySelected,
+                  ]}
+                  onPress={() => {
+                    selectTraceDate(dateKey);
+                    setIsMonthCalendarOpen(false);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.calendarDayText,
+                      !cell.isCurrentMonth && styles.calendarDayTextMuted,
+                      isSelected && styles.calendarDayTextSelected,
+                    ]}
+                  >
+                    {cell.date.getDate()}
+                  </Text>
+                  {hasItems ? <View style={styles.calendarDot} /> : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.traceDetail}>
+        <View style={styles.traceDetailHeaderRow}>
+          <Text style={styles.traceDateTitle}>{formatDailyTraceSelectedDate(selectedDate)}</Text>
+          <View style={styles.traceHeaderActions}>
+            {!isSelectedToday ? (
+              <TouchableOpacity
+                style={styles.traceTodayButton}
+                onPress={() => selectTraceDate(todayKey)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceTodayButtonText}>오늘로</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={styles.traceAddButton}
+              onPress={() => setIsAddPanelOpen((value) => !value)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.traceAddButtonText}>+ 날짜에 남기기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {isAddPanelOpen ? (
+          <View style={styles.traceAddPanel}>
+            <Text style={styles.traceAddPanelTitle}>이 날짜에 무엇을 남길까요?</Text>
+            <View style={styles.traceAddModeRow}>
+              {([
+                ["todo", "○ 할 일"],
+                ["schedule", "▣ 일정"],
+                ["record", "💬 기록"],
+              ] as Array<["todo" | "schedule" | "record", string]>)
+                .filter(([mode]) => !(isSelectedFuture && mode === "record"))
+                .map(([mode, label]) => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[styles.traceAddModeButton, addMode === mode && styles.traceAddModeButtonActive]}
+                  onPress={() => openAddMode(mode)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.traceAddModeText, addMode === mode && styles.traceAddModeTextActive]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {addMode ? (
+              <View style={styles.traceAddForm}>
+                <TextInput
+                  style={styles.traceAddInput}
+                  placeholder={addMode === "schedule" ? "일정 제목" : addMode === "todo" ? "제목" : "짧은 기록 내용"}
+                  placeholderTextColor="#6b7280"
+                  value={addTitle}
+                  onChangeText={setAddTitle}
+                />
+                {addMode !== "record" ? (
+                  <>
+                    <TextInput
+                      style={styles.traceAddInput}
+                      placeholder={addMode === "schedule" ? "시작 시간 예: 08:30" : "예정 시간 예: 08:30"}
+                      placeholderTextColor="#6b7280"
+                      value={addTime}
+                      onChangeText={setAddTime}
+                    />
+                    {addMode === "schedule" ? (
+                      <TextInput
+                        style={styles.traceAddInput}
+                        placeholder="종료 시간 예: 09:30"
+                        placeholderTextColor="#6b7280"
+                        value={addEndTime}
+                        onChangeText={setAddEndTime}
+                      />
+                    ) : null}
+                    <View style={styles.traceReminderRow}>
+                      {TRACE_REMINDER_OPTIONS.map((option) => (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[
+                            styles.traceReminderChip,
+                            addReminder === option.value && styles.traceReminderChipActive,
+                          ]}
+                          onPress={() => setAddReminder(option.value)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.traceReminderChipText,
+                              addReminder === option.value && styles.traceReminderChipTextActive,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
+                <TouchableOpacity
+                  style={[styles.traceAddSaveButton, !addTitle.trim() && styles.traceAddSaveButtonDisabled]}
+                  onPress={saveAddedItem}
+                  disabled={!addTitle.trim()}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.traceAddSaveButtonText}>
+                    {addMode === "record" ? "남기기" : "저장"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {!hasSelectedDayItems ? (
+          <Text style={styles.traceEmptyDayText}>{getEmptySelectedDayText(selectedDate, todayKey)}</Text>
+        ) : (
+          <>
+            {scheduledItems.length > 0 ? (
+              <>
+                <Text style={styles.traceDetailTitle}>
+                  {getTraceScheduleSectionTitle(selectedDate, todayKey)} · {scheduledItems.length}개
+                </Text>
+                <View style={styles.traceRecordList}>
+                  {scheduledItems.map((item, index) => (
+                    <DailyTraceScheduledRow
                       key={item.id}
                       item={item}
-                      onToggleDone={onToggleDone}
-                      onDeleteGoal={onDeleteGoal}
+                      isLast={index === scheduledItems.length - 1}
+                      dateKey={selectedDate}
+                      onComplete={onToggleDone}
                     />
                   ))}
                 </View>
-              );
-            }
-          )
+              </>
+            ) : null}
+
+            {remainingItems.length > 0 ? (
+              <>
+                <Text style={[styles.traceDetailTitle, scheduledItems.length > 0 && styles.traceRemainingTitle]}>
+                  {getTraceRemainingSectionTitle(selectedDate, todayKey)} · {remainingItems.length}개
+                </Text>
+                <View style={styles.traceRecordList}>
+                  {remainingItems.map((item, index) => (
+                    <DailyTraceRecordRow
+                      key={item.id}
+                      item={item}
+                      dateKey={selectedDate}
+                      isLast={index === remainingItems.length - 1}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
+          </>
         )}
+
+        <View style={styles.traceLongRecordBox}>
+          <View style={styles.traceLongRecordHeader}>
+            <Text style={styles.traceLongRecordTitle}>
+              {getDailyLongRecordTitle(selectedDate, todayKey)}
+            </Text>
+            {!isSelectedFuture ? (
+              <TouchableOpacity
+                style={styles.traceLongRecordAction}
+                onPress={openLongRecordEditor}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceLongRecordActionText}>
+                  {selectedLongRecord ? "수정" : isSelectedToday ? "기록 쓰기" : "기록 남기기"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {isLongRecordEditorOpen ? (
+            <View style={styles.traceLongRecordEditor}>
+              <View style={styles.traceLongRecordEditorHeader}>
+                <Text style={styles.traceLongRecordEditorTitle}>
+                  {getDailyLongRecordTitle(selectedDate, todayKey)}
+                </Text>
+                <TouchableOpacity onPress={() => setIsLongRecordEditorOpen(false)} activeOpacity={0.85}>
+                  <Text style={styles.traceLongRecordActionText}>닫기</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.traceLongRecordLabel}>제목 · 선택</Text>
+              <TextInput
+                style={styles.traceLongRecordInput}
+                placeholder="제목"
+                placeholderTextColor="#6b7280"
+                value={longRecordTitle}
+                onChangeText={setLongRecordTitle}
+              />
+              <Text style={styles.traceLongRecordLabel}>오늘의 이야기</Text>
+              <TextInput
+                style={[styles.traceLongRecordInput, styles.traceLongRecordBodyInput]}
+                placeholder="오늘 남기고 싶은 이야기를 적어주세요"
+                placeholderTextColor="#6b7280"
+                value={longRecordBody}
+                onChangeText={setLongRecordBody}
+                multiline
+                textAlignVertical="top"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.traceLongRecordSaveButton,
+                  !longRecordBody.trim() && styles.traceAddSaveButtonDisabled,
+                ]}
+                onPress={saveLongRecord}
+                disabled={!longRecordBody.trim()}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceLongRecordSaveButtonText}>저장</Text>
+              </TouchableOpacity>
+            </View>
+          ) : selectedLongRecord ? (
+            <View style={styles.traceLongRecordContent}>
+              {selectedLongRecord.title ? (
+                <Text style={styles.traceLongRecordContentTitle}>{selectedLongRecord.title}</Text>
+              ) : null}
+              <Text
+                style={styles.traceLongRecordBody}
+                numberOfLines={isLongRecordExpanded ? undefined : 4}
+              >
+                {selectedLongRecord.body}
+              </Text>
+              {selectedLongRecord.body.length > 120 ? (
+                <TouchableOpacity
+                  style={styles.traceLongRecordMoreButton}
+                  onPress={() => setIsLongRecordExpanded((value) => !value)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.traceLongRecordActionText}>
+                    {isLongRecordExpanded ? "접기" : "더 보기"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              <Text style={styles.traceLongRecordSavedAt}>{formatTimeFromIso(selectedLongRecord.updatedAt)}</Text>
+            </View>
+          ) : (
+            <View style={styles.traceLongRecordContent}>
+              <Text style={styles.traceEmptySmallText}>
+                {getEmptyLongRecordText(selectedDate, todayKey)}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.traceAdjacentRow}>
+        <TouchableOpacity onPress={() => selectTraceDate(shiftTraceDateKey(selectedDate, -1))} activeOpacity={0.85}>
+          <Text style={styles.traceAdjacentText}>‹ {formatShortTraceDate(shiftTraceDateKey(selectedDate, -1))}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => selectTraceDate(shiftTraceDateKey(selectedDate, 1))} activeOpacity={0.85}>
+          <Text style={styles.traceAdjacentText}>{formatShortTraceDate(shiftTraceDateKey(selectedDate, 1))} ›</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.traceUpcomingBox}>
+        <View style={styles.traceLongRecordHeader}>
+          <Text style={styles.traceLongRecordTitle}>다가오는 예정</Text>
+          {upcomingSchedules.length > 3 ? (
+            <TouchableOpacity
+              style={styles.traceLongRecordAction}
+              onPress={() => setShowAllUpcomingSchedules((value) => !value)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.traceLongRecordActionText}>
+                {showAllUpcomingSchedules ? "접기" : "전체 보기"}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {upcomingSchedules.length === 0 ? (
+          <View style={styles.traceUpcomingEmptyRow}>
+            <Text style={styles.traceEmptySmallText}>아직 예정된 일이 없어요.</Text>
+            <TouchableOpacity
+              style={styles.traceLongRecordAction}
+              onPress={() => {
+                setIsAddPanelOpen(true);
+                openAddMode("todo");
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.traceLongRecordActionText}>+ 남기기</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.traceUpcomingTimeline}>
+            {displayedUpcomingSchedules.map((schedule, index) => (
+              <TouchableOpacity
+                key={`${schedule.item.id}:${schedule.dateKey}`}
+                style={[
+                  styles.traceUpcomingRow,
+                  index === displayedUpcomingSchedules.length - 1 && styles.traceRecordRowLast,
+                ]}
+                onPress={() => selectTraceDate(schedule.dateKey)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceUpcomingDate}>
+                  {index === 0 || displayedUpcomingSchedules[index - 1].dateKey !== schedule.dateKey
+                    ? formatUpcomingTraceDate(schedule.dateKey, todayKey)
+                    : ""}
+                </Text>
+                <Text style={styles.traceRecordTime}>{schedule.item.time ?? ""}</Text>
+                <Text style={styles.traceTodoCompleteText}>○</Text>
+                <View style={styles.traceRecordTextBlock}>
+                  <Text style={styles.traceItemTitle}>{schedule.item.title}</Text>
+                  {schedule.reminderLabel ? (
+                    <Text style={styles.traceItemMemo}>🔔 {schedule.reminderLabel}</Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function buildWeeklyTraceDates(selectedDate: string) {
+  const selected = parseDateOnly(selectedDate) ?? new Date();
+  const weekStart = new Date(selected);
+  weekStart.setDate(selected.getDate() - selected.getDay());
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+    return getLocalDateString(date);
+  });
+}
+
+const TRACE_REMINDER_OPTIONS = [
+  { value: "none", label: "없음" },
+  { value: "on_time", label: "시간에 맞춰" },
+  { value: "10m", label: "10분 전" },
+  { value: "30m", label: "30분 전" },
+  { value: "1h", label: "1시간 전" },
+];
+
+function shiftTraceDateKey(dateKey: string, dayDelta: number) {
+  const baseDate = parseDateOnly(dateKey) ?? new Date();
+  return getLocalDateString(addDays(baseDate, dayDelta));
+}
+
+function getDailyTraceItemsForDate(items: DailyTraceItem[], dateKey: string) {
+  const originalIndexById = new Map(items.map((item, index) => [item.id, index]));
+  return dedupeMemories(items)
+    .map((item, index) => ({
+      item,
+      index: originalIndexById.get(item.id) ?? index,
+    }))
+    .filter((item) => {
+      const memoryPolicy = getMemoryPolicy(item.item);
+      return (
+        !isCancelledTraceItem(item.item) &&
+        (item.item.date === dateKey || isLifeRepeatTraceActiveOnDate(item.item, dateKey)) &&
+        shouldSaveToDailyTrace(memoryPolicy)
+      );
+    })
+    .sort((left, right) => sortDailyTraceItemsForDisplay(left, right))
+    .map(({ item }) => item);
+}
+
+function isLifeRepeatTraceActiveOnDate(item: DailyTraceItem, dateKey: string) {
+  if (!isLifeRepeatTraceItem(item)) {
+    return false;
+  }
+
+  return item.date <= dateKey;
+}
+
+function sortDailyTraceItemsForDisplay(
+  left: { item: DailyTraceItem; index: number },
+  right: { item: DailyTraceItem; index: number }
+) {
+  const leftTime = left.item.time;
+  const rightTime = right.item.time;
+  if (leftTime && rightTime && leftTime !== rightTime) {
+    return leftTime.localeCompare(rightTime);
+  }
+
+  if (leftTime && !rightTime) {
+    return -1;
+  }
+
+  if (!leftTime && rightTime) {
+    return 1;
+  }
+
+  return left.index - right.index;
+}
+
+function formatDailyTraceSelectedDate(dateKey: string) {
+  const date = parseDateOnly(dateKey);
+  if (!date) {
+    return dateKey;
+  }
+
+  const weekdays = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
+  return `${date.getMonth() + 1}월 ${date.getDate()}일 ${weekdays[date.getDay()]}`;
+}
+
+function normalizeDailyLongRecords(records: DailyLongRecord[]) {
+  const recordByDate = new Map<string, DailyLongRecord>();
+
+  records.forEach((record) => {
+    if (!record.dateKey || !record.body?.trim()) {
+      return;
+    }
+
+    const normalizedRecord: DailyLongRecord = {
+      id: record.id || createId("daily-long-record"),
+      dateKey: record.dateKey,
+      title: record.title?.trim() || undefined,
+      body: record.body,
+      createdAt: record.createdAt || new Date().toISOString(),
+      updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
+    };
+    const existingRecord = recordByDate.get(record.dateKey);
+    if (!existingRecord || normalizedRecord.updatedAt > existingRecord.updatedAt) {
+      recordByDate.set(record.dateKey, normalizedRecord);
+    }
+  });
+
+  return Array.from(recordByDate.values()).sort((left, right) =>
+    left.dateKey.localeCompare(right.dateKey)
+  );
+}
+
+function isFutureDateKey(dateKey: string, todayKey: string) {
+  return dateKey > todayKey;
+}
+
+function getDailyLongRecordTitle(dateKey: string, todayKey: string) {
+  const yesterdayKey = shiftTraceDateKey(todayKey, -1);
+  if (dateKey === todayKey) {
+    return "오늘의 기록";
+  }
+
+  if (dateKey === yesterdayKey) {
+    return "어제의 기록";
+  }
+
+  return `${formatShortTraceDate(dateKey)}의 기록`;
+}
+
+function getEmptyLongRecordText(dateKey: string, todayKey: string) {
+  if (dateKey > todayKey) {
+    return "이날이 지나면 기록을 남길 수 있어요.";
+  }
+
+  if (dateKey === todayKey) {
+    return "오늘 하루를 조금 더 길게 남겨보세요.";
+  }
+
+  return "이날의 기억을 조금 더 길게 남겨보세요.";
+}
+
+function getTraceScheduleSectionTitle(dateKey: string, todayKey: string) {
+  return dateKey === todayKey ? "오늘 예정" : "그날의 예정";
+}
+
+function getTraceRemainingSectionTitle(dateKey: string, todayKey: string) {
+  return dateKey === todayKey ? "남은 흔적" : "그날 남은 흔적";
+}
+
+function getTraceEmptyScheduleText(dateKey: string, todayKey: string) {
+  return dateKey === todayKey ? "오늘 예정된 일은 없어요." : "그날 예정된 일은 없어요.";
+}
+
+function getEmptySelectedDayText(dateKey: string, todayKey: string) {
+  if (dateKey > todayKey) {
+    return "아직 예정된 일이 없어요.\n필요한 일정이나 할 일을 남겨보세요.";
+  }
+
+  if (dateKey === todayKey) {
+    return "아직 오늘 남겨진 흔적이 없어요.\n작은 계획이나 있었던 일을 남겨보세요.";
+  }
+
+  return "이날에는 남겨진 흔적이 없어요.\n기억나는 일이 있다면 기록으로 남겨보세요.";
+}
+
+type UpcomingTraceSchedule = {
+  item: DailyTraceItem;
+  dateKey: string;
+  reminderLabel: string;
+};
+
+function buildUpcomingTraceSchedules(items: DailyTraceItem[], todayKey: string): UpcomingTraceSchedule[] {
+  const candidates: UpcomingTraceSchedule[] = [];
+
+  dedupeMemories(items).forEach((item) => {
+    const memoryPolicy = getMemoryPolicy(item);
+    if (!shouldSaveToDailyTrace(memoryPolicy) || isCancelledTraceItem(item) || isCompletedTraceScheduleItem(item)) {
+      return;
+    }
+
+    if (isLifeRepeatTraceItem(item)) {
+      const nextRepeatDate = findNextLifeRepeatDate(item, todayKey);
+      if (nextRepeatDate) {
+        candidates.push({
+          item,
+          dateKey: nextRepeatDate,
+          reminderLabel: getExistingReminderLabel(item),
+        });
+      }
+      return;
+    }
+
+    if (!isScheduledDailyTraceItemForDate(item, item.date) || item.date < todayKey) {
+      return;
+    }
+
+    if (item.date === todayKey && isTraceTimePastToday(item)) {
+      return;
+    }
+
+    candidates.push({
+      item,
+      dateKey: item.date,
+      reminderLabel: getExistingReminderLabel(item),
+    });
+  });
+
+  return dedupeUpcomingTraceSchedules(candidates).sort(sortUpcomingTraceSchedules);
+}
+
+function findNextLifeRepeatDate(item: DailyTraceItem, todayKey: string) {
+  const today = parseDateOnly(todayKey) ?? new Date();
+  for (let offset = 0; offset <= 30; offset += 1) {
+    const dateKey = getLocalDateString(addDays(today, offset));
+    if (!isLifeRepeatTraceActiveOnDate(item, dateKey) || getLifeRepeatCompletedAt(item, dateKey)) {
+      continue;
+    }
+
+    if (dateKey === todayKey && isTraceTimePastToday(item)) {
+      continue;
+    }
+
+    return dateKey;
+  }
+
+  return "";
+}
+
+function dedupeUpcomingTraceSchedules(schedules: UpcomingTraceSchedule[]) {
+  const scheduleByKey = new Map<string, UpcomingTraceSchedule>();
+  schedules.forEach((schedule) => {
+    const typedItem = schedule.item as DailyTraceItem & { sourceId?: string };
+    const key = [
+      schedule.dateKey,
+      typedItem.sourceId || schedule.item.id,
+      schedule.item.time ?? "",
+      normalizeMemoryInput(schedule.item.title),
+    ].join(":");
+    if (!scheduleByKey.has(key)) {
+      scheduleByKey.set(key, schedule);
+    }
+  });
+  return Array.from(scheduleByKey.values());
+}
+
+function sortUpcomingTraceSchedules(left: UpcomingTraceSchedule, right: UpcomingTraceSchedule) {
+  if (left.dateKey !== right.dateKey) {
+    return left.dateKey.localeCompare(right.dateKey);
+  }
+
+  const leftTime = left.item.time ?? "99:99";
+  const rightTime = right.item.time ?? "99:99";
+  if (leftTime !== rightTime) {
+    return leftTime.localeCompare(rightTime);
+  }
+
+  return left.item.createdAt.localeCompare(right.item.createdAt);
+}
+
+function isTraceTimePastToday(item: DailyTraceItem) {
+  if (!item.time) {
+    return false;
+  }
+
+  const now = new Date();
+  const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  return item.time < currentTime;
+}
+
+function isCancelledTraceItem(item: DailyTraceItem) {
+  const typedItem = item as DailyTraceItem & {
+    cancelledAt?: string;
+    deletedAt?: string;
+    isCancelled?: boolean;
+    isDeleted?: boolean;
+    status?: string;
+  };
+
+  return (
+    typedItem.isCancelled === true ||
+    typedItem.isDeleted === true ||
+    Boolean(typedItem.cancelledAt) ||
+    Boolean(typedItem.deletedAt) ||
+    typedItem.status === "cancelled" ||
+    typedItem.status === "deleted"
+  );
+}
+
+function isCompletedTraceScheduleItem(item: DailyTraceItem) {
+  const typedItem = item as DailyTraceItem & {
+    completed?: boolean;
+    completedAt?: string;
+    isDone?: boolean;
+    status?: string;
+  };
+
+  return (
+    typedItem.completed === true ||
+    typedItem.isDone === true ||
+    Boolean(typedItem.completedAt) ||
+    typedItem.status === "done" ||
+    typedItem.status === "completed"
+  );
+}
+
+function getExistingReminderLabel(item: DailyTraceItem) {
+  const typedItem = item as DailyTraceItem & { reminder?: string };
+  if (!typedItem.reminder || typedItem.reminder === "none") {
+    return "";
+  }
+
+  const option = TRACE_REMINDER_OPTIONS.find((candidate) => candidate.value === typedItem.reminder);
+  return option?.label ?? "";
+}
+
+function formatUpcomingTraceDate(dateKey: string, todayKey: string) {
+  if (dateKey === shiftTraceDateKey(todayKey, 1)) {
+    return "내일";
+  }
+
+  const date = parseDateOnly(dateKey);
+  const today = parseDateOnly(todayKey);
+  if (!date || !today) {
+    return dateKey;
+  }
+
+  if (date.getFullYear() !== today.getFullYear()) {
+    return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
+  }
+
+  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
+
+function getTraceDaySymbol(
+  items: DailyTraceItem[],
+  dateKey: string,
+  selectedDate: string
+) {
+  if (dateKey === selectedDate) {
+    return "◉";
+  }
+
+  const dayItems = getDailyTraceItemsForDate(items, dateKey);
+  if (dayItems.length === 0) {
+    return "·";
+  }
+
+  const remainingItems = dayItems.filter((item) => !isScheduledDailyTraceItemForDate(item, dateKey));
+  const scheduledItems = dayItems.filter((item) => isScheduledDailyTraceItemForDate(item, dateKey));
+
+  if (remainingItems.some(isDreamFragmentTraceItem)) {
+    return "✦";
+  }
+
+  if (remainingItems.length >= 2) {
+    return "●";
+  }
+
+  if (remainingItems.length === 1) {
+    return "•";
+  }
+
+  return scheduledItems.length > 0 ? "○" : "·";
+}
+
+function isScheduledDailyTraceItem(item: DailyTraceItem) {
+  return isScheduledDailyTraceItemForDate(item, item.date);
+}
+
+function isScheduledDailyTraceItemForDate(item: DailyTraceItem, dateKey: string) {
+  if (isLifeRepeatTraceItem(item)) {
+    return !getLifeRepeatCompletedAt(item, dateKey);
+  }
+
+  return item.type === "schedule" || (item.type === "todo" && !item.isDone);
+}
+
+function isLifeRepeatTraceItem(item: DailyTraceItem) {
+  const typedItem = item as DailyTraceItem & { recurrence?: string; sourceType?: string };
+  return item.type === "todo" && typedItem.sourceType === "life_schedule_repeat" && Boolean(typedItem.recurrence);
+}
+
+function getLifeRepeatCompletedAt(item: DailyTraceItem, dateKey: string) {
+  const typedItem = item as DailyTraceItem & { completedDates?: Record<string, string> };
+  return typedItem.completedDates?.[dateKey];
+}
+
+function isDreamFragmentTraceItem(item: DailyTraceItem) {
+  const typedItem = item as DailyTraceItem & { sourceDreamFragmentId?: string };
+
+  return (
+    item.dreamRole === "fragment" ||
+    item.saveTargets?.includes("dream_fragment") ||
+    Boolean(item.linkedProjectId && item.memoryType === "project") ||
+    Boolean(typedItem.sourceDreamFragmentId)
+  );
+}
+
+function getDailyTraceRowIcon(item: DailyTraceItem, dateKey?: string) {
+  const typedItem = item as DailyTraceItem & { sourceId?: string; sourceType?: string };
+  if (typedItem.sourceType === "routine_execution" || typedItem.sourceId?.startsWith("routine_execution:")) {
+    return "🔥";
+  }
+
+  if (typedItem.sourceType === "dream_fragment_complete") {
+    return "⭐";
+  }
+
+  if (isLifeRepeatTraceItem(item) && dateKey && getLifeRepeatCompletedAt(item, dateKey)) {
+    return "✓";
+  }
+
+  if (item.type === "todo" && item.isDone) {
+    return "✓";
+  }
+
+  if (isDreamFragmentTraceItem(item)) {
+    return "✦";
+  }
+
+  if (item.memoryType === "daily_context" || item.sourceMessageId || item.type === "quote") {
+    return "💬";
+  }
+
+  return "●";
+}
+
+function getDailyTraceRowMemo(item: DailyTraceItem, dateKey?: string) {
+  if (isLifeRepeatTraceItem(item) && dateKey && getLifeRepeatCompletedAt(item, dateKey)) {
+    return "생활 반복 완료";
+  }
+
+  if (item.type === "todo" && item.isDone) {
+    return item.time ? `${item.time}에 예정했던 일` : "직접 완료";
+  }
+
+  return item.memo;
+}
+
+function getDailyTraceRowSource(item: DailyTraceItem, dateKey?: string) {
+  const typedItem = item as DailyTraceItem & { sourceId?: string; sourceType?: string };
+  if (typedItem.sourceType === "routine_execution" || typedItem.sourceId?.startsWith("routine_execution:")) {
+    return "오늘의 불씨";
+  }
+
+  if (typedItem.sourceType === "dream_fragment_complete") {
+    return "꿈의 파편";
+  }
+
+  if (isLifeRepeatTraceItem(item) && dateKey && getLifeRepeatCompletedAt(item, dateKey)) {
+    return "생활 반복 완료";
+  }
+
+  if (item.type === "todo" && item.isDone) {
+    return "직접 완료";
+  }
+
+  if (isDreamFragmentTraceItem(item)) {
+    return "꿈의 파편";
+  }
+
+  if (typedItem.sourceType === "manual_record") {
+    return "직접 기록";
+  }
+
+  if (item.memoryType === "daily_context" || item.sourceMessageId || item.type === "quote") {
+    return "채팅";
+  }
+
+  return "";
+}
+
+function getDailyTraceDisplayTime(item: DailyTraceItem, dateKey?: string) {
+  if (isLifeRepeatTraceItem(item) && dateKey) {
+    const completedAt = getLifeRepeatCompletedAt(item, dateKey);
+    return completedAt ? formatTimeFromIso(completedAt) : item.time ?? "";
+  }
+
+  const typedItem = item as DailyTraceItem & { completedAt?: string };
+  if (item.type === "todo" && item.isDone && typedItem.completedAt) {
+    return formatTimeFromIso(typedItem.completedAt);
+  }
+
+  return item.time ?? "";
+}
+
+function formatTimeFromIso(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatShortTraceDate(dateKey: string) {
+  const date = parseDateOnly(dateKey);
+  if (!date) {
+    return dateKey;
+  }
+
+  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
+
+function getTraceReminderLabel(item: DailyTraceItem) {
+  const typedItem = item as DailyTraceItem & { reminder?: string };
+  const option = TRACE_REMINDER_OPTIONS.find((candidate) => candidate.value === typedItem.reminder);
+  return option?.label ?? item.memo ?? "";
+}
+
+function DailyTraceScheduledRow({
+  item,
+  isLast,
+  dateKey,
+  onComplete,
+}: {
+  item: DailyTraceItem;
+  isLast: boolean;
+  dateKey: string;
+  onComplete: (itemId: string, dateKey?: string) => void;
+}) {
+  const reminderLabel = getTraceReminderLabel(item);
+  const repeatLabel = isLifeRepeatTraceItem(item) ? "매일 반복 · " : "";
+
+  return (
+    <View style={[styles.traceRecordRow, isLast && styles.traceRecordRowLast]}>
+      <Text style={styles.traceRecordTime}>{item.time ?? ""}</Text>
+      <TouchableOpacity
+        style={styles.traceTodoCompleteButton}
+        onPress={() => item.type === "todo" && onComplete(item.id, dateKey)}
+        disabled={item.type !== "todo"}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.traceTodoCompleteText}>○</Text>
+      </TouchableOpacity>
+      <View style={styles.traceRecordTextBlock}>
+        <Text style={styles.traceItemTitle}>{item.title}</Text>
+        {reminderLabel && reminderLabel !== "없음" ? (
+          <Text style={styles.traceItemMemo}>{repeatLabel}🔔 {reminderLabel}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function DailyTraceRecordRow({
+  item,
+  dateKey,
+  isLast,
+}: {
+  item: DailyTraceItem;
+  dateKey: string;
+  isLast: boolean;
+}) {
+  const memo = getDailyTraceRowMemo(item, dateKey);
+  const displayTime = getDailyTraceDisplayTime(item, dateKey);
+  const source = getDailyTraceRowSource(item, dateKey);
+
+  return (
+    <View style={[styles.traceRecordRow, isLast && styles.traceRecordRowLast]}>
+      <Text style={styles.traceRecordTime}>{displayTime}</Text>
+      <Text style={styles.traceRecordIcon}>{getDailyTraceRowIcon(item, dateKey)}</Text>
+      <View style={styles.traceRecordTextBlock}>
+        <Text style={styles.traceItemTitle}>
+          {item.title}
+        </Text>
+        {memo ? <Text style={styles.traceItemMemo}>{memo}</Text> : null}
+        {source ? <Text style={styles.traceItemSource}>{source}</Text> : null}
       </View>
     </View>
   );
@@ -6823,20 +8742,23 @@ function resolvePrimarySaveRoute({
   saveDecision,
   memoryPolicy,
   existingItems,
+  dailyLongRecords,
   projects,
   pendingRoutineAdjustment,
+  recentDreamReference,
 }: {
   userText: string;
   saveDecision?: SaveDecision;
   memoryPolicy: MemorySavePolicy;
   existingItems: DailyTraceItem[];
+  dailyLongRecords: DailyLongRecord[];
   projects: NoieProject[];
   pendingRoutineAdjustment: PendingRoutineAdjustment | null;
+  recentDreamReference?: DailyTraceItem | null;
 }): NoieSaveRoutingResult {
   const normalizedText = normalizeMemoryInput(userText);
   const routineCandidate = parseRoutineGoalCandidate(userText);
   const adjustmentValue = parseTargetValueWithUnit(userText);
-  const routineRecord = findRoutineRecordRoute(userText, existingItems);
 
   if (isOtherPersonOnlyText(userText, saveDecision)) {
     return {
@@ -6848,6 +8770,86 @@ function resolvePrimarySaveRoute({
       isOtherPerson: true,
       reason: "다른 사람 이야기라 사용자 저장 제안을 만들지 않음",
     };
+  }
+
+  const dailyRecordCommand = findDailyRecordCommandRoute(userText, existingItems, dailyLongRecords);
+  if (dailyRecordCommand) {
+    return dailyRecordCommand;
+  }
+
+  const dreamFragmentNextActionUpdate = findDreamFragmentNextActionUpdateRoute(userText, existingItems);
+  if (dreamFragmentNextActionUpdate) {
+    return dreamFragmentNextActionUpdate;
+  }
+
+  const dreamFragmentRename = findDreamFragmentRenameRoute(userText, existingItems);
+  if (dreamFragmentRename) {
+    return dreamFragmentRename;
+  }
+
+  const routineAdjustment = findRoutineAdjustmentIntent(userText, existingItems);
+  if (routineAdjustment) {
+    return {
+      route: adjustmentValue ? "routine_adjustment_confirm" : "routine_adjustment_intent",
+      title: routineAdjustment.routineTitle,
+      originalText: userText,
+      normalizedText,
+      confidence: adjustmentValue ? 0.96 : 0.9,
+      targetValue: adjustmentValue?.targetValue ?? routineAdjustment.currentTargetValue,
+      unit: adjustmentValue?.unit ?? routineAdjustment.currentUnit,
+      matchedRoutineId: routineAdjustment.routineId,
+      reason: adjustmentValue ? "기존 반복 목표 시간 조정 확인" : "기존 공부 반복 목표 시간 조정 의도",
+    };
+  }
+
+  if (isNonCompletionRoutineText(userText)) {
+    return {
+      route: "none",
+      title: "",
+      originalText: userText,
+      normalizedText,
+      confidence: 0.96,
+      reason: "부정 또는 미수행 표현이라 수행량 저장 제안을 만들지 않음",
+    };
+  }
+
+  if (isAdditiveRoutineRecordText(userText) && !isExplicitAdditiveRoutineRecordRequest(userText)) {
+    return {
+      route: "none",
+      title: "",
+      originalText: userText,
+      normalizedText,
+      confidence: 0.94,
+      reason: "추가 수행 언급만 있고 명시적 기록 요청이 없어 저장 제안을 만들지 않음",
+    };
+  }
+
+  const dreamFragmentComplete = findDreamFragmentCompleteRoute(userText, existingItems);
+  if (dreamFragmentComplete) {
+    return dreamFragmentComplete;
+  }
+
+  const explicitTorchReference = findReferencedDreamForTorchRequest(userText, recentDreamReference, existingItems);
+  if (explicitTorchReference) {
+    return {
+      route: "dream_torch",
+      title: explicitTorchReference.title,
+      originalText: userText,
+      normalizedText: normalizeMemoryInput(explicitTorchReference.title),
+      confidence: 0.96,
+      matchedDailyTraceId: explicitTorchReference.id,
+      reason: "최근 또는 기존 꿈 후보를 꿈의 횃불로 승격",
+    };
+  }
+
+  const lifeScheduleMutation = findLifeScheduleMutationRoute(userText, existingItems);
+  if (lifeScheduleMutation) {
+    return lifeScheduleMutation;
+  }
+
+  const lifeScheduleRoute = findLifeScheduleRoute(userText);
+  if (lifeScheduleRoute) {
+    return lifeScheduleRoute;
   }
 
   if (pendingRoutineAdjustment) {
@@ -6864,23 +8866,9 @@ function resolvePrimarySaveRoute({
     };
   }
 
+  const routineRecord = findRoutineRecordRoute(userText, existingItems);
   if (routineRecord) {
     return routineRecord;
-  }
-
-  const routineAdjustment = findRoutineAdjustmentIntent(userText, existingItems);
-  if (routineAdjustment) {
-    return {
-      route: "routine_adjustment_intent",
-      title: routineAdjustment.routineTitle,
-      originalText: userText,
-      normalizedText,
-      confidence: 0.9,
-      targetValue: routineAdjustment.currentTargetValue,
-      unit: routineAdjustment.currentUnit,
-      matchedRoutineId: routineAdjustment.routineId,
-      reason: "기존 공부 반복 목표 시간 조정 의도",
-    };
   }
 
   if (routineCandidate) {
@@ -6975,26 +8963,28 @@ function resolvePrimarySaveRoute({
     };
   }
 
-  if (isDreamTorchCandidateText(userText, memoryPolicy)) {
+  if (isDreamTorchCandidateText(userText, memoryPolicy) || isDreamFragmentText(userText)) {
+    const referencedDream = findReferencedDreamForTorchRequest(userText, recentDreamReference, existingItems);
+    return {
+      route: "dream_torch",
+      title: referencedDream?.title ?? makeMemoryTitle(userText),
+      originalText: userText,
+      normalizedText: referencedDream ? normalizeMemoryInput(referencedDream.title) : normalizedText,
+      confidence: 0.9,
+      matchedDailyTraceId: referencedDream?.id ?? null,
+      reason: referencedDream ? "최근 꿈 후보를 꿈의 횃불로 승격" : "새로운 꿈 후보 선택",
+    };
+  }
+
+  if (isDreamOrGoalType(memoryPolicy.type)) {
+    const duplicateFragment = findDuplicateDreamFragment(existingItems, userText);
     return {
       route: "dream_torch",
       title: makeMemoryTitle(userText),
       originalText: userText,
       normalizedText,
-      confidence: 0.9,
-      reason: "대표 장기 방향 후보",
-    };
-  }
-
-  if (isDreamOrGoalType(memoryPolicy.type) || isDreamFragmentText(userText)) {
-    const duplicateFragment = findDuplicateDreamFragment(existingItems, userText);
-    return {
-      route: "dream_fragment",
-      title: makeMemoryTitle(userText),
-      originalText: userText,
-      normalizedText,
       confidence: duplicateFragment ? 0.99 : 0.88,
-      reason: duplicateFragment ? "이미 저장된 꿈의 파편" : "새로운 꿈 또는 중간 목표",
+      reason: duplicateFragment ? "이미 저장된 꿈 후보" : "새로운 꿈 또는 중간 목표 후보 선택",
     };
   }
 
@@ -7055,6 +9045,34 @@ function getMemoryPolicyForRoute(
     };
   }
 
+  if (
+    routingResult.route === "life_schedule_once" ||
+    routingResult.route === "life_schedule_repeat" ||
+    routingResult.route === "life_schedule_date_request" ||
+    routingResult.route === "life_schedule_reminder_update" ||
+    routingResult.route === "life_schedule_cancel"
+  ) {
+    return {
+      type: "todo",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 70,
+      label: routingResult.route === "life_schedule_repeat" ? "생활 반복 예정" : "생활 예정",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  if (routingResult.route === "life_action_record") {
+    return {
+      type: "daily_context",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 70,
+      label: "직접 기록",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
   if (routingResult.route === "dream_torch") {
     return {
       type: "dream",
@@ -7079,6 +9097,22 @@ function getMemoryPolicyForRoute(
     };
   }
 
+  if (
+    routingResult.route === "dream_fragment_rename" ||
+    routingResult.route === "dream_fragment_complete" ||
+    routingResult.route === "dream_fragment_next_action_update"
+  ) {
+    return {
+      type: "project",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 96,
+      label: "꿈의 파편",
+      saveTargets: [],
+      dreamRole: "fragment",
+    };
+  }
+
   if (routingResult.route === "important_day_event") {
     return {
       type: "important_note",
@@ -7098,6 +9132,22 @@ function getMemoryPolicyForRoute(
       importance: 70,
       label: "하루의 흔적",
       saveTargets: ["daily_trace"],
+    };
+  }
+
+  if (
+    routingResult.route === "daily_long_record_create" ||
+    routingResult.route === "daily_long_record_title_update" ||
+    routingResult.route === "daily_long_record_append" ||
+    routingResult.route === "daily_trace_update"
+  ) {
+    return {
+      type: "daily_context",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 70,
+      label: "날짜별 기록",
+      saveTargets: [],
     };
   }
 
@@ -7134,6 +9184,10 @@ function getMemoryPolicyForRoute(
     };
   }
 
+  if (routingResult.route === "life_schedule_missing_date") {
+    return buildMemorySavePolicy("none");
+  }
+
   if (routingResult.route === "none" || routingResult.isOtherPerson) {
     return buildMemorySavePolicy("none");
   }
@@ -7146,6 +9200,9 @@ function getNoieDestination(routingResult?: NoieSaveRoutingResult): NoieDestinat
     case "dream_torch":
       return "dream_torch";
     case "dream_fragment":
+    case "dream_fragment_rename":
+    case "dream_fragment_complete":
+    case "dream_fragment_next_action_update":
       return "dream_fragment";
     case "routine_create":
       return "today_me_routine";
@@ -7153,11 +9210,28 @@ function getNoieDestination(routingResult?: NoieSaveRoutingResult): NoieDestinat
       return "today_me_project";
     case "routine_record":
       return "routine_execution";
+    case "life_schedule_once":
+    case "life_schedule_repeat":
+    case "life_schedule_date_request":
+    case "life_schedule_missing_date":
+    case "life_schedule_reminder_update":
+    case "life_schedule_cancel":
+      return "life_schedule";
+    case "life_action_record":
+    case "daily_long_record_create":
+    case "daily_long_record_title_update":
+    case "daily_long_record_append":
+    case "daily_trace_update":
+      return "daily_trace";
     case "routine_adjustment_intent":
     case "routine_adjustment_confirm":
       return "routine_update";
     case "important_day_event":
     case "daily_trace":
+    case "daily_long_record_create":
+    case "daily_long_record_title_update":
+    case "daily_long_record_append":
+    case "daily_trace_update":
     case "daily_idea":
     case "sensitive_event":
     case "achievement":
@@ -7177,12 +9251,28 @@ function getNoieSuggestionAction(routingResult?: NoieSaveRoutingResult): NoieSug
       return "set_dream_torch";
     case "dream_fragment":
       return "save_dream_fragment";
+    case "dream_fragment_rename":
+    case "dream_fragment_next_action_update":
+      return "update_routine";
+    case "dream_fragment_complete":
+      return "complete_project";
     case "routine_create":
       return "create_routine";
     case "project_create":
       return "create_project";
     case "routine_record":
       return "record_routine_execution";
+    case "life_schedule_once":
+    case "life_schedule_repeat":
+    case "life_schedule_reminder_update":
+      return "save_life_schedule";
+    case "life_schedule_cancel":
+      return "end_routine";
+    case "life_schedule_date_request":
+    case "life_schedule_missing_date":
+      return "select_schedule_date";
+    case "life_action_record":
+      return "record_life_action";
     case "routine_adjustment_intent":
     case "routine_adjustment_confirm":
       return "update_routine";
@@ -7209,19 +9299,608 @@ function isOtherPersonOnlyText(text: string, decision?: SaveDecision) {
     !/나한테|나에게|내가|나는|난|우리|같이|도와줘야|도와줄/.test(text);
 }
 
+function findRecentDreamReference(messages: ChatMessage[], items: DailyTraceItem[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as RoutedChatMessage;
+    const routingResult = message.saveRoutingResult;
+    if (
+      message.dailyTraceCandidate &&
+      (routingResult?.route === "dream_torch" || routingResult?.route === "dream_fragment")
+    ) {
+      const candidateText =
+        routingResult.originalText ||
+        message.dailyTraceCandidate.memo ||
+        message.dailyTraceCandidate.title;
+      const existingItem = findSingleDreamFragmentByTitle(items, message.dailyTraceCandidate.title) ??
+        findSingleDreamFragmentByTitle(items, candidateText);
+      if (existingItem) {
+        return existingItem;
+      }
+      return {
+        id: "",
+        type: "goal" as DailyTraceItemType,
+        date: message.dailyTraceCandidate.date || getLocalDateString(new Date()),
+        title: makeMemoryTitle(candidateText),
+        memo: candidateText,
+        text: candidateText,
+        sourceText: candidateText,
+        memoryType: "project" as MemorySavePolicyType,
+        saveTargets: ["dream_fragment"] as SaveDecision["saveTargets"],
+        dreamRole: "fragment" as DreamRole,
+        createdAt: message.createdAt,
+      } as DailyTraceItem;
+    }
+  }
+
+  return undefined;
+}
+
+function isExplicitTorchReferenceText(text: string) {
+  return /(?:이걸|이\s*목표를|방금\s*말한\s*걸|방금\s*그거|그걸).*(꿈의\s*)?횃불|(?:꿈의\s*)?횃불로\s*밝혀/.test(text);
+}
+
+function findReferencedDreamForTorchRequest(
+  text: string,
+  recentDreamReference: DailyTraceItem | null | undefined,
+  items: DailyTraceItem[]
+) {
+  if (!isExplicitTorchReferenceText(text)) {
+    return null;
+  }
+
+  if (recentDreamReference?.id) {
+    return recentDreamReference;
+  }
+
+  if (recentDreamReference) {
+    const existingItem = findSingleDreamFragmentByTitle(items, recentDreamReference.title) ??
+      findSingleDreamFragmentByTitle(items, getMemoryInputText(recentDreamReference));
+    return existingItem ?? recentDreamReference;
+  }
+
+  return null;
+}
+
+function normalizeDreamTitleForLookup(text: string) {
+  return cleanDreamFragmentCommandText(text)
+    .replace(/꿈의\s*파편|꿈\s*파편|이름|제목/g, " ")
+    .split(/\s+/)
+    .map((word) => stripTrailingKoreanParticles(word))
+    .join("")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function cleanDreamFragmentCommandText(text: string) {
+  return text
+    .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
+    .replace(/[.!。…]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanDreamFragmentNextText(text: string) {
+  return cleanDreamFragmentCommandText(text)
+    .replace(/\s*(?:으로|로)\s*(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정)\s*$/g, "")
+    .replace(/\s*(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정)\s*$/g, "")
+    .replace(/\s*(?:으로|로)\s*$/g, "")
+    .replace(/[.!。…]+$/g, "")
+    .trim();
+}
+
+function findDreamFragmentMatchesByTitle(items: DailyTraceItem[], title: string) {
+  const fragments = getDreamFragments(items).filter((item) => item.projectStatus !== "done");
+  const target = title.trim();
+  const targetKey = normalizeDreamTitleForLookup(target);
+  if (!targetKey) {
+    return [];
+  }
+
+  const exact = fragments.filter((item) => item.title.trim() === target);
+  if (exact.length > 0) {
+    return exact;
+  }
+
+  const normalized = fragments.filter((item) => normalizeDreamTitleForLookup(item.title) === targetKey);
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  const partial = fragments.filter((item) => {
+    const itemKey = normalizeDreamTitleForLookup(item.title);
+    return itemKey.includes(targetKey) || targetKey.includes(itemKey);
+  });
+  return partial.length === 1 ? partial : [];
+}
+
+function findSingleDreamFragmentByTitle(items: DailyTraceItem[], title: string) {
+  const matches = findDreamFragmentMatchesByTitle(items, title);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function findDreamFragmentNextActionUpdateRoute(text: string, items: DailyTraceItem[]): NoieSaveRoutingResult | null {
+  if (!/다음\s*(할\s*일|행동)/.test(text) || !/바꿔|수정|변경/.test(text)) {
+    return null;
+  }
+
+  const match = text.match(/^(.+?)의\s*다음\s*(?:할\s*일|행동)을\s*(.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const previousTitle = cleanDreamFragmentCommandText(match[1]);
+  const nextAction = cleanDreamFragmentNextText(match[2]);
+  const matched = findSingleDreamFragmentByTitle(items, previousTitle);
+  if (!matched || !nextAction) {
+    return null;
+  }
+
+  return {
+    route: "dream_fragment_next_action_update",
+    title: matched.title,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.98,
+    matchedDailyTraceId: matched.id,
+    previousTitle: matched.title,
+    nextAction,
+    reason: "기존 꿈의 파편 다음 할 일 수정",
+  };
+}
+
+function findDreamFragmentRenameRoute(text: string, items: DailyTraceItem[]): NoieSaveRoutingResult | null {
+  if (!/바꿔|수정|변경/.test(text) || !/꿈의\s*파편/.test(text)) {
+    return null;
+  }
+
+  const match = text.match(/^(.+?)(?:라는|이라고)?\s*꿈의\s*파편\s*이름을\s*(.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const previousTitle = cleanDreamFragmentCommandText(match[1]);
+  const nextTitle = cleanDreamFragmentNextText(match[2]);
+  const matched = findSingleDreamFragmentByTitle(items, previousTitle);
+  if (!matched || !nextTitle) {
+    return null;
+  }
+
+  return {
+    route: "dream_fragment_rename",
+    title: matched.title,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.97,
+    matchedDailyTraceId: matched.id,
+    previousTitle: matched.title,
+    nextTitle,
+    reason: "기존 꿈의 파편 이름 수정",
+  };
+}
+
+function findDreamFragmentCompleteRoute(text: string, items: DailyTraceItem[]): NoieSaveRoutingResult | null {
+  if (!/완료했|완료\s*했|끝냈|달성했|마쳤|완성했/.test(text)) {
+    return null;
+  }
+
+  const match = text.match(/^(?:오늘|방금)?\s*(.+?)(?:을|를)?\s*(?:완료했어|완료\s*했어|끝냈어|달성했어|마쳤어|완성했어|완료했다|끝냈다|달성했다|마쳤다|완성했다)/);
+  const titleText = cleanDreamFragmentCommandText(match?.[1] ?? text);
+  const matched = findSingleDreamFragmentByTitle(items, titleText || text);
+  if (!matched) {
+    return null;
+  }
+
+  return {
+    route: "dream_fragment_complete",
+    title: matched.title,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.98,
+    matchedDailyTraceId: matched.id,
+    reason: "기존 꿈의 파편 완료",
+  };
+}
+
+function isNonCompletionRoutineText(text: string) {
+  return /못\s*했어|못했어|안\s*했어|안했어|하지\s*못했어|못\s*끝냈어|완료하지\s*못했어|실패했어|건너뛰었어|쉬었어/.test(text);
+}
+
+function isAdditiveRoutineRecordText(text: string) {
+  return /더\s*했어|더\s*했다|추가로\s*했어/.test(text);
+}
+
+function isExplicitAdditiveRoutineRecordRequest(text: string) {
+  return isAdditiveRoutineRecordText(text) && /기록해줘|기록해|남겨줘|저장해줘|저장해/.test(text);
+}
+
+function findLifeScheduleRoute(text: string): NoieSaveRoutingResult | null {
+  const normalizedText = normalizeMemoryInput(text);
+  const parsedRange = parseKoreanClockTimeRange(text);
+  const parsedTime = parsedRange?.start ?? parseKoreanClockTime(text);
+  const parsedDate = parseRelativeScheduleDate(text);
+  const isRepeat = /매일|매주|평일마다|주말마다|아침마다|저녁마다|밤마다/.test(text);
+  const isPastAction = /일어났|먹었|다녀왔|갔다왔|갔다\s*왔|끝냈|했어|했다/.test(text);
+  const isFutureSchedule = /해야\s*해|해야해|해야\s*돼|해야돼|일어나야|먹어야|가야\s*해|갈\s*거야|일어날래|잘래|먹을래|버릴래|챙길래/.test(text);
+
+  if (!parsedTime || !isLifeScheduleText(text) || isGrowthRoutineText(text)) {
+    return null;
+  }
+
+  const scheduleTitle = makeLifeScheduleTitle(text);
+  if (isPastAction) {
+    const dateKey = parsedDate?.dateKey ?? getLocalDateString(new Date());
+    return {
+      route: "life_action_record",
+      title: makeLifeActionRecordTitle(scheduleTitle),
+      originalText: text,
+      normalizedText,
+      confidence: 0.94,
+      scheduledDate: dateKey,
+      unit: parsedTime.label,
+      displayUnit: parsedTime.time,
+      reason: "이미 실제로 한 생활 행동",
+    };
+  }
+
+  if (isRepeat) {
+    return {
+      route: "life_schedule_repeat",
+      title: scheduleTitle,
+      originalText: text,
+      normalizedText,
+      confidence: 0.93,
+      scheduledDate: getLocalDateString(new Date()),
+      recurrence: /매주/.test(text) ? "weekly" : "daily",
+      unit: parsedTime.label,
+      displayUnit: parsedTime.time,
+      endTime: parsedRange?.end.time ?? null,
+      endDisplayUnit: parsedRange?.end.label ?? null,
+      reason: "생활 반복 예정",
+    };
+  }
+
+  if (parsedDate && isFutureSchedule) {
+    return {
+      route: "life_schedule_once",
+      title: scheduleTitle,
+      originalText: text,
+      normalizedText,
+      confidence: 0.92,
+      scheduledDate: parsedDate.dateKey,
+      unit: parsedTime.label,
+      displayUnit: parsedTime.time,
+      endTime: parsedRange?.end.time ?? null,
+      endDisplayUnit: parsedRange?.end.label ?? null,
+      reason: "날짜가 있는 한 번짜리 예정",
+    };
+  }
+
+  if (isFutureSchedule) {
+    return {
+      route: "life_schedule_missing_date",
+      title: scheduleTitle,
+      originalText: text,
+      normalizedText,
+      confidence: 0.88,
+      needsDateSelection: false,
+      unit: parsedTime.label,
+      displayUnit: parsedTime.time,
+      reason: "시간은 있지만 날짜가 없는 예정",
+    };
+  }
+
+  return null;
+}
+
+function findLifeScheduleMutationRoute(text: string, items: DailyTraceItem[]): NoieSaveRoutingResult | null {
+  const reminder = parseLifeScheduleReminderRequest(text);
+  if (reminder) {
+    const matched = findSingleMatchingLifeSchedule(text, items);
+    if (!matched) {
+      return {
+        route: "none",
+        title: "",
+        originalText: text,
+        normalizedText: normalizeMemoryInput(text),
+        confidence: 0.9,
+        reason: "수정할 일정을 찾지 못함",
+      };
+    }
+    const previousReminder = getExistingReminderLabel(matched) || "시간에 맞춰";
+    return {
+      route: "life_schedule_reminder_update",
+      title: matched.title,
+      originalText: text,
+      normalizedText: normalizeMemoryInput(text),
+      confidence: 0.96,
+      scheduledDate: matched.date,
+      displayUnit: matched.time,
+      matchedDailyTraceId: matched.id,
+      previousTitle: previousReminder,
+      reminder: reminder.value,
+      unit: reminder.label,
+      reason: "기존 일정 알림 수정",
+    };
+  }
+
+  if (/취소해줘|취소해|삭제해줘|삭제해|지워줘|지워/.test(text) && /일정|예약|가는\s*일/.test(text)) {
+    const matched = findSingleMatchingLifeSchedule(text, items);
+    if (!matched) {
+      return {
+        route: "none",
+        title: "",
+        originalText: text,
+        normalizedText: normalizeMemoryInput(text),
+        confidence: 0.9,
+        reason: "취소할 일정을 찾지 못함",
+      };
+    }
+    return {
+      route: "life_schedule_cancel",
+      title: matched.title,
+      originalText: text,
+      normalizedText: normalizeMemoryInput(text),
+      confidence: 0.96,
+      scheduledDate: matched.date,
+      displayUnit: matched.time,
+      matchedDailyTraceId: matched.id,
+      reason: "기존 일정 취소",
+    };
+  }
+
+  return null;
+}
+
+function parseLifeScheduleReminderRequest(text: string) {
+  if (!/알려줘|알림|리마인드/.test(text) || !/(전|전에|맞춰)/.test(text)) {
+    return null;
+  }
+  const minuteMatch = text.match(/(\d+)\s*분\s*전/);
+  if (minuteMatch) {
+    const minutes = Number(minuteMatch[1]);
+    if (minutes === 10 || minutes === 30) {
+      return { value: `${minutes}m`, label: `${minutes}분 전` };
+    }
+  }
+  const hourMatch = text.match(/(\d+)\s*시간\s*전/);
+  if (hourMatch && Number(hourMatch[1]) === 1) {
+    return { value: "1h", label: "1시간 전" };
+  }
+  if (/시간에\s*맞춰|정각|바로/.test(text)) {
+    return { value: "on_time", label: "시간에 맞춰" };
+  }
+  return null;
+}
+
+function findSingleMatchingLifeSchedule(text: string, items: DailyTraceItem[]) {
+  const todayKey = getLocalDateString(new Date());
+  const parsedDate = parseRelativeScheduleDate(text);
+  const parsedTime = parseKoreanClockTime(text);
+  const dateKey = parsedDate?.dateKey;
+  const textKey = normalizeScheduleSearchText(text);
+  const candidates = dedupeMemories(items)
+    .filter((item) => {
+      if (isCancelledTraceItem(item) || isCompletedTraceScheduleItem(item) || !isScheduledDailyTraceItemForDate(item, item.date)) {
+        return false;
+      }
+      if (isLifeRepeatTraceItem(item)) {
+        return false;
+      }
+      if (dateKey && item.date !== dateKey) {
+        return false;
+      }
+      if (!dateKey && item.date < todayKey) {
+        return false;
+      }
+      return true;
+    })
+    .map((item) => {
+      let score = 0;
+      const titleKey = normalizeScheduleSearchText(item.title);
+      if (dateKey && item.date === dateKey) {
+        score += 4;
+      }
+      if (parsedTime?.time && item.time === parsedTime.time) {
+        score += 3;
+      }
+      if (titleKey && textKey.includes(titleKey)) {
+        score += 4;
+      } else if (hasScheduleKeywordOverlap(textKey, titleKey)) {
+        score += 3;
+      }
+      return { item, score };
+    })
+    .filter((candidate) => candidate.score >= 3)
+    .sort((left, right) => right.score - left.score);
+
+  if (candidates.length === 1 || (candidates[0] && candidates[0].score > (candidates[1]?.score ?? 0))) {
+    return candidates[0].item;
+  }
+  return null;
+}
+
+function normalizeScheduleSearchText(text: string) {
+  return text
+    .replace(/오늘|내일|모레|다음\s*주\s*(일요일|월요일|화요일|수요일|목요일|금요일|토요일|일|월|화|수|목|금|토)/g, " ")
+    .replace(/(오전|오후|아침|저녁|밤|새벽)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분?)?/g, " ")
+    .replace(/\d+\s*(분|시간)\s*전/g, " ")
+    .replace(/일정|예약|가는\s*일|알려줘|취소해줘|취소해|삭제해줘|삭제해|지워줘|지워|전에/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasScheduleKeywordOverlap(textKey: string, titleKey: string) {
+  const textTokens = new Set(textKey.split(/\s+/).map(stripTrailingKoreanParticles).filter((token) => token.length >= 2));
+  return titleKey
+    .split(/\s+/)
+    .map(stripTrailingKoreanParticles)
+    .filter((token) => token.length >= 2)
+    .some((token) => textTokens.has(token));
+}
+
+function getReminderLabelByValue(value: string) {
+  return TRACE_REMINDER_OPTIONS.find((option) => option.value === value)?.label ?? "";
+}
+
+function parseKoreanClockTimeRange(text: string) {
+  const match = text.match(/(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분?)?\s*부터\s*(?:(오전|오후|아침|저녁|밤|새벽)\s*)?(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분?)?\s*까지/);
+  if (!match) {
+    return null;
+  }
+
+  const startMarker = match[1] ?? "";
+  const endMarker = match[4] ?? startMarker;
+  const start = buildKoreanClockTime(startMarker, match[2], match[3]);
+  const end = buildKoreanClockTime(endMarker, match[5], match[6]);
+  if (!start || !end) {
+    return null;
+  }
+
+  return { start, end };
+}
+
+function parseKoreanClockTime(text: string) {
+  const match = text.match(/(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분?)?/);
+  if (!match) {
+    return null;
+  }
+
+  return buildKoreanClockTime(match[1] ?? "", match[2], match[3]);
+}
+
+function buildKoreanClockTime(marker: string, hourText: string, minuteText?: string) {
+  let hour = Number(hourText);
+  const minute = minuteText ? Number(minuteText) : 0;
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  if ((marker === "오후" || marker === "저녁" || marker === "밤") && hour < 12) {
+    hour += 12;
+  }
+  if ((marker === "오전" || marker === "아침" || marker === "새벽") && hour === 12) {
+    hour = 0;
+  }
+
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const labelHour = hour >= 12 ? hour - 12 || 12 : hour || 12;
+  const period = hour >= 12 ? "오후" : "오전";
+  return {
+    time,
+    label: `${period} ${labelHour}:${String(minute).padStart(2, "0")}`,
+  };
+}
+
+function parseRelativeScheduleDate(text: string) {
+  const today = new Date();
+  const offset = /모레/.test(text) ? 2 : /내일/.test(text) ? 1 : /오늘/.test(text) ? 0 : null;
+  if (offset !== null) {
+    return {
+      dateKey: getLocalDateString(addDays(today, offset)),
+      label: offset === 0 ? "오늘" : offset === 1 ? "내일" : "모레",
+    };
+  }
+
+  const nextWeekday = parseNextWeekdayScheduleDate(text, today);
+  if (nextWeekday) {
+    return nextWeekday;
+  }
+
+  return null;
+}
+
+function parseNextWeekdayScheduleDate(text: string, today: Date) {
+  const match = text.match(/다음\s*주\s*(일요일|월요일|화요일|수요일|목요일|금요일|토요일|일|월|화|수|목|금|토)/);
+  if (!match) {
+    return null;
+  }
+
+  const weekdayMap: Record<string, number> = {
+    일요일: 0,
+    일: 0,
+    월요일: 1,
+    월: 1,
+    화요일: 2,
+    화: 2,
+    수요일: 3,
+    수: 3,
+    목요일: 4,
+    목: 4,
+    금요일: 5,
+    금: 5,
+    토요일: 6,
+    토: 6,
+  };
+  const targetDay = weekdayMap[match[1]];
+  const thisWeekStart = addDays(today, -today.getDay());
+  const targetDate = addDays(thisWeekStart, 7 + targetDay);
+  return {
+    dateKey: getLocalDateString(targetDate),
+    label: `다음 주 ${match[1].length === 1 ? `${match[1]}요일` : match[1]}`,
+  };
+}
+
+function isLifeScheduleText(text: string) {
+  return /일어나|기상|자기|잠자|취침|약\s*먹|약\s*복용|병원|쓰레기|분리수거|청소|빨래|설거지|밥\s*먹|식사|출근|등교|예약|미용실/.test(text);
+}
+
+function isGrowthRoutineText(text: string) {
+  return /공부|연습|운동|훈련|복습|기술|자격증|코딩|미용사/.test(text);
+}
+
+function makeLifeScheduleTitle(text: string) {
+  if (/일어나|기상/.test(text)) {
+    return "일어나기";
+  }
+  if (/자기|잠자|취침/.test(text)) {
+    return "자기";
+  }
+  if (/약\s*먹|약\s*복용/.test(text)) {
+    return "약 먹기";
+  }
+  if (/쓰레기|분리수거/.test(text)) {
+    return "쓰레기 버리기";
+  }
+  if (/병원/.test(text)) {
+    return "병원 가기";
+  }
+  if (/미용실/.test(text) && /예약/.test(text)) {
+    return "미용실 예약";
+  }
+  return normalizeRoutineTitle(text)
+    .replace(/다음\s*주\s*(일요일|월요일|화요일|수요일|목요일|금요일|토요일|일|월|화|수|목|금|토)/g, "")
+    .replace(/오늘|내일|모레/g, "")
+    .replace(/(오전|오후|아침|저녁|밤|새벽)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분?)?\s*부터\s*(?:(오전|오후|아침|저녁|밤|새벽)\s*)?\d{1,2}\s*시(?:\s*\d{1,2}\s*분?)?\s*까지/g, "")
+    .replace(/(오전|오후|아침|저녁|밤|새벽)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분?)?에/g, "")
+    .replace(/해야\s*해|해야해|해야\s*돼|해야돼|일어날래|할래|갈\s*거야/g, "")
+    .trim() || makeMemoryTitle(text);
+}
+
+function makeLifeActionRecordTitle(title: string) {
+  if (title === "일어나기") {
+    return "일어남";
+  }
+  if (title.endsWith("기")) {
+    return `${title.slice(0, -1)}ㅁ`;
+  }
+  return title;
+}
+
 function parseRoutineGoalCandidate(text: string): Pick<NoieSaveRoutingResult, "title" | "repeatType" | "targetValue" | "unit"> | null {
   const normalizedText = text.trim();
   const hasRepeat = /매일|매주|주\s*\d+\s*회|하루에|매일마다|아침마다|저녁마다|꾸준히|반복해서|\d+(?:\.\d+)?\s*(분|시간|회|개|페이지|세트|장)\s*씩/.test(normalizedText);
   const hasIntent = /할래|그릴래|읽을래|운동할래|공부할래|하려고\s*해|하기로\s*했|목표로\s*할래|습관으로\s*만들|꾸준히\s*할\s*거야|할\s*거야/.test(normalizedText);
-  const targetMatch = normalizedText.match(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트|장)\s*씩?/);
+  const durationTarget = parseDurationValueWithUnit(normalizedText);
+  const targetMatch = durationTarget ? null : normalizedText.match(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트|장)\s*씩?/);
   if (!hasRepeat || !hasIntent) {
     return null;
   }
-  const targetValue = targetMatch ? Number(targetMatch[1]) : undefined;
+  const targetValue = durationTarget?.targetValue ?? (targetMatch ? Number(targetMatch[1]) : undefined);
   if (targetMatch && !Number.isFinite(targetValue)) {
     return null;
   }
-  const unit = targetMatch?.[2];
+  const unit = durationTarget?.unit ?? targetMatch?.[2];
   const repeatType = /주\s*\d+\s*회|매주/.test(normalizedText) ? "weekly" : "daily";
   return {
     title: normalizeRoutineTitle(normalizedText),
@@ -7341,10 +10020,27 @@ function isLegacyRoutineExecutionTrace(
 function isRoutineRecordText(text: string) {
   const hasRecordEditIntent = /기록해줘|기록해|기록을|수정해줘|수정해|바꿔줘|바꿔|변경해줘|변경해/.test(text);
   const hasValue = /(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/.test(text);
+  if (isActualRoutineExecutionText(text)) {
+    return true;
+  }
   if (hasRecordEditIntent && hasValue) {
     return true;
   }
   return /오늘|어제|방금/.test(text) && /했어|했다|완료했|끝냈|공부했|운동했|했는데|기록|남겨|바꿔|수정|변경/.test(text);
+}
+
+function isActualRoutineExecutionText(text: string) {
+  if (isNonCompletionRoutineText(text)) {
+    return false;
+  }
+  if (/목표\s*(시간|수행량|량)?|바꿔줘|바꿔|수정해줘|수정해|변경해줘|변경해|조절|조정/.test(text)) {
+    return false;
+  }
+  return (
+    /오늘|어제|방금|아까/.test(text) &&
+    /했어|했다|끝냈어|끝냈다|완료했어|완료했다/.test(text) &&
+    /(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/.test(text)
+  );
 }
 
 function isPlainDailyTraceText(text: string) {
@@ -7355,10 +10051,247 @@ function isPlainDailyTraceText(text: string) {
   return /오늘|어제|방금|아까/.test(normalizedText) && /했어|했다|다녀왔|받았|만났|생겼|떠올랐|겪었|봤어|들었어|공부했|운동했/.test(normalizedText);
 }
 
+function findDailyRecordCommandRoute(
+  text: string,
+  dailyTraces: DailyTraceItem[],
+  dailyLongRecords: DailyLongRecord[]
+): NoieSaveRoutingResult | null {
+  const todayKey = getLocalDateString(new Date());
+  const dateKey = getRecordCommandDateKey(text, todayKey);
+
+  const titleUpdate = findDailyLongRecordTitleUpdateRoute(text, dailyLongRecords, dateKey);
+  if (titleUpdate) {
+    return titleUpdate;
+  }
+
+  const appendRoute = findDailyLongRecordAppendRoute(text, dateKey);
+  if (appendRoute) {
+    return appendRoute;
+  }
+
+  const lineUpdate = findRecentDailyTraceLineUpdateRoute(text, dailyTraces, todayKey);
+  if (lineUpdate) {
+    return lineUpdate;
+  }
+
+  const longRecordCreate = findDailyLongRecordCreateRoute(text, dateKey);
+  if (longRecordCreate) {
+    return longRecordCreate;
+  }
+
+  const oneLineRecord = findOneLineDailyTraceCreateRoute(text, dateKey);
+  if (oneLineRecord) {
+    return oneLineRecord;
+  }
+
+  const datedActionTrace = findDatedActionDailyTraceRoute(text, dateKey);
+  if (datedActionTrace) {
+    return datedActionTrace;
+  }
+
+  return null;
+}
+
+function getRecordCommandDateKey(text: string, todayKey: string) {
+  if (/어제/.test(text)) {
+    return shiftTraceDateKey(todayKey, -1);
+  }
+  return todayKey;
+}
+
+function extractQuotedRecordText(text: string) {
+  const quoteMatch = text.match(/[‘'“"](.+?)[’'”"]/);
+  if (quoteMatch?.[1]?.trim()) {
+    return quoteMatch[1].trim();
+  }
+  const koreanQuoteMatch = text.match(/‘(.+?)’|“(.+?)”/);
+  if (koreanQuoteMatch?.[1]?.trim() || koreanQuoteMatch?.[2]?.trim()) {
+    return (koreanQuoteMatch[1] ?? koreanQuoteMatch[2]).trim();
+  }
+  return "";
+}
+
+function cleanRecordCommandText(text: string) {
+  return text
+    .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
+    .replace(/[.!。…]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanOneLineRecordText(text: string) {
+  const quoted = extractQuotedRecordText(text);
+  if (quoted) {
+    return cleanRecordCommandText(quoted);
+  }
+  return cleanRecordCommandText(
+    text
+      .replace(/오늘|어제|방금|아까/g, " ")
+      .replace(/한\s*줄\s*기록으로\s*남겨줘|한\s*줄\s*기록으로\s*남겨|한\s*줄\s*기록으로|기록으로\s*남겨줘|남겨줘/g, " ")
+  ).replace(/다고$/g, "다");
+}
+
+function findDailyLongRecordTitleUpdateRoute(
+  text: string,
+  dailyLongRecords: DailyLongRecord[],
+  dateKey: string
+): NoieSaveRoutingResult | null {
+  if (!/기록\s*제목을/.test(text) || !/바꿔|수정|변경/.test(text)) {
+    return null;
+  }
+  const nextTitle = cleanRecordCommandText(extractQuotedRecordText(text) || text.replace(/^.*기록\s*제목을\s*/, "").replace(/(?:으로|로)\s*(?:바꿔줘|바꿔|수정해줘|수정|변경해줘|변경).*$/, ""));
+  if (!nextTitle || !dailyLongRecords.some((record) => record.dateKey === dateKey)) {
+    return null;
+  }
+  return {
+    route: "daily_long_record_title_update",
+    title: nextTitle,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.98,
+    scheduledDate: dateKey,
+    longRecordTitle: nextTitle,
+    reason: "날짜별 긴 기록 제목 수정",
+  };
+}
+
+function findDailyLongRecordAppendRoute(text: string, dateKey: string): NoieSaveRoutingResult | null {
+  if (!/기록에\s*덧붙여줘|기록에\s*추가해줘|기록에\s*이어\s*써줘/.test(text)) {
+    return null;
+  }
+  const body = cleanRecordCommandText(extractQuotedRecordText(text));
+  if (!body) {
+    return null;
+  }
+  return {
+    route: "daily_long_record_append",
+    title: "기록 덧붙이기",
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.96,
+    scheduledDate: dateKey,
+    longRecordBody: body,
+    reason: "날짜별 긴 기록 본문 덧붙이기",
+  };
+}
+
+function findDailyLongRecordCreateRoute(text: string, dateKey: string): NoieSaveRoutingResult | null {
+  if (!/(오늘|어제)의\s*기록에/.test(text)) {
+    return null;
+  }
+  const body = cleanRecordCommandText(extractQuotedRecordText(text));
+  if (!body) {
+    return null;
+  }
+  return {
+    route: "daily_long_record_create",
+    title: "날짜별 긴 기록",
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.97,
+    scheduledDate: dateKey,
+    longRecordBody: body,
+    reason: "날짜별 긴 기록 새 저장",
+  };
+}
+
+function findRecentDailyTraceLineUpdateRoute(
+  text: string,
+  dailyTraces: DailyTraceItem[],
+  todayKey: string
+): NoieSaveRoutingResult | null {
+  if (!/방금\s*남긴\s*한\s*줄\s*기록을/.test(text) || !/수정|바꿔|변경/.test(text)) {
+    return null;
+  }
+  const nextText = cleanRecordCommandText(extractQuotedRecordText(text));
+  const recentTrace = findRecentOneLineDailyTrace(dailyTraces, todayKey);
+  if (!nextText || !recentTrace) {
+    return null;
+  }
+  return {
+    route: "daily_trace_update",
+    title: "방금 남긴 기록",
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.98,
+    scheduledDate: recentTrace.date,
+    matchedDailyTraceId: recentTrace.id,
+    previousTitle: recentTrace.text ?? recentTrace.memo ?? recentTrace.title,
+    nextTitle: nextText,
+    reason: "최근 한 줄 기록 수정",
+  };
+}
+
+function findRecentOneLineDailyTrace(dailyTraces: DailyTraceItem[], todayKey: string) {
+  return [...dailyTraces]
+    .filter((item) => {
+      const typedItem = item as DailyTraceItem & { sourceType?: string };
+      return (
+        item.date === todayKey &&
+        item.type === "record" &&
+        typedItem.sourceType !== "routine_execution" &&
+        typedItem.sourceType !== "dream_fragment_complete" &&
+        !item.saveTargets?.includes("dream_fragment") &&
+        !item.saveTargets?.includes("dream_torch")
+      );
+    })
+    .sort((left, right) => (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt))[0];
+}
+
+function findOneLineDailyTraceCreateRoute(text: string, dateKey: string): NoieSaveRoutingResult | null {
+  if (!/한\s*줄\s*기록으로/.test(text)) {
+    return null;
+  }
+  const body = cleanOneLineRecordText(text);
+  if (!body) {
+    return null;
+  }
+  return {
+    route: "daily_trace",
+    title: body,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.94,
+    scheduledDate: dateKey,
+    reason: "한 줄 기록 새 저장",
+  };
+}
+
+function findDatedActionDailyTraceRoute(text: string, dateKey: string): NoieSaveRoutingResult | null {
+  if (!/어제/.test(text) || !/했어|했다|끝냈어|완료했어/.test(text)) {
+    return null;
+  }
+  const duration = parseDurationValueWithUnit(text);
+  if (!duration) {
+    return null;
+  }
+  const title = cleanRecordCommandText(
+    text
+      .replace(/어제|오늘|방금|아까/g, " ")
+      .replace(/\d+(?:\.\d+)?\s*(?:시간|분)(?:\s*반)?/g, " ")
+      .replace(/했어|했다|끝냈어|완료했어|을|를/g, " ")
+  );
+  if (!title) {
+    return null;
+  }
+  return {
+    route: "daily_trace",
+    title: `${title} · ${formatRoutineTarget(duration.targetValue, duration.unit)}`,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.93,
+    scheduledDate: dateKey,
+    reason: "날짜가 명시된 실제 행동 흔적",
+  };
+}
+
 function findRoutineRecordRoute(
   text: string,
   items: DailyTraceItem[]
 ): NoieSaveRoutingResult | null {
+  if (isNonCompletionRoutineText(text) || (isAdditiveRoutineRecordText(text) && !isExplicitAdditiveRoutineRecordRequest(text))) {
+    return null;
+  }
   if (!isRoutineRecordText(text)) {
     return null;
   }
@@ -7375,7 +10308,10 @@ function findRoutineRecordRoute(
       parsed.observedValue ??
       (effectiveTargetValue > 0 ? effectiveTargetValue : /완료|끝냈|했어|했다/.test(text) ? 1 : 0);
     const sourceUnit = parsed.requestedUnit ?? parsed.observedUnit ?? targetUnit;
-    const actualValue = convertRoutineRecordValueToRoutineUnit(sourceValue, sourceUnit, targetUnit);
+    const convertedValue = convertRoutineRecordValueToRoutineUnit(sourceValue, sourceUnit, targetUnit);
+    const existingRecord = findRoutineRecord(matched.item.routineRecords ?? [], matched.routine.id, getLocalDateString(new Date()));
+    const existingActualValue = parsed.isAdditiveRecord ? getRoutineRecordActualValue(existingRecord) : 0;
+    const actualValue = convertedValue + existingActualValue;
     if (!Number.isFinite(actualValue) || actualValue <= 0) {
       return null;
     }
@@ -7394,8 +10330,11 @@ function findRoutineRecordRoute(
       displayUnit: sourceUnit,
       unit: targetUnit,
       isExplicitOverride: parsed.isExplicitOverride,
-      hasExistingRoutineRecord: Boolean(findRoutineRecord(matched.item.routineRecords ?? [], matched.routine.id, getLocalDateString(new Date()))),
-      reason: parsed.isExplicitOverride ? "명시적 반복 목표 수행 기록 수정" : "반복 목표 수행 기록",
+      isAdditiveRecord: parsed.isAdditiveRecord,
+      hasExistingRoutineRecord: Boolean(existingRecord),
+      reason: parsed.isAdditiveRecord
+        ? "명시적 반복 목표 수행량 누적 기록"
+        : parsed.isExplicitOverride ? "명시적 반복 목표 수행 기록 수정" : "반복 목표 수행 기록",
     };
   } catch (error) {
     console.error("[routine-record-routing-error]", error);
@@ -7404,13 +10343,21 @@ function findRoutineRecordRoute(
 }
 
 function parseRoutineRecordRequest(text: string) {
-  const matches = Array.from(text.matchAll(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/g)).map((match) => ({
-    value: Number(match[1]),
-    unit: match[2],
-    index: match.index ?? 0,
-  })).filter((match) => Number.isFinite(match.value));
+  const duration = parseDurationValueWithUnit(text);
+  const matches = duration
+    ? [{
+      value: duration.targetValue,
+      unit: duration.unit,
+      index: text.search(/\d+(?:\.\d+)?\s*시간/),
+    }]
+    : Array.from(text.matchAll(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/g)).map((match) => ({
+      value: Number(match[1]),
+      unit: match[2],
+      index: match.index ?? 0,
+    })).filter((match) => Number.isFinite(match.value));
   const explicitMatch = text.match(/기록|남겨|바꿔|변경|수정|담아|적어/);
   const isExplicitOverride = Boolean(explicitMatch);
+  const isAdditiveRecord = isExplicitAdditiveRoutineRecordRequest(text);
   const requestedMatch = isExplicitOverride
     ? [...matches].reverse().find((match) => match.index >= (explicitMatch?.index ?? 0)) ?? matches[matches.length - 1]
     : undefined;
@@ -7428,15 +10375,15 @@ function parseRoutineRecordRequest(text: string) {
     requestedValue: requestedMatch?.value ?? selectedMatch?.value,
     requestedUnit: requestedMatch?.unit ?? selectedMatch?.unit,
     isExplicitOverride,
+    isAdditiveRecord,
   };
 }
 
 function hasRoutineKeywordOverlap(textKey: string, routineKey: string) {
   const normalizeToken = (value: string) =>
-    value
+    stripTrailingKoreanParticles(value)
       .replace(/하기$/g, "")
       .replace(/공부$/g, "")
-      .replace(/를|을|은|는|이|가|도|만/g, "")
       .trim();
   const textTokens = new Set(
     textKey
@@ -7545,19 +10492,19 @@ function isDreamTorchCandidateText(text: string, memoryPolicy: MemorySavePolicy)
   if (isDreamFragmentText(normalizedText) || isDailyIdeaText(normalizedText) || parseRoutineGoalCandidate(normalizedText)) {
     return false;
   }
-  return /가장\s*큰\s*목표|가장\s*중요한\s*꿈|대표\s*꿈|내\s*꿈|꿈이야|되는\s*게\s*꿈|장래희망|언젠가|장기적|진로|취업하고\s*싶|개발자가\s*되고|개발자로\s*취업|소방관이\s*되는/.test(normalizedText) &&
-    (/되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|취업하고\s*싶/.test(normalizedText) || isCareerDreamText(normalizedText));
+  return /가장\s*큰\s*목표|가장\s*중요한\s*꿈|대표\s*꿈|내\s*꿈|꿈이야|되는\s*게\s*꿈|장래희망|언젠가|장기적|진로|취직하고\s*싶|취업하고\s*싶|개발자가\s*되고|개발자로\s*취업|소방관이\s*되는|열고\s*싶/.test(normalizedText) &&
+    (/되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|취직하고\s*싶|취업하고\s*싶|열고\s*싶/.test(normalizedText) || isCareerDreamText(normalizedText));
 }
 
 function isCareerDreamText(text: string) {
-  return /파티시에|개발자|인공지능\s*개발자|ai\s*개발자|요리사|의사|디자이너|헤어\s*디자이너|소방관|간호사|선생님|교사|변호사|작가/.test(text) &&
-    /되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|언젠가/.test(text);
+  return /파티시에|개발자|인공지능\s*개발자|ai\s*개발자|요리사|의사|디자이너|헤어\s*디자이너|소방관|간호사|선생님|교사|변호사|작가|뤼튼|미용실/.test(text) &&
+    /되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|언젠가|취직하고\s*싶|취업하고\s*싶|열고\s*싶/.test(text);
 }
 
 function isLifeDirectionDreamText(text: string) {
   return (
-    /되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|언젠가|장기적인/.test(text) &&
-    (/파티시에|디자이너|개발자|의사|요리사|브랜드|사람들에게\s*자신감을\s*주는/.test(text))
+    /되고\s*싶|되는\s*게\s*꿈|내\s*꿈|장래희망|언젠가|장기적인|만들고\s*싶|열고\s*싶|취직하고\s*싶|취업하고\s*싶|이루도록\s*돕/.test(text) &&
+    (/파티시에|디자이너|개발자|의사|요리사|브랜드|AI|ai|인공지능|미용실|뤼튼|사람들의\s*감정|목표를\s*이루도록\s*돕|사람들에게\s*자신감을\s*주는/.test(text))
   );
 }
 
@@ -7583,6 +10530,11 @@ function makeImportantDayEventTitle(text: string) {
 }
 
 function parseTargetValueWithUnit(text: string) {
+  const duration = parseDurationValueWithUnit(text);
+  if (duration) {
+    return duration;
+  }
+
   const targetMatch = text.match(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/);
   if (!targetMatch) {
     return null;
@@ -7597,16 +10549,28 @@ function parseTargetValueWithUnit(text: string) {
   };
 }
 
+function parseDurationValueWithUnit(text: string) {
+  const hourMinuteMatch = text.match(/(\d+(?:\.\d+)?)\s*시간\s*(?:(\d+(?:\.\d+)?)\s*분|반)?/);
+  if (!hourMinuteMatch) {
+    return null;
+  }
+
+  const hours = Number(hourMinuteMatch[1]);
+  const minutes = hourMinuteMatch[2] ? Number(hourMinuteMatch[2]) : /시간\s*반/.test(hourMinuteMatch[0]) ? 30 : 0;
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return {
+    targetValue: hours * 60 + minutes,
+    unit: "분",
+  };
+}
+
 function getActiveRoutineEntries(items: DailyTraceItem[]) {
   return items.flatMap((item) =>
     (item.routines ?? [])
-      .filter(
-        (routine) =>
-          routine.lifecycleStatus !== "completed" &&
-          routine.lifecycleStatus !== "archived" &&
-          routine.archivedFromTodayMe !== true &&
-          routine.active !== false
-      )
+      .filter((routine) => isRoutineAvailableForTodayMe(routine))
       .map((routine) => ({ item, routine }))
   );
 }
@@ -7616,6 +10580,9 @@ function findRoutineAdjustmentIntent(
   items: DailyTraceItem[]
 ): PendingRoutineAdjustment | null {
   const normalizedText = text.trim();
+  if (isActualRoutineExecutionText(normalizedText)) {
+    return null;
+  }
   const wantsAdjustment = /바꾸고\s*싶|변경|조절|조정|늘리|줄이|줄이고|늘리고|목표.*바꿔|목표.*조정/.test(normalizedText);
   const targetDomain = /공부|학습|파이썬|코딩|영어|독서|운동|반복|목표|시간/.test(normalizedText);
   if (!wantsAdjustment || !targetDomain) {
@@ -7816,19 +10783,70 @@ function applyRoutingFieldsToDailyTrace(
   }
 
   if (routingResult.route === "daily_trace") {
+    const title = routingResult.title || item.title;
     return {
       ...item,
       type: "record",
-      title: routingResult.title || item.title,
+      date: routingResult.scheduledDate ?? item.date,
+      title,
       memo: item.memo || "하루의 흔적",
       sourceText: originalText,
-      text: originalText,
+      text: title,
       originalText,
       memoryType: "daily_context",
       saveTargets: ["daily_trace"],
       importance: Math.max(item.importance ?? 0, 70),
       displayCategory: "하루의 흔적",
     };
+  }
+
+  if (routingResult.route === "life_schedule_once" || routingResult.route === "life_schedule_repeat") {
+    const dateKey = routingResult.scheduledDate ?? item.date ?? getLocalDateString(new Date());
+    const sourceKey = normalizeMemoryInput(`${routingResult.route}:${routingResult.title}:${routingResult.displayUnit ?? ""}`);
+    return {
+      ...item,
+      type: "todo",
+      date: dateKey,
+      title: routingResult.title || item.title,
+      memo: routingResult.route === "life_schedule_repeat" ? "매일 반복 · 🔔 시간에 맞춰" : "🔔 시간에 맞춰 알려주기",
+      time: routingResult.displayUnit ?? item.time,
+      endTime: routingResult.endTime ?? undefined,
+      sourceText: originalText,
+      text: originalText,
+      originalText,
+      isDone: false,
+      memoryType: "todo",
+      saveTargets: ["daily_trace"],
+      importance: Math.max(item.importance ?? 0, 70),
+      displayCategory: routingResult.route === "life_schedule_repeat" ? "생활 반복 예정" : "생활 예정",
+      sourceType: routingResult.route,
+      sourceId: `${routingResult.route}:${dateKey}:${sourceKey}`,
+      reminder: routingResult.reminder ?? "on_time",
+      recurrence: routingResult.route === "life_schedule_repeat" ? routingResult.recurrence ?? "daily" : undefined,
+      completedDates: {},
+    } as DailyTraceItem;
+  }
+
+  if (routingResult.route === "life_action_record") {
+    const dateKey = routingResult.scheduledDate ?? item.date ?? getLocalDateString(new Date());
+    const sourceKey = normalizeMemoryInput(`${routingResult.title}:${routingResult.displayUnit ?? ""}`);
+    return {
+      ...item,
+      type: "record",
+      date: dateKey,
+      title: routingResult.title || item.title,
+      memo: item.memo || "직접 기록",
+      time: routingResult.displayUnit ?? item.time,
+      sourceText: originalText,
+      text: originalText,
+      originalText,
+      memoryType: "daily_context",
+      saveTargets: ["daily_trace"],
+      importance: Math.max(item.importance ?? 0, 70),
+      displayCategory: "직접 기록",
+      sourceType: "life_action_record",
+      sourceId: `life_action_record:${dateKey}:${sourceKey}`,
+    } as DailyTraceItem;
   }
 
   if (routingResult.route === "completed_action") {
@@ -7882,16 +10900,42 @@ function normalizeRoutineKey(title: string, repeatType?: string, targetValue?: n
   return `${normalizeMemoryInput(title)}|${repeatType ?? ""}|${targetValue ?? ""}|${unit ?? ""}`;
 }
 
+function normalizeRoutineTitleKey(title: string) {
+  return stripTrailingKoreanParticles(title)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function isDuplicateRoutineRoute(routingResult: NoieSaveRoutingResult, items: DailyTraceItem[]) {
   if (routingResult.route !== "routine_create") {
     return false;
   }
+  const targetTitleKey = normalizeRoutineTitleKey(routingResult.title);
   return items.some((item) =>
     (item.routines ?? []).some((routine) =>
-      normalizeRoutineKey(routine.title, routine.repeatType, routine.targetValue, routine.unit) ===
-      normalizeRoutineKey(routingResult.title, routingResult.repeatType ?? undefined, routingResult.targetValue ?? undefined, routingResult.unit)
+      isRoutineAvailableForTodayMe(routine) &&
+      normalizeRoutineTitleKey(routine.title) === targetTitleKey
     )
   );
+}
+
+function isDuplicateLifeScheduleRoute(routingResult: NoieSaveRoutingResult, items: DailyTraceItem[]) {
+  if (routingResult.route !== "life_schedule_repeat") {
+    return false;
+  }
+
+  const targetTitle = normalizeMemoryInput(routingResult.title);
+  const targetTime = routingResult.displayUnit ?? "";
+  return items.some((item) => {
+    const typedItem = item as DailyTraceItem & { sourceType?: string; recurrence?: string };
+    return (
+      typedItem.sourceType === "life_schedule_repeat" &&
+      normalizeMemoryInput(item.title) === targetTitle &&
+      item.time === targetTime &&
+      typedItem.recurrence === (routingResult.recurrence ?? "daily")
+    );
+  });
 }
 
 function repairRecentDreamFragmentLinks(items: DailyTraceItem[], nowIso: string) {
@@ -7949,19 +10993,59 @@ function getPendingMemoryNotice(
       routingResult.displayValue ?? routingResult.actualValue ?? 0,
       routingResult.displayUnit ?? routingResult.actualUnit ?? routingResult.unit
     );
-    return routingResult.hasExistingRoutineRecord
-      ? `오늘 ${routingResult.title.replace(/하기$/, "")} 기록을 ${amountText}으로 수정할까요?`
-      : `오늘 ${routingResult.title.replace(/하기$/, "")} 수행량을 ${amountText}으로 기록할까요?`;
+    if (routingResult.isAdditiveRecord) {
+      return `기존 수행량에 ${amountText}을 더해 기록할까요?`;
+    }
+    return `오늘의 불씨로 완료할까요?\n\n${routingResult.title}\n실제 수행량 · ${amountText}`;
   }
 
   if (routingResult?.route === "routine_adjustment_intent") {
     return routingResult.targetValue
-      ? `현재 ${routingResult.title} 목표는 ${routingResult.targetValue}${routingResult.unit ?? ""}이에요.\n얼마로 바꾸고 싶나요?`
+      ? `현재 ${routingResult.title} 목표는 ${formatRoutineTarget(routingResult.targetValue, routingResult.unit)}이에요.\n얼마로 바꾸고 싶나요?`
       : `${routingResult.title} 목표를 얼마로 바꾸고 싶나요?`;
   }
 
   if (routingResult?.route === "routine_adjustment_confirm") {
-    return `${routingResult.title} 목표를 ${routingResult.targetValue ?? ""}${routingResult.unit ?? ""}으로 조절할까요?`;
+    return `${routingResult.title} 목표 시간을 바꿀까요?\n\n기존 목표\n→ ${formatRoutineTarget(routingResult.targetValue ?? 0, routingResult.unit)}`;
+  }
+
+  if (routingResult?.route === "life_schedule_date_request") {
+    return `언제 ${routingResult.unit ?? ""}에 ${routingResult.title.replace(/기$/, "")}까요?`;
+  }
+
+  if (routingResult?.route === "life_schedule_once") {
+    const timeText = routingResult.endDisplayUnit
+      ? `${routingResult.unit ?? ""}–${stripKoreanTimePeriodIfSame(routingResult.endDisplayUnit, routingResult.unit)}`
+      : routingResult.unit ?? "";
+    return `${formatScheduleRouteDateLabel(routingResult)}\n${timeText}\n\n${routingResult.title}`;
+  }
+
+  if (routingResult?.route === "life_schedule_repeat") {
+    return `하루의 흔적 반복에 남길까요?\n\n매일 ${routingResult.unit ?? ""}\n${routingResult.title}`;
+  }
+
+  if (routingResult?.route === "life_schedule_reminder_update") {
+    return `${formatScheduleTitleForSentence(routingResult.title)} 일정의 알림을 바꿀까요?\n\n${routingResult.previousTitle ?? "시간에 맞춰"}\n→ ${routingResult.unit ?? ""}`;
+  }
+
+  if (routingResult?.route === "life_schedule_cancel") {
+    return `${formatRelativeScheduleLabel(routingResult.scheduledDate)} ${routingResult.unit ?? ""} ${formatScheduleTitleForSentence(routingResult.title)} 일정을 취소할까요?`;
+  }
+
+  if (routingResult?.route === "life_action_record") {
+    return `✓ ${routingResult.unit ?? ""}`;
+  }
+
+  if (routingResult?.route === "dream_fragment_rename") {
+    return `꿈의 파편 이름을 바꿀까요?\n\n${routingResult.previousTitle ?? routingResult.title}\n→ ${routingResult.nextTitle ?? ""}`;
+  }
+
+  if (routingResult?.route === "dream_fragment_complete") {
+    return `‘${routingResult.title}’를 완료할까요?`;
+  }
+
+  if (routingResult?.route === "dream_fragment_next_action_update") {
+    return `다음 할 일을 바꿀까요?\n\n${routingResult.title}\n\n기존 다음 할 일\n→ ${routingResult.nextAction ?? ""}`;
   }
 
   if (routingResult?.route === "important_day_event") {
@@ -7969,7 +11053,28 @@ function getPendingMemoryNotice(
   }
 
   if (routingResult?.route === "daily_trace") {
-    return "오늘의 흔적으로 남길까요?";
+    const todayKey = getLocalDateString(new Date());
+    return routingResult.scheduledDate && routingResult.scheduledDate === shiftTraceDateKey(todayKey, -1)
+      ? "어제의 흔적에 남길까요?"
+      : "오늘의 흔적에 남길까요?";
+  }
+
+  if (routingResult?.route === "daily_long_record_create") {
+    const todayKey = getLocalDateString(new Date());
+    const dateTitle = getDailyLongRecordTitle(routingResult.scheduledDate ?? todayKey, todayKey);
+    return `${dateTitle}으로 남길까요?\n\n${routingResult.longRecordBody ?? ""}`;
+  }
+
+  if (routingResult?.route === "daily_long_record_title_update") {
+    return `오늘의 기록 제목을 바꿀까요?\n\n${routingResult.longRecordTitle ?? ""}`;
+  }
+
+  if (routingResult?.route === "daily_long_record_append") {
+    return `기록에 덧붙일까요?\n\n${routingResult.longRecordBody ?? ""}`;
+  }
+
+  if (routingResult?.route === "daily_trace_update") {
+    return `방금 남긴 기록을 수정할까요?\n\n${routingResult.previousTitle ?? ""}\n→ ${routingResult.nextTitle ?? ""}`;
   }
 
   if (routingResult?.route === "daily_idea") {
@@ -7984,14 +11089,12 @@ function getPendingMemoryNotice(
     return `${routingResult.title}을 완료한 행동으로 남길까요?`;
   }
 
-  if (routingResult?.route === "dream_torch") {
-    return `${makeDreamChoicePromptTitle(routingResult.originalText || routingResult.title)} 꿈을 어디에 남길까요?`;
+  if (routingResult?.route === "dream_torch" || routingResult?.route === "dream_fragment") {
+    return "이 꿈을 어디에 남길까요?";
   }
 
   if (isDreamOrGoalType(memoryPolicy.type)) {
-    return dreamPromptKind === "fragment_first" || routingResult?.route === "dream_fragment"
-      ? "이 목표를 꿈의 파편으로 남길까요?"
-      : "이 꿈을 꿈의 횃불로 밝힐까요?";
+    return "이 꿈을 어디에 남길까요?";
   }
 
   if (memoryPolicy.type === "relationship") {
@@ -8013,6 +11116,50 @@ function getPendingMemoryNotice(
   return "";
 }
 
+function formatScheduleRouteDateLabel(routingResult: NoieSaveRoutingResult) {
+  if (/다음\s*주\s*(일요일|월요일|화요일|수요일|목요일|금요일|토요일|일|월|화|수|목|금|토)/.test(routingResult.originalText)) {
+    const match = routingResult.originalText.match(/다음\s*주\s*(일요일|월요일|화요일|수요일|목요일|금요일|토요일|일|월|화|수|목|금|토)/);
+    const weekday = match?.[1] ?? "";
+    return `다음 주 ${weekday.length === 1 ? `${weekday}요일` : weekday}`;
+  }
+  return formatRelativeScheduleLabel(routingResult.scheduledDate);
+}
+
+function formatRelativeScheduleLabel(dateKey?: string | null) {
+  const todayKey = getLocalDateString(new Date());
+  if (dateKey === todayKey) {
+    return "오늘";
+  }
+  if (dateKey === shiftTraceDateKey(todayKey, 1)) {
+    return "내일";
+  }
+  if (dateKey === shiftTraceDateKey(todayKey, 2)) {
+    return "모레";
+  }
+  return dateKey ?? "";
+}
+
+function stripKoreanTimePeriodIfSame(value?: string | null, previous?: string | null) {
+  if (!value || !previous) {
+    return value ?? "";
+  }
+  const previousPeriod = previous.match(/^(오전|오후)/)?.[1];
+  if (previousPeriod && value.startsWith(previousPeriod)) {
+    return value.replace(/^(오전|오후)\s*/, "");
+  }
+  return value;
+}
+
+function formatScheduleTitleForSentence(title: string) {
+  if (title.endsWith(" 가기")) {
+    return title.slice(0, -3);
+  }
+  if (title.endsWith("기")) {
+    return title.slice(0, -1);
+  }
+  return title;
+}
+
 function getConfirmButtonLabel(
   memoryType: MemorySavePolicyType | undefined,
   candidateType: DailyTraceItemType,
@@ -8026,12 +11173,36 @@ function getConfirmButtonLabel(
     return "남기기";
   }
 
+  if (routingResult?.route === "daily_long_record_create" || routingResult?.route === "daily_long_record_append") {
+    return "남기기";
+  }
+
+  if (routingResult?.route === "daily_long_record_title_update") {
+    return "바꾸기";
+  }
+
+  if (routingResult?.route === "daily_trace_update") {
+    return "수정하기";
+  }
+
+  if (routingResult?.route === "life_schedule_repeat") {
+    return "남기기";
+  }
+
+  if (routingResult?.route === "life_schedule_once") {
+    return "저장하기";
+  }
+
+  if (routingResult?.route === "life_schedule_reminder_update") {
+    return "바꾸기";
+  }
+
+  if (routingResult?.route === "life_action_record") {
+    return "기록하기";
+  }
+
   if (routingResult?.route === "routine_record") {
-    const amountText = formatRoutineTarget(
-      routingResult.displayValue ?? routingResult.actualValue ?? 0,
-      routingResult.displayUnit ?? routingResult.actualUnit ?? routingResult.unit
-    );
-    return routingResult.hasExistingRoutineRecord ? `${amountText}으로 수정하기` : `${amountText}으로 기록`;
+    return "완료";
   }
 
   if (routingResult?.route === "daily_idea") {
@@ -11328,6 +14499,102 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 14,
   },
+  traceSurface: {
+    gap: 24,
+  },
+  traceWeekHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  traceMonthToggle: {
+    alignItems: "center",
+    borderColor: "#303030",
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    marginHorizontal: 12,
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  traceConstellation: {
+    marginBottom: 2,
+    minHeight: 62,
+  },
+  traceWeekDateRow: {
+    flexDirection: "row",
+    marginBottom: 5,
+  },
+  traceWeekDayButton: {
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
+  },
+  traceWeekDateText: {
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  traceWeekDateTextToday: {
+    color: "#f2f4f8",
+  },
+  traceWeekDateTextSelected: {
+    color: "#ffffff",
+    fontWeight: "900",
+  },
+  traceStarRow: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  traceStarSlot: {
+    alignItems: "center",
+    minHeight: 42,
+    width: 30,
+  },
+  traceStarButton: {
+    alignItems: "center",
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  traceStarSymbol: {
+    color: "#d1d5db",
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 24,
+    textAlign: "center",
+  },
+  traceStarSymbolSelected: {
+    color: "#ffffff",
+    fontSize: 20,
+  },
+  traceStarSymbolToday: {
+    color: "#f2f4f8",
+  },
+  traceStarLine: {
+    backgroundColor: "#2b2b2b",
+    flex: 1,
+    height: 1,
+    marginBottom: 14,
+  },
+  traceTodayLabel: {
+    color: "#8f8f8f",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 12,
+  },
+  traceMonthPanel: {
+    backgroundColor: "#0d0d0d",
+    borderColor: "#1f1f1f",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: -8,
+    marginBottom: 2,
+    padding: 10,
+  },
   calendarHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -11336,13 +14603,13 @@ const styles = StyleSheet.create({
   },
   calendarNavButton: {
     alignItems: "center",
-    backgroundColor: "#1c1c1c",
-    borderColor: "#303030",
+    backgroundColor: "#111111",
+    borderColor: "#2a2a2a",
     borderRadius: 8,
     borderWidth: 1,
-    height: 36,
+    height: 34,
     justifyContent: "center",
-    width: 36,
+    width: 34,
   },
   calendarNavText: { color: "#ffffff", fontSize: 24, lineHeight: 26 },
   calendarMonthTitle: {
@@ -11394,11 +14661,8 @@ const styles = StyleSheet.create({
     width: 5,
   },
   traceDetail: {
-    backgroundColor: "#0a0a0a",
-    borderColor: "#242424",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
+    backgroundColor: "transparent",
+    paddingVertical: 2,
   },
   traceDateTitle: {
     color: "#ffffff",
@@ -11406,11 +14670,142 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 6,
   },
-  traceDetailTitle: {
-    color: "#9ca3af",
+  traceDetailHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  traceHeaderActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: 6,
+  },
+  traceTodayButton: {
+    borderColor: "#303030",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  traceTodayButtonText: {
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  traceAddButton: {
+    borderColor: "#303030",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  traceAddButtonText: {
+    color: "#e5e7eb",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  traceAddPanel: {
+    backgroundColor: "#111111",
+    borderColor: "#2a2a2a",
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    marginBottom: 14,
+    padding: 10,
+  },
+  traceAddPanelTitle: {
+    color: "#f2f4f8",
     fontSize: 13,
+    fontWeight: "900",
+  },
+  traceAddModeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  traceAddModeButton: {
+    borderColor: "#333333",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  traceAddModeButtonActive: {
+    backgroundColor: "#f2f4f8",
+    borderColor: "#f2f4f8",
+  },
+  traceAddModeText: {
+    color: "#cbd5e1",
+    fontSize: 12,
     fontWeight: "800",
+  },
+  traceAddModeTextActive: {
+    color: "#050505",
+  },
+  traceAddForm: {
+    gap: 8,
+  },
+  traceAddInput: {
+    backgroundColor: "#0a0a0a",
+    borderColor: "#303030",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#ffffff",
+    fontSize: 13,
+    minHeight: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  traceReminderRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  traceReminderChip: {
+    borderColor: "#333333",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  traceReminderChipActive: {
+    backgroundColor: "#243b2f",
+    borderColor: "#34d399",
+  },
+  traceReminderChipText: {
+    color: "#9ca3af",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  traceReminderChipTextActive: {
+    color: "#bbf7d0",
+  },
+  traceAddSaveButton: {
+    alignItems: "center",
+    backgroundColor: "#f2f4f8",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 36,
+  },
+  traceAddSaveButtonDisabled: {
+    opacity: 0.45,
+  },
+  traceAddSaveButtonText: {
+    color: "#050505",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  traceDetailTitle: {
+    color: "#e5e7eb",
+    fontSize: 14,
+    fontWeight: "900",
     marginBottom: 12,
+  },
+  traceRemainingTitle: {
+    marginTop: 24,
   },
   traceEmptyBox: {
     alignItems: "center",
@@ -11422,6 +14817,212 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     textAlign: "center",
+  },
+  traceEmptySmallText: {
+    color: "#a9a9a9",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  traceEmptyDayText: {
+    color: "#a9a9a9",
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 4,
+  },
+  traceRecordList: {
+    marginTop: 2,
+  },
+  traceRecordRow: {
+    alignItems: "flex-start",
+    borderBottomColor: "#1c1c1c",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingVertical: 12,
+  },
+  traceRecordRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
+  },
+  traceRecordIcon: {
+    color: "#f2f4f8",
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    width: 22,
+  },
+  traceRecordTime: {
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 22,
+    width: 42,
+  },
+  traceRecordTextBlock: {
+    flex: 1,
+  },
+  traceTodoCompleteButton: {
+    alignItems: "center",
+    height: 24,
+    justifyContent: "center",
+    width: 22,
+  },
+  traceTodoCompleteText: {
+    color: "#d1d5db",
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 22,
+  },
+  traceItemSource: {
+    color: "#777777",
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  traceAdjacentRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 2,
+    minHeight: 38,
+  },
+  traceAdjacentText: {
+    color: "#aeb4c0",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  traceLongRecordBox: {
+    backgroundColor: "#111111",
+    borderColor: "#202020",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 28,
+    padding: 14,
+  },
+  traceLongRecordHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 10,
+  },
+  traceLongRecordTitle: {
+    color: "#ffffff",
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  traceLongRecordAction: {
+    borderColor: "#333333",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  traceLongRecordActionText: {
+    color: "#d1d5db",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  traceLongRecordEditor: {
+    gap: 8,
+  },
+  traceLongRecordEditorHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  traceLongRecordEditorTitle: {
+    color: "#f2f4f8",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  traceLongRecordLabel: {
+    color: "#8f8f8f",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  traceLongRecordInput: {
+    backgroundColor: "#0a0a0a",
+    borderColor: "#303030",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#ffffff",
+    fontSize: 13,
+    minHeight: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  traceLongRecordBodyInput: {
+    minHeight: 112,
+  },
+  traceLongRecordSaveButton: {
+    alignItems: "center",
+    alignSelf: "flex-end",
+    backgroundColor: "#f2f4f8",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: 16,
+  },
+  traceLongRecordSaveButtonText: {
+    color: "#050505",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  traceLongRecordContent: {
+    gap: 8,
+  },
+  traceLongRecordContentTitle: {
+    color: "#f2f4f8",
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
+  },
+  traceLongRecordBody: {
+    color: "#d7d7d7",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  traceLongRecordMoreButton: {
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+  },
+  traceLongRecordSavedAt: {
+    alignSelf: "flex-end",
+    color: "#777777",
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  traceUpcomingBox: {
+    marginTop: 4,
+    paddingTop: 6,
+  },
+  traceUpcomingEmptyRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  traceUpcomingRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
+    paddingBottom: 14,
+  },
+  traceUpcomingTimeline: {
+    borderLeftColor: "#333333",
+    borderLeftWidth: 1,
+    marginLeft: 4,
+    paddingLeft: 12,
+  },
+  traceUpcomingDate: {
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: "900",
+    lineHeight: 22,
+    width: 58,
   },
   traceGroup: { marginBottom: 14 },
   traceGroupTitle: {
@@ -11464,6 +15065,17 @@ const styles = StyleSheet.create({
   },
   traceDeleteButtonText: {
     color: "#d1d5db",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  traceCleanupTextButton: {
+    alignSelf: "center",
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  traceCleanupTextButtonText: {
+    color: "#777777",
     fontSize: 12,
     fontWeight: "800",
   },
