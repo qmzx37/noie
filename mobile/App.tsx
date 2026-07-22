@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   PanResponder,
@@ -134,6 +135,15 @@ import {
 // 예: const API_BASE_URL = "http://192.168.0.10:8000";
 const API_BASE_URL = "http://127.0.0.1:8000";
 const DAILY_LONG_RECORDS_STORAGE_KEY = "noie_daily_long_records_v1";
+const NOIE_STORAGE_KEYS = [
+  SESSIONS_STORAGE_KEY,
+  CURRENT_CHAT_ID_STORAGE_KEY,
+  DAILY_TRACES_STORAGE_KEY,
+  DAILY_LONG_RECORDS_STORAGE_KEY,
+  DREAM_TORCH_ID_STORAGE_KEY,
+  PROJECTS_STORAGE_KEY,
+  PROJECT_MESSAGES_STORAGE_KEY,
+];
 
 type DailyLongRecord = {
   id: string;
@@ -2716,6 +2726,34 @@ export default function App() {
     }));
   };
 
+  const deleteScheduleById = async (scheduleId: string) => {
+    const now = new Date().toISOString();
+    let deletedTitle = "";
+    let didDelete = false;
+    const nextItems = dailyTraces.map((item) =>
+      item.id === scheduleId
+        ? {
+            ...item,
+            status: "cancelled",
+            cancelledAt: now,
+            updatedAt: now,
+          }
+        : item
+    );
+    const target = dailyTraces.find((item) => item.id === scheduleId);
+    if (target) {
+      deletedTitle = target.title;
+      didDelete = true;
+    }
+    if (!didDelete) {
+      return { didDelete: false, title: "" };
+    }
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    setDailyTraceCleanupMessage(`${deletedTitle} 일정을 삭제했어요.`);
+    return { didDelete, title: deletedTitle };
+  };
+
   const cancelLifeSchedule = async (
     message: RoutedChatMessage,
     routingResult: NoieSaveRoutingResult
@@ -2725,28 +2763,95 @@ export default function App() {
     }
 
     const now = new Date().toISOString();
+    const result = await deleteScheduleById(routingResult.matchedDailyTraceId);
+
+    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
+      ...session,
+      messages: session.messages.map((item) =>
+        item.id === message.id
+          ? {
+              ...item,
+              dailyTraceStatus: result.didDelete ? "added" : "dismissed",
+              dailyTraceNotice: result.didDelete ? "일정을 취소했어요." : "취소할 일정을 찾지 못했어요.",
+            }
+          : item
+      ),
+      updatedAt: now,
+    }));
+  };
+
+  const skipLifeRepeatScheduleOnDate = async (itemId: string, dateKey: string) => {
+    const now = new Date().toISOString();
+    let title = "";
+    let didUpdate = false;
+    const nextItems = dailyTraces.map((item) => {
+      if (item.id !== itemId || !isLifeRepeatTraceItem(item)) {
+        return item;
+      }
+      const typedItem = item as DailyTraceItem & { excludedDateKeys?: string[] };
+      const excludedDateKeys = Array.from(new Set([...(typedItem.excludedDateKeys ?? []), dateKey]));
+      title = item.title;
+      didUpdate = true;
+      return {
+        ...item,
+        excludedDateKeys,
+        updatedAt: now,
+      } as DailyTraceItem;
+    });
+    if (!didUpdate) {
+      return false;
+    }
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    setDailyTraceCleanupMessage(`${formatShortTraceDate(dateKey)}의 ${title} 일정만 건너뛰었어요.`);
+    return true;
+  };
+
+  const endLifeRepeatScheduleFromDate = async (itemId: string, dateKey: string) => {
+    const now = new Date().toISOString();
+    let title = "";
+    let didUpdate = false;
+    const nextItems = dailyTraces.map((item) => {
+      if (item.id !== itemId || !isLifeRepeatTraceItem(item)) {
+        return item;
+      }
+      title = item.title;
+      didUpdate = true;
+      return {
+        ...item,
+        endDateKey: dateKey,
+        updatedAt: now,
+      } as DailyTraceItem;
+    });
+    if (!didUpdate) {
+      return false;
+    }
+    setDailyTraces(nextItems);
+    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    setDailyTraceCleanupMessage(`${title} 반복 일정을 ${formatShortTraceDate(dateKey)}부터 종료했어요.`);
+    return true;
+  };
+
+  const deleteLifeRepeatScheduleById = async (itemId: string) => {
+    const now = new Date().toISOString();
+    const target = dailyTraces.find((item) => item.id === itemId && isLifeRepeatTraceItem(item));
+    if (!target) {
+      return false;
+    }
     const nextItems = dailyTraces.map((item) =>
-      item.id === routingResult.matchedDailyTraceId
+      item.id === itemId && isLifeRepeatTraceItem(item)
         ? {
             ...item,
-            status: "cancelled",
-            cancelledAt: now,
+            status: "deleted",
+            deletedAt: now,
             updatedAt: now,
           }
         : item
     );
     setDailyTraces(nextItems);
     await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
-
-    updateSession(activeSession?.id ?? activeSessionId, (session) => ({
-      ...session,
-      messages: session.messages.map((item) =>
-        item.id === message.id
-          ? { ...item, dailyTraceStatus: "added", dailyTraceNotice: "일정을 취소했어요." }
-          : item
-      ),
-      updatedAt: now,
-    }));
+    setDailyTraceCleanupMessage(`${target.title} 반복 일정을 삭제했어요.`);
+    return true;
   };
 
   const pinDreamTorch = (itemId: string) => {
@@ -3364,6 +3469,140 @@ export default function App() {
     );
   };
 
+  const resetNoieDevData = async () => {
+    if (!__DEV__) {
+      return;
+    }
+
+    console.log("[NOIE RESET] 실제 초기화 함수 진입");
+    console.log("[NOIE RESET] 초기화 시작");
+    try {
+      await Promise.all(NOIE_STORAGE_KEYS.map((key) => removeStorageValue(key)));
+      const newSession = createEmptySession();
+      const today = getLocalDateString(new Date());
+
+      setSessions([newSession]);
+      setActiveSessionId(newSession.id);
+      setDailyTraces([]);
+      setDailyLongRecords([]);
+      setDreamTorchId(null);
+      setProjects([]);
+      setProjectMessages([]);
+      setActiveProjectId(null);
+      setProjectInputText("");
+      setProjectForm({ title: "", goal: "", deadline: "" });
+      setSelectedTraceDate(today);
+      setCalendarMonth(getMonthStart(new Date()));
+      setDailyTraceCleanupMessage("");
+      setInputText("");
+      setSavingDailyTraceMessageIds([]);
+      setIsDrawerOpen(false);
+      setScreenMode("chat");
+      setSelectedFlowKeys(DEFAULT_FLOW_KEYS);
+      setShowAllWeeklyAverages(false);
+      setTodayMeFeedback("노이에 테스트 데이터를 초기화했어요.");
+      setPendingRoutineAdjustment(null);
+      setIsStartingProject(false);
+      setIsSavingGoalDuration(false);
+      scrollToBottom();
+      console.log("[NOIE RESET] AsyncStorage 초기화 완료", NOIE_STORAGE_KEYS);
+      console.log("[NOIE RESET] 실제 초기화 완료");
+      console.log("[NOIE RESET] 초기화 완료");
+      if (Platform.OS === "web") {
+        const webGlobal = globalThis as typeof globalThis & { alert?: (message: string) => void };
+        if (typeof webGlobal.alert === "function") {
+          webGlobal.alert("노이에 테스트 데이터를 초기화했어요.");
+        }
+      } else {
+        Alert.alert("노이에 테스트 데이터를 초기화했어요.");
+      }
+    } catch (error) {
+      console.error("[NOIE RESET] 실제 초기화 실패", error);
+      console.error("[NOIE RESET] 초기화 실패", error);
+      setTodayMeFeedback("노이에 테스트 데이터 초기화에 실패했어요.");
+    }
+  };
+
+  const confirmResetNoieDevData = () => {
+    if (!__DEV__) {
+      return;
+    }
+
+    console.log("[NOIE RESET] 버튼 클릭");
+    const firstMessage = "노이에에 저장된 모든 테스트 데이터를 삭제할까요?";
+    const secondMessage = "꿈, 반복 목표, 일정, 하루의 흔적과 기록이 모두 삭제됩니다.\n정말 초기화할까요?";
+
+    if (Platform.OS === "web") {
+      const webGlobal = globalThis as typeof globalThis & {
+        confirm?: (message: string) => boolean;
+      };
+      if (typeof webGlobal.confirm !== "function") {
+        console.log("[NOIE RESET] 사용자가 초기화를 취소함");
+        return;
+      }
+      if (!webGlobal.confirm(firstMessage)) {
+        console.log("[NOIE RESET] 첫 번째 확인 취소");
+        console.log("[NOIE RESET] 사용자가 초기화를 취소함");
+        return;
+      }
+      console.log("[NOIE RESET] 첫 번째 확인 완료");
+      if (!webGlobal.confirm(secondMessage)) {
+        console.log("[NOIE RESET] 두 번째 확인 취소");
+        console.log("[NOIE RESET] 사용자가 초기화를 취소함");
+        return;
+      }
+      console.log("[NOIE RESET] 두 번째 확인 완료");
+      console.log("[NOIE RESET] 실제 초기화 함수 호출 직전");
+      void resetNoieDevData();
+      return;
+    }
+
+    Alert.alert(
+      firstMessage,
+      "",
+      [
+        {
+          text: "취소",
+          style: "cancel",
+          onPress: () => {
+            console.log("[NOIE RESET] 첫 번째 확인 취소");
+            console.log("[NOIE RESET] 사용자가 초기화를 취소함");
+          },
+        },
+        {
+          text: "계속",
+          style: "destructive",
+          onPress: () => {
+            console.log("[NOIE RESET] 첫 번째 확인 완료");
+            Alert.alert(
+              secondMessage,
+              "",
+              [
+                {
+                  text: "취소",
+                  style: "cancel",
+                  onPress: () => {
+                    console.log("[NOIE RESET] 두 번째 확인 취소");
+                    console.log("[NOIE RESET] 사용자가 초기화를 취소함");
+                  },
+                },
+                {
+                  text: "모두 초기화",
+                  style: "destructive",
+                  onPress: () => {
+                    console.log("[NOIE RESET] 두 번째 확인 완료");
+                    console.log("[NOIE RESET] 실제 초기화 함수 호출 직전");
+                    void resetNoieDevData();
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
@@ -3390,6 +3629,7 @@ export default function App() {
               scrollToBottom();
             }}
             onDeleteSession={deleteChat}
+            onResetNoieDevData={confirmResetNoieDevData}
           />
         ) : null}
 
@@ -3419,6 +3659,7 @@ export default function App() {
                 scrollToBottom();
               }}
               onDeleteSession={deleteChat}
+              onResetNoieDevData={confirmResetNoieDevData}
             />
           </View>
         ) : null}
@@ -3510,6 +3751,10 @@ export default function App() {
               onDeleteDailyTraceGoal={deleteDailyTraceGoal}
               onAddDailyTraceItem={addManualDailyTraceItem}
               onSaveDailyLongRecord={saveDailyLongRecord}
+              onDeleteSchedule={deleteScheduleById}
+              onSkipLifeRepeatSchedule={skipLifeRepeatScheduleOnDate}
+              onEndLifeRepeatSchedule={endLifeRepeatScheduleFromDate}
+              onDeleteLifeRepeatSchedule={deleteLifeRepeatScheduleById}
               onCleanupDuplicateMemories={cleanupDuplicateMemories}
               cleanupMessage={dailyTraceCleanupMessage}
               onBackToChat={returnToChat}
@@ -3571,6 +3816,7 @@ type SidebarProps = {
   onSelectProject: (projectId: string) => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  onResetNoieDevData: () => void;
 };
 
 function Sidebar({
@@ -3587,6 +3833,7 @@ function Sidebar({
   onSelectProject,
   onSelectSession,
   onDeleteSession,
+  onResetNoieDevData,
 }: SidebarProps) {
   const activeProjects = projects.filter((project) => !project.isArchived);
 
@@ -3733,6 +3980,24 @@ function Sidebar({
           );
         })}
       </ScrollView>
+      {__DEV__ ? (
+        <TouchableOpacity
+          style={styles.devResetButton}
+          onPress={() => {
+            console.log("[NOIE RESET TEST] 실제 버튼 onPress 실행");
+            if (Platform.OS === "web") {
+              const webGlobal = globalThis as typeof globalThis & { window?: { alert?: (message: string) => void } };
+              if (typeof webGlobal.window !== "undefined" && typeof webGlobal.window.alert === "function") {
+                webGlobal.window.alert("초기화 버튼 연결 확인");
+              }
+            }
+            onResetNoieDevData();
+          }}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.devResetButtonText}>노이에 데이터 전체 초기화</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -6392,8 +6657,6 @@ function isRoutineAvailableForTodayMe(routine: DreamRoutine) {
   );
 }
 
-
-
 function getTodayMeCardOrder(card: TodayMeCard, torchPiece: DailyTraceItem | undefined, todayKey: string) {
   const pinnedOrder = card.cardType === "routine" ? card.routine.todayMeOrder : card.project.todayMeOrder;
   if (typeof pinnedOrder === "number") {
@@ -7065,6 +7328,10 @@ function DailyTraceScreen({
   onDeleteDailyTraceGoal: _onDeleteDailyTraceGoal,
   onAddDailyTraceItem,
   onSaveDailyLongRecord,
+  onDeleteSchedule,
+  onSkipLifeRepeatSchedule,
+  onEndLifeRepeatSchedule,
+  onDeleteLifeRepeatSchedule,
   onCleanupDuplicateMemories,
   cleanupMessage,
   onBackToChat,
@@ -7090,6 +7357,10 @@ function DailyTraceScreen({
     title?: string;
     body: string;
   }) => boolean;
+  onDeleteSchedule: (itemId: string) => Promise<{ didDelete: boolean; title: string }>;
+  onSkipLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
+  onEndLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
+  onDeleteLifeRepeatSchedule: (itemId: string) => Promise<boolean>;
   onCleanupDuplicateMemories: () => void;
   cleanupMessage: string;
   onBackToChat: () => void;
@@ -7126,6 +7397,10 @@ function DailyTraceScreen({
         onToggleDone={onToggleDailyTraceDone}
         onAddItem={onAddDailyTraceItem}
         onSaveLongRecord={onSaveDailyLongRecord}
+        onDeleteSchedule={onDeleteSchedule}
+        onSkipLifeRepeatSchedule={onSkipLifeRepeatSchedule}
+        onEndLifeRepeatSchedule={onEndLifeRepeatSchedule}
+        onDeleteLifeRepeatSchedule={onDeleteLifeRepeatSchedule}
       />
 
       <TouchableOpacity
@@ -7152,6 +7427,10 @@ function DailyTraceCalendar({
   onToggleDone,
   onAddItem,
   onSaveLongRecord,
+  onDeleteSchedule,
+  onSkipLifeRepeatSchedule,
+  onEndLifeRepeatSchedule,
+  onDeleteLifeRepeatSchedule,
 }: {
   items: DailyTraceItem[];
   dailyLongRecords: DailyLongRecord[];
@@ -7173,6 +7452,10 @@ function DailyTraceCalendar({
     title?: string;
     body: string;
   }) => boolean;
+  onDeleteSchedule: (itemId: string) => Promise<{ didDelete: boolean; title: string }>;
+  onSkipLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
+  onEndLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
+  onDeleteLifeRepeatSchedule: (itemId: string) => Promise<boolean>;
 }) {
   const [isMonthCalendarOpen, setIsMonthCalendarOpen] = useState(false);
   const [isAddPanelOpen, setIsAddPanelOpen] = useState(false);
@@ -7186,6 +7469,7 @@ function DailyTraceCalendar({
   const [addTime, setAddTime] = useState("");
   const [addEndTime, setAddEndTime] = useState("");
   const [addReminder, setAddReminder] = useState("none");
+  const [scheduleMenuTarget, setScheduleMenuTarget] = useState<{ itemId: string; dateKey: string } | null>(null);
   const monthCells = buildCalendarMonth(calendarMonth);
   const weekDates = useMemo(() => buildWeeklyTraceDates(selectedDate), [selectedDate]);
   const selectedItems = useMemo(
@@ -7210,6 +7494,7 @@ function DailyTraceCalendar({
   useEffect(() => {
     setIsLongRecordEditorOpen(false);
     setIsLongRecordExpanded(false);
+    setScheduleMenuTarget(null);
   }, [selectedDate]);
 
   const selectTraceDate = (dateKey: string) => {
@@ -7274,6 +7559,67 @@ function DailyTraceCalendar({
       resetAddForm();
       setIsAddPanelOpen(false);
     }
+  };
+  const closeScheduleMenu = () => {
+    setScheduleMenuTarget(null);
+  };
+  const confirmDeleteSchedule = (item: DailyTraceItem) => {
+    Alert.alert(`${item.title} 일정을 삭제할까요?`, "", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "삭제하기",
+        style: "destructive",
+        onPress: () => {
+          closeScheduleMenu();
+          onDeleteSchedule(item.id).catch((error) => console.log("[noie] 일정 삭제 실패", error));
+        },
+      },
+    ]);
+  };
+  const confirmSkipLifeRepeat = (item: DailyTraceItem) => {
+    Alert.alert(`${formatShortTraceDate(selectedDate)}의 ${item.title} 일정만 건너뛸까요?`, "", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "건너뛰기",
+        style: "destructive",
+        onPress: () => {
+          closeScheduleMenu();
+          onSkipLifeRepeatSchedule(item.id, selectedDate).catch((error) =>
+            console.log("[noie] 반복 일정 하루 제외 실패", error)
+          );
+        },
+      },
+    ]);
+  };
+  const confirmEndLifeRepeat = (item: DailyTraceItem) => {
+    Alert.alert(`${item.title} 반복 일정을 ${formatShortTraceDate(selectedDate)}부터 종료할까요?`, "", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "종료하기",
+        style: "destructive",
+        onPress: () => {
+          closeScheduleMenu();
+          onEndLifeRepeatSchedule(item.id, selectedDate).catch((error) =>
+            console.log("[noie] 반복 일정 종료 실패", error)
+          );
+        },
+      },
+    ]);
+  };
+  const confirmDeleteLifeRepeat = (item: DailyTraceItem) => {
+    Alert.alert(`${item.title} 반복 일정을 완전히 삭제할까요?`, "과거에 실제로 완료한 기록은 유지돼요.", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "삭제하기",
+        style: "destructive",
+        onPress: () => {
+          closeScheduleMenu();
+          onDeleteLifeRepeatSchedule(item.id).catch((error) =>
+            console.log("[noie] 반복 일정 삭제 실패", error)
+          );
+        },
+      },
+    ]);
   };
   const panResponder = useMemo(
     () =>
@@ -7567,6 +7913,19 @@ function DailyTraceCalendar({
                       isLast={index === scheduledItems.length - 1}
                       dateKey={selectedDate}
                       onComplete={onToggleDone}
+                      isMenuOpen={scheduleMenuTarget?.itemId === item.id && scheduleMenuTarget.dateKey === selectedDate}
+                      onOpenMenu={() =>
+                        setScheduleMenuTarget((current) =>
+                          current?.itemId === item.id && current.dateKey === selectedDate
+                            ? null
+                            : { itemId: item.id, dateKey: selectedDate }
+                        )
+                      }
+                      onCloseMenu={closeScheduleMenu}
+                      onDeleteSchedule={confirmDeleteSchedule}
+                      onSkipLifeRepeat={confirmSkipLifeRepeat}
+                      onEndLifeRepeat={confirmEndLifeRepeat}
+                      onDeleteLifeRepeat={confirmDeleteLifeRepeat}
                     />
                   ))}
                 </View>
@@ -7803,7 +8162,25 @@ function getDailyTraceItemsForDate(items: DailyTraceItem[], dateKey: string) {
 }
 
 function isLifeRepeatTraceActiveOnDate(item: DailyTraceItem, dateKey: string) {
-  if (!isLifeRepeatTraceItem(item)) {
+  if (!isLifeRepeatTraceItem(item) || isCancelledTraceItem(item)) {
+    return false;
+  }
+
+  const typedItem = item as DailyTraceItem & {
+    excludedDateKeys?: string[];
+    endDateKey?: string;
+    endDate?: string;
+    active?: boolean;
+    status?: string;
+  };
+  if (typedItem.active === false || typedItem.status === "ended") {
+    return false;
+  }
+  if ((typedItem.excludedDateKeys ?? []).includes(dateKey)) {
+    return false;
+  }
+  const endDateKey = typedItem.endDateKey ?? typedItem.endDate;
+  if (endDateKey && dateKey >= endDateKey) {
     return false;
   }
 
@@ -8271,32 +8648,98 @@ function DailyTraceScheduledRow({
   isLast,
   dateKey,
   onComplete,
+  isMenuOpen,
+  onOpenMenu,
+  onCloseMenu,
+  onDeleteSchedule,
+  onSkipLifeRepeat,
+  onEndLifeRepeat,
+  onDeleteLifeRepeat,
 }: {
   item: DailyTraceItem;
   isLast: boolean;
   dateKey: string;
   onComplete: (itemId: string, dateKey?: string) => void;
+  isMenuOpen: boolean;
+  onOpenMenu: () => void;
+  onCloseMenu: () => void;
+  onDeleteSchedule: (item: DailyTraceItem) => void;
+  onSkipLifeRepeat: (item: DailyTraceItem) => void;
+  onEndLifeRepeat: (item: DailyTraceItem) => void;
+  onDeleteLifeRepeat: (item: DailyTraceItem) => void;
 }) {
   const reminderLabel = getTraceReminderLabel(item);
-  const repeatLabel = isLifeRepeatTraceItem(item) ? "매일 반복 · " : "";
+  const isLifeRepeat = isLifeRepeatTraceItem(item);
+  const repeatLabel = isLifeRepeat ? "매일 반복 · " : "";
 
   return (
-    <View style={[styles.traceRecordRow, isLast && styles.traceRecordRowLast]}>
-      <Text style={styles.traceRecordTime}>{item.time ?? ""}</Text>
-      <TouchableOpacity
-        style={styles.traceTodoCompleteButton}
-        onPress={() => item.type === "todo" && onComplete(item.id, dateKey)}
-        disabled={item.type !== "todo"}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.traceTodoCompleteText}>○</Text>
-      </TouchableOpacity>
-      <View style={styles.traceRecordTextBlock}>
-        <Text style={styles.traceItemTitle}>{item.title}</Text>
-        {reminderLabel && reminderLabel !== "없음" ? (
-          <Text style={styles.traceItemMemo}>{repeatLabel}🔔 {reminderLabel}</Text>
-        ) : null}
+    <View style={[styles.traceScheduleRow, isLast && styles.traceRecordRowLast]}>
+      <View style={styles.traceScheduleRowMain}>
+        <Text style={styles.traceRecordTime}>{item.time ?? ""}</Text>
+        <TouchableOpacity
+          style={styles.traceTodoCompleteButton}
+          onPress={() => item.type === "todo" && onComplete(item.id, dateKey)}
+          disabled={item.type !== "todo"}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.traceTodoCompleteText}>○</Text>
+        </TouchableOpacity>
+        <View style={styles.traceRecordTextBlock}>
+          <Text style={styles.traceItemTitle}>{item.title}</Text>
+          {reminderLabel && reminderLabel !== "없음" ? (
+            <Text style={styles.traceItemMemo}>{repeatLabel}🔔 {reminderLabel}</Text>
+          ) : null}
+        </View>
+        <TouchableOpacity
+          style={styles.traceScheduleMenuButton}
+          onPress={onOpenMenu}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="일정 관리 메뉴"
+        >
+          <Text style={styles.traceScheduleMenuButtonText}>⋯</Text>
+        </TouchableOpacity>
       </View>
+      {isMenuOpen ? (
+        <View style={styles.traceScheduleMenuPanel}>
+          {isLifeRepeat ? (
+            <>
+              <TouchableOpacity
+                style={styles.traceScheduleMenuItem}
+                onPress={() => onSkipLifeRepeat(item)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceScheduleMenuItemText}>오늘만 건너뛰기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.traceScheduleMenuItem}
+                onPress={() => onEndLifeRepeat(item)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceScheduleMenuDangerText}>반복 종료하기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.traceScheduleMenuItem}
+                onPress={() => onDeleteLifeRepeat(item)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceScheduleMenuDangerText}>반복 일정 삭제하기</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.traceScheduleMenuItem}
+              onPress={() => onDeleteSchedule(item)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.traceScheduleMenuDangerText}>삭제하기</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.traceScheduleMenuItem} onPress={onCloseMenu} activeOpacity={0.85}>
+            <Text style={styles.traceScheduleMenuItemText}>취소</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -9624,7 +10067,7 @@ function findLifeScheduleMutationRoute(text: string, items: DailyTraceItem[]): N
     };
   }
 
-  if (/취소해줘|취소해|삭제해줘|삭제해|지워줘|지워/.test(text) && /일정|예약|가는\s*일/.test(text)) {
+  if (/취소해줘|취소해|삭제해줘|삭제해|지워줘|지워|없애줘|없애/.test(text) && /일정|예약|가는\s*일/.test(text)) {
     const matched = findSingleMatchingLifeSchedule(text, items);
     if (!matched) {
       return {
@@ -9725,7 +10168,7 @@ function normalizeScheduleSearchText(text: string) {
     .replace(/오늘|내일|모레|다음\s*주\s*(일요일|월요일|화요일|수요일|목요일|금요일|토요일|일|월|화|수|목|금|토)/g, " ")
     .replace(/(오전|오후|아침|저녁|밤|새벽)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분?)?/g, " ")
     .replace(/\d+\s*(분|시간)\s*전/g, " ")
-    .replace(/일정|예약|가는\s*일|알려줘|취소해줘|취소해|삭제해줘|삭제해|지워줘|지워|전에/g, " ")
+    .replace(/일정|예약|가는\s*일|알려줘|취소해줘|취소해|삭제해줘|삭제해|지워줘|지워|없애줘|없애|전에/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -12740,6 +13183,22 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   sessionList: { flex: 1 },
+  devResetButton: {
+    alignItems: "center",
+    borderColor: "#7f1d1d",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 10,
+    marginBottom: 12,
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  devResetButtonText: {
+    color: "#fca5a5",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   sessionItem: {
     alignItems: "center",
     backgroundColor: "transparent",
@@ -13869,7 +14328,8 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 19,
     marginTop: 14,
-  },  dreamProjectSummaryCard: {
+  },
+  dreamProjectSummaryCard: {
     backgroundColor: "#111111",
     borderColor: "#2f2f2f",
     borderRadius: 10,
@@ -14840,6 +15300,16 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 12,
   },
+  traceScheduleRow: {
+    borderBottomColor: "#1c1c1c",
+    borderBottomWidth: 1,
+    paddingVertical: 12,
+  },
+  traceScheduleRowMain: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+  },
   traceRecordRowLast: {
     borderBottomWidth: 0,
     paddingBottom: 0,
@@ -14872,6 +15342,46 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
     lineHeight: 22,
+  },
+  traceScheduleMenuButton: {
+    alignItems: "center",
+    borderColor: "#2f2f2f",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  traceScheduleMenuButtonText: {
+    color: "#d1d5db",
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 20,
+  },
+  traceScheduleMenuPanel: {
+    alignSelf: "flex-end",
+    borderColor: "#2a2a2a",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 10,
+    minWidth: 168,
+    overflow: "hidden",
+  },
+  traceScheduleMenuItem: {
+    borderBottomColor: "#202020",
+    borderBottomWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  traceScheduleMenuItemText: {
+    color: "#d1d5db",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  traceScheduleMenuDangerText: {
+    color: "#fca5a5",
+    fontSize: 12,
+    fontWeight: "900",
   },
   traceItemSource: {
     color: "#777777",
