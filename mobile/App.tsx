@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -78,25 +78,33 @@ import type {
   WeeklyAverage
 } from "./src/noie/types";
 import {
-  CURRENT_CHAT_ID_STORAGE_KEY,
-  DAILY_TRACES_STORAGE_KEY,
   DEFAULT_FLOW_KEYS,
-  DREAM_TORCH_ID_STORAGE_KEY,
   EMOTION_COLORS,
   EMOTION_KEYS,
   EMOTION_LABELS,
   MAX_FLOW_KEYS,
   MAX_TODAY_ME_CARDS,
   MAX_TODAY_ME_RECOMMENDATIONS,
-  PROJECT_MESSAGES_STORAGE_KEY,
-  PROJECTS_STORAGE_KEY,
-  SESSIONS_STORAGE_KEY,
   TRACE_CONFIRM_LABELS,
   TRACE_QUESTION_LABELS,
   TRACE_TYPE_LABELS,
   emotionLabels,
   primaryLabels
 } from "./src/noie/constants";
+import {
+  API_BASE_URL,
+  TRACE_REMINDER_OPTIONS,
+} from "./src/constants/appConstants";
+import {
+  NOIE_STORAGE_KEYS,
+  STORAGE_KEYS,
+} from "./src/constants/storageKeys";
+import { DailyTraceSection } from "./src/features/traces/DailyTraceSection";
+import type { DailyLongRecord } from "./src/features/traces/traceFeature";
+import {
+  buildWeeklyTraceDates,
+  shiftTraceDateKey,
+} from "./src/features/traces/traceFeature";
 import {
   addMonths,
   addMonthsToLocalDate,
@@ -129,30 +137,6 @@ import {
   getTodayMeProjects,
   isActiveTodayMeProject,
 } from "./src/noie/selectors";
-
-// 백엔드 API 주소입니다.
-// 실제 휴대폰에서 Expo Go로 테스트할 때는 127.0.0.1 대신 PC의 내부 IPv4 주소로 바꿔주세요.
-// 예: const API_BASE_URL = "http://192.168.0.10:8000";
-const API_BASE_URL = "http://127.0.0.1:8000";
-const DAILY_LONG_RECORDS_STORAGE_KEY = "noie_daily_long_records_v1";
-const NOIE_STORAGE_KEYS = [
-  SESSIONS_STORAGE_KEY,
-  CURRENT_CHAT_ID_STORAGE_KEY,
-  DAILY_TRACES_STORAGE_KEY,
-  DAILY_LONG_RECORDS_STORAGE_KEY,
-  DREAM_TORCH_ID_STORAGE_KEY,
-  PROJECTS_STORAGE_KEY,
-  PROJECT_MESSAGES_STORAGE_KEY,
-];
-
-type DailyLongRecord = {
-  id: string;
-  dateKey: string;
-  title?: string;
-  body: string;
-  createdAt: string;
-  updatedAt: string;
-};
 
 type NoieSaveRoute =
   | "routine_record"
@@ -360,7 +344,7 @@ export default function App() {
       return;
     }
     setDailyTraces(repairedItems);
-    saveJsonValue(DAILY_TRACES_STORAGE_KEY, repairedItems).catch((error) =>
+    saveJsonValue(STORAGE_KEYS.dailyTraces, repairedItems).catch((error) =>
       console.log("[noie] 꿈의 파편 연결 복구 실패", error)
     );
   }, [dailyTraces, isHydrated]);
@@ -370,31 +354,31 @@ export default function App() {
       return;
     }
 
-    saveJsonValue(SESSIONS_STORAGE_KEY, sessions).catch(
+    saveJsonValue(STORAGE_KEYS.sessions, sessions).catch(
       (error) => console.log("[noie] 채팅 저장 실패", error)
     );
-    saveStringValue(CURRENT_CHAT_ID_STORAGE_KEY, activeSessionId).catch(
+    saveStringValue(STORAGE_KEYS.currentChatId, activeSessionId).catch(
       (error) => console.log("[noie] 현재 채팅 저장 실패", error)
     );
-    saveJsonValue(DAILY_TRACES_STORAGE_KEY, dailyTraces).catch(
+    saveJsonValue(STORAGE_KEYS.dailyTraces, dailyTraces).catch(
       (error) => console.log("[noie] 하루의 흔적 저장 실패", error)
     );
-    saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, dailyLongRecords).catch(
+    saveJsonValue(STORAGE_KEYS.dailyLongRecords, dailyLongRecords).catch(
       (error) => console.log("[noie] 날짜별 긴 기록 저장 실패", error)
     );
     if (dreamTorchId) {
-      saveStringValue(DREAM_TORCH_ID_STORAGE_KEY, dreamTorchId).catch(
+      saveStringValue(STORAGE_KEYS.dreamTorchId, dreamTorchId).catch(
         (error) => console.log("[noie] dream torch save failed", error)
       );
     } else {
-      removeStorageValue(DREAM_TORCH_ID_STORAGE_KEY).catch((error) =>
+      removeStorageValue(STORAGE_KEYS.dreamTorchId).catch((error) =>
         console.log("[noie] dream torch clear failed", error)
       );
     }
-    saveJsonValue(PROJECTS_STORAGE_KEY, projects).catch(
+    saveJsonValue(STORAGE_KEYS.projects, projects).catch(
       (error) => console.log("[noie] 프로젝트 저장 실패", error)
     );
-    saveJsonValue(PROJECT_MESSAGES_STORAGE_KEY, projectMessages).catch((error) => console.log("[noie] 프로젝트 메시지 저장 실패", error));
+    saveJsonValue(STORAGE_KEYS.projectMessages, projectMessages).catch((error) => console.log("[noie] 프로젝트 메시지 저장 실패", error));
   }, [
     activeSessionId,
     dailyTraces,
@@ -418,13 +402,13 @@ export default function App() {
         savedProjectMessages,
       ] =
         await Promise.all([
-          loadStringValue(SESSIONS_STORAGE_KEY),
-          loadStringValue(CURRENT_CHAT_ID_STORAGE_KEY),
-          loadStringValue(DAILY_TRACES_STORAGE_KEY),
-          loadStringValue(DAILY_LONG_RECORDS_STORAGE_KEY),
-          loadStringValue(DREAM_TORCH_ID_STORAGE_KEY),
-          loadStringValue(PROJECTS_STORAGE_KEY),
-          loadStringValue(PROJECT_MESSAGES_STORAGE_KEY),
+          loadStringValue(STORAGE_KEYS.sessions),
+          loadStringValue(STORAGE_KEYS.currentChatId),
+          loadStringValue(STORAGE_KEYS.dailyTraces),
+          loadStringValue(STORAGE_KEYS.dailyLongRecords),
+          loadStringValue(STORAGE_KEYS.dreamTorchId),
+          loadStringValue(STORAGE_KEYS.projects),
+          loadStringValue(STORAGE_KEYS.projectMessages),
         ]);
       const parsedSessions = savedSessions
         ? (JSON.parse(savedSessions) as ChatSession[])
@@ -460,7 +444,7 @@ export default function App() {
         const dedupedDailyTraces = dedupeMemories(repairedDailyTraces);
         setDailyTraces(dedupedDailyTraces);
         if (dedupedDailyTraces.length !== parsedDailyTraces.length || dedupedDailyTraces !== repairedDailyTraces) {
-          saveJsonValue(DAILY_TRACES_STORAGE_KEY, dedupedDailyTraces).catch((error) => console.log("[noie] 하루의 흔적 중복 정리 실패", error));
+          saveJsonValue(STORAGE_KEYS.dailyTraces, dedupedDailyTraces).catch((error) => console.log("[noie] 하루의 흔적 중복 정리 실패", error));
         }
       }
       if (Array.isArray(parsedDailyLongRecords)) {
@@ -689,6 +673,8 @@ export default function App() {
     setScreenMode("chat");
     scrollToBottom();
 
+    const earlyScheduleRoute = findFutureOneTimeScheduleRoute(trimmedText);
+
     if (shouldGenerateTitle) {
       generateTitle(trimmedText).then((title) => {
         updateSession(sessionId, (session) =>
@@ -717,7 +703,7 @@ export default function App() {
         trimmedText
       );
       const recentDreamReference = findRecentDreamReference(activeSession.messages, dailyTraces);
-      const routingResult = resolvePrimarySaveRoute({
+      const routingResult = earlyScheduleRoute ?? resolvePrimarySaveRoute({
         userText: trimmedText,
         saveDecision,
         memoryPolicy,
@@ -960,6 +946,14 @@ export default function App() {
       if (routingResult.route === "routine_record") {
         dailyTraceStatus = "pending";
         dailyTraceNotice = getPendingMemoryNotice(routedMemoryPolicy, undefined, routingResult);
+      }
+
+      if (routingResult.route === "life_schedule_once" && dailyTraceStatus === "pending") {
+        console.log("[SCHEDULE CONFIRM CARD]", {
+          dateKey: routingResult.scheduledDate,
+          startTime: routingResult.displayUnit,
+          title: routingResult.title,
+        });
       }
 
       updateSession(sessionId, (session) => ({
@@ -1242,7 +1236,7 @@ export default function App() {
 
   const readStoredDailyTraces = async () => {
     try {
-      const savedDailyTraces = await loadStringValue(DAILY_TRACES_STORAGE_KEY);
+      const savedDailyTraces = await loadStringValue(STORAGE_KEYS.dailyTraces);
       const parsedDailyTraces = savedDailyTraces
         ? (JSON.parse(savedDailyTraces) as DailyTraceItem[])
         : dailyTraces;
@@ -1334,7 +1328,7 @@ export default function App() {
     const savedItem = updatedMemories.find((item) => getMemorySemanticKey(item) === getMemorySemanticKey(newItem)) ?? newItem;
     const now = new Date().toISOString();
 
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, updatedMemories);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, updatedMemories);
     setDailyTraces(updatedMemories);
 
     if (options.replaceTorch) {
@@ -1395,8 +1389,8 @@ export default function App() {
         });
         setDailyTraces(nextItems);
         setDreamTorchId(targetItem.id);
-        await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
-        await saveStringValue(DREAM_TORCH_ID_STORAGE_KEY, targetItem.id);
+        await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
+        await saveStringValue(STORAGE_KEYS.dreamTorchId, targetItem.id);
         updateSession(activeSession?.id ?? activeSessionId, (session) => ({
           ...session,
           messages: session.messages.map((item) =>
@@ -1586,7 +1580,7 @@ export default function App() {
           ]);
 
       setDailyTraces(nextItems);
-      await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
       if (!torchPiece) {
         setDreamTorchId(nextTorch.id);
       }
@@ -1633,7 +1627,7 @@ export default function App() {
         ]);
 
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     if (!torchPiece) {
       setDreamTorchId(nextTorch.id);
     }
@@ -1778,7 +1772,7 @@ export default function App() {
         ]);
 
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     if (!torchPiece) {
       setDreamTorchId(nextTorch.id);
     }
@@ -1832,7 +1826,7 @@ export default function App() {
         : item.updatedAt,
     }));
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     setPendingRoutineAdjustment(null);
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
       ...session,
@@ -1872,7 +1866,7 @@ export default function App() {
         : project
     );
     setProjects(nextProjects);
-    await saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects);
+    await saveJsonValue(STORAGE_KEYS.projects, nextProjects);
 
     const today = getLocalDateString(new Date());
     const completedTraceSourceId = `completed_project:${routingResult.matchedProjectId}:${today}`;
@@ -1903,7 +1897,7 @@ export default function App() {
         shouldLog: false,
       }).items;
       setDailyTraces(nextItems);
-      await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     }
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
@@ -1937,7 +1931,7 @@ export default function App() {
         : item
     );
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
       ...session,
@@ -2006,7 +2000,7 @@ export default function App() {
         ];
 
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
       ...session,
@@ -2039,7 +2033,7 @@ export default function App() {
         : item
     );
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
       ...session,
@@ -2081,7 +2075,7 @@ export default function App() {
       };
     });
     setProjects(nextProjects);
-    await saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects);
+    await saveJsonValue(STORAGE_KEYS.projects, nextProjects);
   };
 
   const confirmDailyTrace = async (
@@ -2323,7 +2317,15 @@ export default function App() {
         shouldLog: false,
       }).items;
       setDailyTraces(nextDailyTraces);
-      await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextDailyTraces);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextDailyTraces);
+      if (routingResult?.route === "life_schedule_once" && !saveResult.duplicate) {
+        console.log("[SCHEDULE SAVED]", {
+          id: newItem.id,
+          dateKey: newItem.date,
+          startTime: newItem.time,
+          title: newItem.title,
+        });
+      }
 
       updateSession(activeSession.id, (session) => ({
         ...session,
@@ -2386,7 +2388,7 @@ export default function App() {
 
   const cleanupDuplicateMemories = async () => {
     try {
-      const savedDailyTraces = await loadStringValue(DAILY_TRACES_STORAGE_KEY);
+      const savedDailyTraces = await loadStringValue(STORAGE_KEYS.dailyTraces);
       const parsedDailyTraces = savedDailyTraces
         ? (JSON.parse(savedDailyTraces) as DailyTraceItem[])
         : dailyTraces;
@@ -2395,7 +2397,7 @@ export default function App() {
         : dailyTraces;
       const dedupedMemories = dedupeMemories(sourceMemories);
 
-      await saveJsonValue(DAILY_TRACES_STORAGE_KEY, dedupedMemories);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, dedupedMemories);
       setDailyTraces(dedupedMemories);
       setDailyTraceCleanupMessage("중복 기록을 정리했어요.");
     } catch (error) {
@@ -2558,7 +2560,7 @@ export default function App() {
     ]);
     didSave = true;
     setDailyLongRecords(nextRecords);
-    await saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, nextRecords);
+    await saveJsonValue(STORAGE_KEYS.dailyLongRecords, nextRecords);
     setSelectedTraceDate(dateKey);
 
     if (didSave) {
@@ -2600,7 +2602,7 @@ export default function App() {
         : record
     );
     setDailyLongRecords(nextRecords);
-    await saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, nextRecords);
+    await saveJsonValue(STORAGE_KEYS.dailyLongRecords, nextRecords);
     setSelectedTraceDate(dateKey);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
@@ -2643,7 +2645,7 @@ export default function App() {
           },
     ]);
     setDailyLongRecords(nextRecords);
-    await saveJsonValue(DAILY_LONG_RECORDS_STORAGE_KEY, nextRecords);
+    await saveJsonValue(STORAGE_KEYS.dailyLongRecords, nextRecords);
     setSelectedTraceDate(dateKey);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
@@ -2679,7 +2681,7 @@ export default function App() {
         : item
     );
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
       ...session,
@@ -2713,7 +2715,7 @@ export default function App() {
         : item
     );
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
       ...session,
@@ -2749,7 +2751,7 @@ export default function App() {
       return { didDelete: false, title: "" };
     }
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     setDailyTraceCleanupMessage(`${deletedTitle} 일정을 삭제했어요.`);
     return { didDelete, title: deletedTitle };
   };
@@ -2802,7 +2804,7 @@ export default function App() {
       return false;
     }
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     setDailyTraceCleanupMessage(`${formatShortTraceDate(dateKey)}의 ${title} 일정만 건너뛰었어요.`);
     return true;
   };
@@ -2827,7 +2829,7 @@ export default function App() {
       return false;
     }
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     setDailyTraceCleanupMessage(`${title} 반복 일정을 ${formatShortTraceDate(dateKey)}부터 종료했어요.`);
     return true;
   };
@@ -2849,7 +2851,7 @@ export default function App() {
         : item
     );
     setDailyTraces(nextItems);
-    await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     setDailyTraceCleanupMessage(`${target.title} 반복 일정을 삭제했어요.`);
     return true;
   };
@@ -2880,7 +2882,7 @@ export default function App() {
           ? { ...item, hiddenFromDream: true, updatedAt: new Date().toISOString() }
           : item
       );
-      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[dream-fragment-delete-save-error]", error)
       );
       return nextItems;
@@ -3020,7 +3022,7 @@ export default function App() {
 
     if (didUpdate) {
       setDailyTraces(nextItems);
-      await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
       console.log("[today-me-routine-completed]", { id: routineId, dateKey, source });
     }
 
@@ -3061,7 +3063,7 @@ export default function App() {
           updatedAt: now,
         };
       });
-      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[routine-today-cancel-save-error]", error)
       );
       console.log("[routine-today-record-cancelled]", { routineId, dateKey: today });
@@ -3116,7 +3118,7 @@ export default function App() {
         };
       });
 
-      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[routine-target-adjust-save-error]", error)
       );
       console.log("[routine-target-adjusted]", { routineId, dateKey: today });
@@ -3147,7 +3149,7 @@ export default function App() {
           updatedAt: now,
         };
       });
-      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[today-me-routine-complete-save-error]", error)
       );
       console.log("[today-me-card-archived]", { sourceType: "routine", sourceId: routineId });
@@ -3176,7 +3178,7 @@ export default function App() {
           updatedAt: now,
         };
       });
-      saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[today-me-routine-remove-save-error]", error)
       );
       console.log("[today-me-card-removed]", { sourceType: "routine", sourceId: routineId });
@@ -3197,7 +3199,7 @@ export default function App() {
             }
           : project
       );
-      saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.projects, nextProjects).catch((error) =>
         console.error("[today-me-project-complete-save-error]", error)
       );
       console.log("[today-me-card-archived]", { sourceType: "project", sourceId: projectId });
@@ -3218,7 +3220,7 @@ export default function App() {
             }
           : project
       );
-      saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.projects, nextProjects).catch((error) =>
         console.error("[today-me-project-remove-save-error]", error)
       );
       console.log("[today-me-card-removed]", { sourceType: "project", sourceId: projectId });
@@ -3252,7 +3254,7 @@ export default function App() {
         };
       });
 
-      saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.projects, nextProjects).catch((error) =>
         console.error("[today-me-project-action-save-error]", error)
       );
       console.log("[today-me-project-action-completed]", { id: projectId, dateKey: today });
@@ -3282,7 +3284,7 @@ export default function App() {
           updatedAt: now,
         };
       });
-      saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects).catch((error) =>
+      saveJsonValue(STORAGE_KEYS.projects, nextProjects).catch((error) =>
         console.error("[today-me-project-action-cancel-save-error]", error)
       );
       console.log("[today-me-project-action-cancelled]", { id: projectId, dateKey: today });
@@ -3339,7 +3341,7 @@ export default function App() {
             : project
         );
         setProjects(nextProjects);
-        await saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects);
+        await saveJsonValue(STORAGE_KEYS.projects, nextProjects);
         setTodayMeFeedback("이미 비슷한 프로젝트가 있어서 오늘의 나에 연결했어요.");
         return true;
       }
@@ -3371,7 +3373,7 @@ export default function App() {
       };
       const nextProjects = [newProject, ...safeProjects];
       setProjects(nextProjects);
-      await saveJsonValue(PROJECTS_STORAGE_KEY, nextProjects);
+      await saveJsonValue(STORAGE_KEYS.projects, nextProjects);
       console.log("[today-me-project-start]", { source: input.source, title, nextCount: nextProjects.length });
       console.log("[today-me-project-visible]", { projectId: newProject.id, pinnedToTodayMe: newProject.pinnedToTodayMe });
       setTodayMeFeedback("오늘의 나에서 프로젝트를 시작했어요.");
@@ -3414,7 +3416,7 @@ export default function App() {
           : item
       );
       setDailyTraces(nextItems);
-      await saveJsonValue(DAILY_TRACES_STORAGE_KEY, nextItems);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
       console.log("[goal-duration-selected]", { months, startDate, targetDate });
       setTodayMeFeedback(`${months}개월 목표 기간을 저장했어요.`);
     } catch (error) {
@@ -7366,27 +7368,12 @@ function DailyTraceScreen({
   onBackToChat: () => void;
 }) {
   return (
-    <ScrollView
-      style={styles.flowScroll}
-      contentContainerStyle={styles.flowContent}
-      keyboardShouldPersistTaps="handled"
+    <DailyTraceSection
+      styles={styles}
+      cleanupMessage={cleanupMessage}
+      onBackToChat={onBackToChat}
+      onCleanupDuplicateMemories={onCleanupDuplicateMemories}
     >
-      <View style={styles.flowHeaderRow}>
-        <View style={styles.flowHeaderTextBlock}>
-          <Text style={styles.flowTitle}>하루의 흔적</Text>
-          <Text style={styles.flowSubtitle}>
-            이번 주에 남긴 흔적이에요
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={styles.backToChatButton}
-          onPress={onBackToChat}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.backToChatButtonText}>채팅</Text>
-        </TouchableOpacity>
-      </View>
-
       <DailyTraceCalendar
         items={dailyTraces}
         dailyLongRecords={dailyLongRecords}
@@ -7402,18 +7389,7 @@ function DailyTraceScreen({
         onEndLifeRepeatSchedule={onEndLifeRepeatSchedule}
         onDeleteLifeRepeatSchedule={onDeleteLifeRepeatSchedule}
       />
-
-      <TouchableOpacity
-        style={styles.traceCleanupTextButton}
-        onPress={onCleanupDuplicateMemories}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.traceCleanupTextButtonText}>중복 기록 정리</Text>
-      </TouchableOpacity>
-      {cleanupMessage ? (
-        <Text style={styles.traceCandidateMemo}>{cleanupMessage}</Text>
-      ) : null}
-    </ScrollView>
+    </DailyTraceSection>
   );
 }
 
@@ -8115,31 +8091,6 @@ function DailyTraceCalendar({
       </View>
     </View>
   );
-}
-
-function buildWeeklyTraceDates(selectedDate: string) {
-  const selected = parseDateOnly(selectedDate) ?? new Date();
-  const weekStart = new Date(selected);
-  weekStart.setDate(selected.getDate() - selected.getDay());
-
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(weekStart);
-    date.setDate(weekStart.getDate() + index);
-    return getLocalDateString(date);
-  });
-}
-
-const TRACE_REMINDER_OPTIONS = [
-  { value: "none", label: "없음" },
-  { value: "on_time", label: "시간에 맞춰" },
-  { value: "10m", label: "10분 전" },
-  { value: "30m", label: "30분 전" },
-  { value: "1h", label: "1시간 전" },
-];
-
-function shiftTraceDateKey(dateKey: string, dayDelta: number) {
-  const baseDate = parseDateOnly(dateKey) ?? new Date();
-  return getLocalDateString(addDays(baseDate, dayDelta));
 }
 
 function getDailyTraceItemsForDate(items: DailyTraceItem[], dateKey: string) {
@@ -10036,6 +9987,121 @@ function findLifeScheduleRoute(text: string): NoieSaveRoutingResult | null {
   return null;
 }
 
+function findFutureOneTimeScheduleRoute(text: string): NoieSaveRoutingResult | null {
+  const parsedDate = parseStrictFutureScheduleDate(text);
+  const parsedRange = parseStrictKoreanClockTimeRange(text);
+  const parsedTime = parsedRange?.start ?? parseStrictKoreanClockTime(text);
+
+  if (!parsedDate || !parsedTime || !hasStrictScheduleTarget(text)) {
+    return null;
+  }
+
+  const title = makeStrictLifeScheduleTitle(text);
+  if (!title) {
+    return null;
+  }
+
+  console.log("[SCHEDULE DETECT]", {
+    originalText: text,
+    dateKey: parsedDate.dateKey,
+    startTime: parsedTime.time,
+    title,
+  });
+
+  return {
+    route: "life_schedule_once",
+    title,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(text),
+    confidence: 0.97,
+    scheduledDate: parsedDate.dateKey,
+    unit: parsedTime.label,
+    displayUnit: parsedTime.time,
+    endTime: parsedRange?.end.time ?? null,
+    endDisplayUnit: parsedRange?.end.label ?? null,
+    reason: "미래 날짜와 시간이 명확한 일회성 일정",
+  };
+}
+
+function parseStrictFutureScheduleDate(text: string) {
+  const today = new Date();
+  if (/\ub0b4\uc77c/.test(text)) {
+    return { dateKey: getLocalDateString(addDays(today, 1)), label: "\ub0b4\uc77c" };
+  }
+  if (/\ubaa8\ub808/.test(text)) {
+    return { dateKey: getLocalDateString(addDays(today, 2)), label: "\ubaa8\ub808" };
+  }
+  return null;
+}
+
+function parseStrictKoreanClockTimeRange(text: string) {
+  const match = text.match(/(\uc624\uc804|\uc624\ud6c4|\uc544\uce68|\uc800\ub141|\ubc24|\uc0c8\ubcbd)?\s*(\d{1,2})\s*\uc2dc(?:\s*(\d{1,2})\s*\ubd84?)?\s*\ubd80\ud130\s*(?:(\uc624\uc804|\uc624\ud6c4|\uc544\uce68|\uc800\ub141|\ubc24|\uc0c8\ubcbd)\s*)?(\d{1,2})\s*\uc2dc(?:\s*(\d{1,2})\s*\ubd84?)?\s*\uae4c\uc9c0/);
+  if (!match) {
+    return null;
+  }
+
+  const startMarker = match[1] ?? "";
+  const endMarker = match[4] ?? startMarker;
+  const start = buildStrictKoreanClockTime(startMarker, match[2], match[3]);
+  const end = buildStrictKoreanClockTime(endMarker, match[5], match[6]);
+  if (!start || !end) {
+    return null;
+  }
+
+  return { start, end };
+}
+
+function parseStrictKoreanClockTime(text: string) {
+  const match = text.match(/(\uc624\uc804|\uc624\ud6c4|\uc544\uce68|\uc800\ub141|\ubc24|\uc0c8\ubcbd)?\s*(\d{1,2})\s*\uc2dc(?:\s*(\d{1,2})\s*\ubd84?)?/);
+  if (!match) {
+    return null;
+  }
+
+  return buildStrictKoreanClockTime(match[1] ?? "", match[2], match[3]);
+}
+
+function buildStrictKoreanClockTime(marker: string, hourText: string, minuteText?: string) {
+  let hour = Number(hourText);
+  const minute = minuteText ? Number(minuteText) : 0;
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  if ((marker === "\uc624\ud6c4" || marker === "\uc800\ub141" || marker === "\ubc24") && hour < 12) {
+    hour += 12;
+  }
+  if ((marker === "\uc624\uc804" || marker === "\uc544\uce68" || marker === "\uc0c8\ubcbd") && hour === 12) {
+    hour = 0;
+  }
+
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const labelHour = hour >= 12 ? hour - 12 || 12 : hour || 12;
+  const period = hour >= 12 ? "\uc624\ud6c4" : "\uc624\uc804";
+  return {
+    time,
+    label: `${period} ${labelHour}:${String(minute).padStart(2, "0")}`,
+  };
+}
+
+function hasStrictScheduleTarget(text: string) {
+  return /(\uc77c\uc815|\uc608\uc57d|\uc57d\uc18d|\ubc29\ubb38|\uc218\uc5c5|\uba74\uc811|\uc9c4\ub8cc|\uac80\uc9c4|\uac00\uc57c|\uc788\uc5b4|\uc800\uc7a5\ud574\uc918|\ub2f4\uc544\uc918)/.test(text);
+}
+
+function makeStrictLifeScheduleTitle(text: string) {
+  const cleaned = text
+    .replace(/\ub0b4\uc77c|\ubaa8\ub808/g, " ")
+    .replace(/(\uc624\uc804|\uc624\ud6c4|\uc544\uce68|\uc800\ub141|\ubc24|\uc0c8\ubcbd)?\s*\d{1,2}\s*\uc2dc(?:\s*\d{1,2}\s*\ubd84?)?\s*(?:\uc5d0|\uc5d4)?/g, " ")
+    .replace(/\uc77c\uc815\uc73c\ub85c\s*\uc800\uc7a5\ud574\uc918|\uc77c\uc815\uc73c\ub85c|\uc800\uc7a5\ud574\uc918|\ub2f4\uc544\uc918|\ub4f1\ub85d\ud574\uc918/g, " ")
+    .replace(/\s*(?:\uc774|\uac00)?\s*\uc788\uc5b4[.!?]*$/g, " ")
+    .replace(/\s*\uac00\uc57c\s*\ud574[.!?]*$/g, " \uac00\uae30")
+    .replace(/\s*\uc57c\s*\ud574[.!?]*$/g, " ")
+    .replace(/[.!?]+$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned;
+}
+
 function findLifeScheduleMutationRoute(text: string, items: DailyTraceItem[]): NoieSaveRoutingResult | null {
   const reminder = parseLifeScheduleReminderRequest(text);
   if (reminder) {
@@ -11364,7 +11430,7 @@ function isDuplicateRoutineRoute(routingResult: NoieSaveRoutingResult, items: Da
 }
 
 function isDuplicateLifeScheduleRoute(routingResult: NoieSaveRoutingResult, items: DailyTraceItem[]) {
-  if (routingResult.route !== "life_schedule_repeat") {
+  if (routingResult.route !== "life_schedule_repeat" && routingResult.route !== "life_schedule_once") {
     return false;
   }
 
@@ -11372,6 +11438,15 @@ function isDuplicateLifeScheduleRoute(routingResult: NoieSaveRoutingResult, item
   const targetTime = routingResult.displayUnit ?? "";
   return items.some((item) => {
     const typedItem = item as DailyTraceItem & { sourceType?: string; recurrence?: string };
+    if (routingResult.route === "life_schedule_once") {
+      return (
+        typedItem.sourceType === "life_schedule_once" &&
+        item.date === routingResult.scheduledDate &&
+        normalizeMemoryInput(item.title) === targetTitle &&
+        item.time === targetTime
+      );
+    }
+
     return (
       typedItem.sourceType === "life_schedule_repeat" &&
       normalizeMemoryInput(item.title) === targetTitle &&
