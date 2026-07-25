@@ -103,6 +103,12 @@ import {
   DailyTraceCalendar,
   DailyTraceFrame,
 } from "./src/features/traces/DailyTraceSection";
+import {
+  DreamFeature,
+  type CompletedDreamFragmentDisplayItem,
+  type DreamFragmentDisplayItem,
+  type DreamTorchDisplayItem,
+} from "./src/features/dreams/DreamFeature";
 import type { DailyLongRecord } from "./src/features/traces/traceFeature";
 import {
   buildWeeklyTraceDates,
@@ -3650,6 +3656,144 @@ export default function App() {
     );
   };
 
+  const renderDreamFeature = () => {
+    const dreamTorchCandidates = getDreamTorchCandidates(dailyTraces);
+    const torchPiece = selectDreamTorchPiece(dreamTorchCandidates, dreamTorchId);
+    const dreamFragments = getDreamFragments(dailyTraces).filter(
+      (piece) => piece.id !== torchPiece?.id
+    );
+    const activeDreamFragments = dreamFragments.filter(
+      (piece) => piece.projectStatus !== "done" && !getCompletedProjectForFragment(piece, projects)
+    );
+    const completedDreamFragments: CompletedDreamFragmentDisplayItem[] = dreamFragments
+      .map((piece) => ({ piece, project: getCompletedProjectForFragment(piece, projects) }))
+      .filter((item) => item.piece.projectStatus === "done" || Boolean(item.project))
+      .map(({ piece, project }) => ({
+        id: piece.id,
+        title: getMemoryInputText(piece) || piece.title,
+        meta: project
+          ? getCompletedDreamFragmentMeta(project)
+          : `완료 · ${formatDateDot((piece as DailyTraceItem & { completedAt?: string }).completedAt ?? piece.updatedAt ?? piece.createdAt)}`,
+      }));
+    const activeDreamFragmentCards: DreamFragmentDisplayItem[] = activeDreamFragments.map((piece) => {
+      const linkedProjects = getLinkedProjectsForFragment(piece, projects);
+      const completedProject = getCompletedProjectForFragment(piece, projects);
+      const linkedProject = completedProject ?? linkedProjects.find(
+        (project) => project.status !== "done" && !project.completedAt
+      );
+      const state = getDreamFragmentCardState(linkedProject);
+      const displayText = getMemoryInputText(piece) || piece.title;
+      const memoText = piece.memo?.trim() ?? "";
+      const shouldShowMemo =
+        memoText.length > 0 && normalizeMemoryInput(memoText) !== normalizeMemoryInput(displayText);
+
+      return {
+        id: piece.id,
+        title: displayText,
+        memo: shouldShowMemo ? memoText : undefined,
+        statusIcon: state.icon,
+        statusLabel: state.label,
+        stateKind: state.kind,
+        linkedProjectId: linkedProject?.id ?? null,
+      };
+    });
+    const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
+    const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects);
+    const todayKey = getLocalDateString(new Date());
+    const todayMeCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
+    const fireRoutines = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "routine" }> => card.cardType === "routine");
+    const fireProjects = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "project" }> => card.cardType === "project");
+    const selectedMonths = torchPiece ? getSelectedGoalDuration(torchPiece) : undefined;
+    const completedRoutineCount = torchPiece
+      ? fireRoutines.filter(({ routine }) => isRoutineActionDoneToday(getTodayRoutineRecord(torchPiece, routine))).length
+      : 0;
+    const completedProjectCount = fireProjects.filter(({ project }) => isProjectActionDone(project, todayKey)).length;
+    const totalFireCount = todayMeCards.length;
+    const completedFireCount = completedRoutineCount + completedProjectCount;
+    const isAllDoneToday = totalFireCount > 0 && completedFireCount === totalFireCount;
+    const torch: DreamTorchDisplayItem | null = torchPiece
+      ? {
+          id: torchPiece.id,
+          title: getMemoryInputText(torchPiece) || torchPiece.title,
+          ddayLabel: getDreamDdayLabel(torchPiece),
+          isSavingGoalDuration,
+          durationOptions: ([3, 6, 12] as GoalDurationMonths[]).map((months) => ({
+            months,
+            label: `${months}개월`,
+            isSelected: selectedMonths === months,
+          })),
+          fireTitle: isAllDoneToday ? "오늘의 불씨를 모두 켰어요 🔥" : "오늘의 불씨",
+          completedFireCount,
+          totalFireCount,
+          fireItems: [
+            ...fireRoutines.map(({ routine }, index) => {
+              const record = getTodayRoutineRecord(torchPiece, routine);
+              const isDone = isRoutineActionDoneToday(record);
+              const targetValue = getEffectiveRoutineTargetValue(routine, todayKey);
+              const routineTargetText =
+                targetValue > 0 ? `오늘 목표 · ${formatRoutineTarget(targetValue, routine.unit)}` : formatRoutineMeta(routine);
+
+              return {
+                id: routine.id,
+                title: isDone ? `🔥 ${routine.title}` : routine.title,
+                meta: isDone ? "오늘 해냈어요." : routineTargetText,
+                isDone,
+                showDivider: index < totalFireCount - 1,
+                kind: "routine" as const,
+                itemId: torchPiece.id,
+                routineId: routine.id,
+              };
+            }),
+            ...fireProjects.map(({ project }, index) => {
+              const isDone = isProjectActionDone(project, todayKey);
+              const actionText = project.nextAction?.trim() || "다음 행동";
+
+              return {
+                id: `project-fire-${project.id}`,
+                title: isDone ? `🔥 ${actionText}` : actionText,
+                meta: isDone ? "오늘 해냈어요." : `프로젝트 · ${project.title}`,
+                isDone,
+                showDivider: fireRoutines.length + index < totalFireCount - 1,
+                kind: "project" as const,
+                projectId: project.id,
+              };
+            }),
+          ],
+        }
+      : null;
+
+    return (
+      <DreamFeature
+        summaryNode={<DreamProjectSummaryCard summary={dreamProjectSummary} />}
+        torch={torch}
+        activeDreamFragments={activeDreamFragmentCards}
+        completedDreamFragments={completedDreamFragments}
+        dreamFragmentsCount={dreamFragments.length}
+        todayMeNode={
+          <TodayMeSection
+            torchPiece={torchPiece}
+            projects={todayMeProjects}
+            dreamFragments={dreamFragments}
+            onAdjustRoutineTodayTarget={adjustRoutineTodayTarget}
+            onAddRoutineToTodayMe={addRoutineToTodayMe}
+            onRemoveRoutineFromTodayMe={removeRoutineFromTodayMe}
+            externalFeedback={todayMeFeedback}
+            isStartingProject={isStartingProject}
+          />
+        }
+        onStartProjectFromFragment={startProjectFromDreamFragment}
+        onSelectGoalDuration={handleSelectGoalDuration}
+        onRecordDreamRoutine={recordDreamRoutineQuick}
+        onCompleteProjectNextAction={completeProjectNextAction}
+        onOpenProject={openProject}
+        onCompleteProjectFromTodayMe={completeProjectFromTodayMe}
+        onPromoteFragmentToTorch={pinDreamTorch}
+        onDeleteFragment={hideFromDreamVault}
+        onBackToChat={returnToChat}
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
@@ -3748,32 +3892,7 @@ export default function App() {
           </View>
 
           {screenMode === "dreamVault" ? (
-            <DreamVaultScreen
-              dailyTraces={dailyTraces}
-              projects={projects}
-              dreamTorchId={dreamTorchId}
-              onPinDreamTorch={pinDreamTorch}
-              onHideFromDream={hideFromDreamVault}
-              onStartProjectFromFragment={startProjectFromDreamFragment}
-              onStartProjectInTodayMe={handleStartProjectInTodayMe}
-              onUpdateDreamTorchPlan={updateDreamTorchPlan}
-              onSelectGoalDuration={handleSelectGoalDuration}
-              onRecordDreamRoutine={recordDreamRoutineQuick}
-              onCancelDreamRoutineToday={cancelRoutineTodayRecord}
-              onCompleteProjectNextAction={completeProjectNextAction}
-              onCancelProjectNextActionToday={cancelProjectNextActionToday}
-              onAdjustRoutineTodayTarget={adjustRoutineTodayTarget}
-              onAddRoutineToTodayMe={addRoutineToTodayMe}
-              onCompleteRoutineFromTodayMe={completeRoutineFromTodayMe}
-              onCompleteProjectFromTodayMe={completeProjectFromTodayMe}
-              onRemoveRoutineFromTodayMe={removeRoutineFromTodayMe}
-              onRemoveProjectFromTodayMe={removeProjectFromTodayMe}
-              todayMeFeedback={todayMeFeedback}
-              isStartingProject={isStartingProject}
-              isSavingGoalDuration={isSavingGoalDuration}
-              onOpenProject={openProject}
-              onBackToChat={returnToChat}
-            />
+            renderDreamFeature()
           ) : screenMode === "flow" ? (
             <EmotionVaultScreen
               records={emotionRecords}
@@ -4998,197 +5117,6 @@ function MetricPill({ label, value }: MetricPillProps) {
   );
 }
 
-function DreamVaultScreen({
-  dailyTraces,
-  projects,
-  dreamTorchId,
-  onPinDreamTorch,
-  onHideFromDream,
-  onStartProjectFromFragment,
-  onStartProjectInTodayMe,
-  onUpdateDreamTorchPlan,
-  onSelectGoalDuration,
-  onRecordDreamRoutine,
-  onCancelDreamRoutineToday,
-  onOpenProject,
-  onCompleteProjectNextAction,
-  onCancelProjectNextActionToday,
-  onAdjustRoutineTodayTarget,
-  onAddRoutineToTodayMe,
-  onCompleteRoutineFromTodayMe,
-  onCompleteProjectFromTodayMe,
-  onRemoveRoutineFromTodayMe,
-  onRemoveProjectFromTodayMe,
-  todayMeFeedback,
-  isStartingProject,
-  isSavingGoalDuration,
-  onBackToChat,
-}: {
-  dailyTraces: DailyTraceItem[];
-  projects: NoieProject[];
-  dreamTorchId: string | null;
-  onPinDreamTorch: (itemId: string) => void;
-  onHideFromDream: (itemId: string) => void;
-  onStartProjectFromFragment: (itemId: string) => void;
-  onStartProjectInTodayMe: (input: StartProjectInput) => Promise<boolean>;
-  onUpdateDreamTorchPlan: (itemId: string, values: Partial<DailyTraceItem>) => void;
-  onSelectGoalDuration: (itemId: string, months: GoalDurationMonths) => Promise<void>;
-  onRecordDreamRoutine: (itemId: string, routineId: string, score: DreamRoutineQuickScore, value?: number) => void;
-  onCancelDreamRoutineToday: (itemId: string, routineId: string) => void;
-  onCompleteProjectNextAction: (projectId: string) => void;
-  onCancelProjectNextActionToday: (projectId: string) => void;
-  onAdjustRoutineTodayTarget: (itemId: string, routineId: string, delta: number) => void;
-  onAddRoutineToTodayMe: (input: { title: string; targetValue: number }) => Promise<boolean>;
-  onCompleteRoutineFromTodayMe: (itemId: string, routineId: string) => void;
-  onCompleteProjectFromTodayMe: (projectId: string) => void;
-  onRemoveRoutineFromTodayMe: (itemId: string, routineId: string) => void;
-  onRemoveProjectFromTodayMe: (projectId: string) => void;
-  todayMeFeedback: string;
-  isStartingProject: boolean;
-  isSavingGoalDuration: boolean;
-  onOpenProject: (projectId: string) => void;
-  onBackToChat: () => void;
-}) {
-  const [isCompletedDreamFragmentsOpen, setIsCompletedDreamFragmentsOpen] = useState(false);
-  const dreamTorchCandidates = getDreamTorchCandidates(dailyTraces);
-  const torchPiece = selectDreamTorchPiece(dreamTorchCandidates, dreamTorchId);
-  const dreamFragments = getDreamFragments(dailyTraces).filter(
-    (piece) => piece.id !== torchPiece?.id
-  );
-  const activeDreamFragments = dreamFragments.filter((piece) => piece.projectStatus !== "done" && !getCompletedProjectForFragment(piece, projects));
-  const completedDreamFragments = dreamFragments
-    .map((piece) => ({ piece, project: getCompletedProjectForFragment(piece, projects) }))
-    .filter((item) => item.piece.projectStatus === "done" || Boolean(item.project));
-  const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
-  const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects);
-  const todayKey = getLocalDateString(new Date());
-  const todayMeCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
-
-  return (
-    <ScrollView
-      style={styles.flowScroll}
-      contentContainerStyle={styles.flowContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.flowHeaderRow}>
-        <View style={styles.flowHeaderTextBlock}>
-          <Text style={styles.flowTitle}>꿈의 조각</Text>
-          <Text style={styles.flowSubtitle}>내가 향하는 방향</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.backToChatButton}
-          onPress={onBackToChat}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.backToChatButtonText}>채팅으로 돌아가기</Text>
-        </TouchableOpacity>
-      </View>
-
-      <DreamProjectSummaryCard summary={dreamProjectSummary} />
-
-      {!torchPiece && dreamFragments.length === 0 ? (
-        <View style={styles.flowCard}>
-          <View style={styles.flowEmptyBox}>
-            <Text style={styles.flowEmptyText}>
-              아직 꿈의 조각이 없어요.{"\n"}채팅에서 되고 싶은 모습이나 목표를 말하면 여기에 모여요.
-            </Text>
-          </View>
-        </View>
-      ) : (
-        <>
-          <View style={styles.flowCard}>
-            {torchPiece ? (
-              <DreamTorchSimplePanel
-                piece={torchPiece}
-                todayMeCards={todayMeCards}
-                onSelectGoalDuration={onSelectGoalDuration}
-                isSavingGoalDuration={isSavingGoalDuration}
-                onRecordDreamRoutine={onRecordDreamRoutine}
-                onCompleteProjectNextAction={onCompleteProjectNextAction}
-              />
-            ) : null}
-          </View>
-
-          <View style={styles.flowCard}>
-            <Text style={styles.flowCardTitle}>꿈의 파편</Text>
-            {activeDreamFragments.length > 0 ? (
-              activeDreamFragments.map((piece) => (
-                <DreamPieceCard
-                  key={piece.id}
-                  piece={piece}
-                  onPinDreamTorch={onPinDreamTorch}
-                  onHideFromDream={onHideFromDream}
-                  projects={projects}
-                  torchPiece={torchPiece}
-                  onStartProjectFromFragment={onStartProjectFromFragment}
-                  onUpdateDreamTorchPlan={onUpdateDreamTorchPlan}
-                  onRecordDreamRoutine={onRecordDreamRoutine}
-                  onOpenProject={onOpenProject}
-                  onCompleteProjectFromTodayMe={onCompleteProjectFromTodayMe}
-                />
-              ))
-            ) : (
-              <View style={styles.flowEmptyBox}>
-                <Text style={styles.flowEmptyText}>
-                  {dreamFragments.length > 0
-                    ? "진행 중인 꿈의 파편이 없어요."
-                    : "아직 꿈의 파편이 없어요.\n만들고 싶은 프로젝트나 하위 목표를 말하면 여기에 모여요."}
-                </Text>
-                {dreamFragments.length === 0 ? (
-                  <Text style={styles.flowEmptyExampleText}>예: noie를 완성하고 싶어{"\n"}예: 포트폴리오를 만들고 싶어{"\n"}예: 앱을 출시하고 싶어</Text>
-                ) : null}
-              </View>
-            )}
-          </View>
-
-          {completedDreamFragments.length > 0 ? (
-            <View style={styles.completedDreamFragmentsBox}>
-              <TouchableOpacity
-                style={styles.completedDreamFragmentsHeader}
-                onPress={() => setIsCompletedDreamFragmentsOpen((value) => !value)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.completedDreamFragmentsTitle}>
-                  ⭐ 지금까지 완료한 꿈의 파편 {completedDreamFragments.length}개
-                </Text>
-                <Text style={styles.completedDreamFragmentsToggle}>
-                  {isCompletedDreamFragmentsOpen ? "︿" : "〉"}
-                </Text>
-              </TouchableOpacity>
-              {isCompletedDreamFragmentsOpen ? (
-                <View style={styles.completedDreamFragmentsList}>
-                  {completedDreamFragments.map(({ piece, project }) => (
-                    <View key={`completed-dream-fragment-${piece.id}`} style={styles.completedDreamFragmentItem}>
-                      <Text style={styles.completedDreamFragmentTitle}>
-                        ⭐ {getMemoryInputText(piece) || piece.title}
-                      </Text>
-                      <Text style={styles.completedDreamFragmentMeta}>
-                        {project ? getCompletedDreamFragmentMeta(project) : `완료 · ${formatDateDot((piece as DailyTraceItem & { completedAt?: string }).completedAt ?? piece.updatedAt ?? piece.createdAt)}`}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-        </>
-      )}
-
-      <TodayMeSection
-        torchPiece={torchPiece}
-        projects={todayMeProjects}
-        dreamFragments={dreamFragments}
-        onAdjustRoutineTodayTarget={onAdjustRoutineTodayTarget}
-        onAddRoutineToTodayMe={onAddRoutineToTodayMe}
-        onRemoveRoutineFromTodayMe={onRemoveRoutineFromTodayMe}
-        externalFeedback={todayMeFeedback}
-        isStartingProject={isStartingProject}
-      />
-    </ScrollView>
-  );
-}
-
-
 function CompletedTodayMeCardsSection({
   torchPiece,
   projects,
@@ -5562,151 +5490,6 @@ function DreamProjectSummaryCard({ summary }: { summary: DreamProjectSummary }) 
   );
 }
 
-function DreamTorchSimplePanel({
-  piece,
-  todayMeCards,
-  onSelectGoalDuration,
-  isSavingGoalDuration,
-  onRecordDreamRoutine,
-  onCompleteProjectNextAction,
-}: {
-  piece: DailyTraceItem;
-  todayMeCards: TodayMeCard[];
-  onSelectGoalDuration: (itemId: string, months: GoalDurationMonths) => Promise<void>;
-  isSavingGoalDuration: boolean;
-  onRecordDreamRoutine: (itemId: string, routineId: string, score: DreamRoutineQuickScore, value?: number) => void;
-  onCompleteProjectNextAction: (projectId: string) => void;
-}) {
-  const selectedMonths = getSelectedGoalDuration(piece);
-  const todayKey = getLocalDateString(new Date());
-  const fireRoutines = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "routine" }> => card.cardType === "routine");
-  const fireProjects = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "project" }> => card.cardType === "project");
-  const displayText = getMemoryInputText(piece) || piece.title;
-  const ddayLabel = getDreamDdayLabel(piece);
-  const completedRoutineCount = fireRoutines.filter(
-    ({ routine }) => isRoutineActionDoneToday(getTodayRoutineRecord(piece, routine))
-  ).length;
-  const completedProjectCount = fireProjects.filter(({ project }) => isProjectActionDone(project, todayKey)).length;
-  const totalFireCount = todayMeCards.length;
-  const completedFireCount = completedRoutineCount + completedProjectCount;
-  const isAllDoneToday = totalFireCount > 0 && completedFireCount === totalFireCount;
-
-  return (
-    <View style={styles.dreamTorchSimplePanel}>
-      <Text style={styles.flowCardTitle}>꿈의 횃불</Text>
-      <View style={styles.dreamTorchGoalRow}>
-        <Text style={styles.dreamTorchGoalText}>{displayText}</Text>
-        {ddayLabel ? <Text style={styles.dreamTorchDdayText}>{ddayLabel}</Text> : null}
-      </View>
-
-      <View style={styles.dreamTorchSection}>
-        <Text style={styles.dreamTorchSectionTitle}>목표 기간</Text>
-        <View style={styles.goalDurationButtonRow}>
-          {([3, 6, 12] as GoalDurationMonths[]).map((months) => {
-            const isSelected = selectedMonths === months;
-            return (
-              <TouchableOpacity
-                key={months}
-                style={[
-                  styles.goalDurationButton,
-                  isSelected && styles.goalDurationButtonSelected,
-                  isSavingGoalDuration && styles.traceConfirmButtonDisabled,
-                ]}
-                onPress={() => {
-                  void onSelectGoalDuration(piece.id, months);
-                }}
-                disabled={isSavingGoalDuration}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.goalDurationButtonText, isSelected && styles.goalDurationButtonTextSelected]}>
-                  {isSavingGoalDuration && isSelected ? "저장 중..." : `${months}개월`}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.dreamTorchSection}>
-        <View style={styles.dreamTorchFireHeader}>
-          <Text style={styles.dreamTorchSectionTitle}>
-            {isAllDoneToday ? "오늘의 불씨를 모두 켰어요 🔥" : "오늘의 불씨"}
-          </Text>
-          <Text style={styles.dreamTorchCountText}>{completedFireCount} / {totalFireCount}</Text>
-        </View>
-        {totalFireCount > 0 ? (
-          <View style={styles.dreamTorchRoutineList}>
-            {fireRoutines.map(({ routine }, index) => {
-              const record = getTodayRoutineRecord(piece, routine);
-              const isDone = isRoutineActionDoneToday(record);
-              const targetValue = getEffectiveRoutineTargetValue(routine, todayKey);
-              const routineTargetText =
-                targetValue > 0 ? `오늘 목표 · ${formatRoutineTarget(targetValue, routine.unit)}` : formatRoutineMeta(routine);
-              const showDivider = index < totalFireCount - 1;
-
-              return (
-                <View key={routine.id}>
-                  <View style={styles.dreamTorchRoutineRow}>
-                    <View style={styles.dreamTorchRoutineTextBlock}>
-                      <Text style={styles.dreamTorchRoutineTitle}>{isDone ? `🔥 ${routine.title}` : routine.title}</Text>
-                      <Text style={styles.dreamTorchRoutineMeta}>
-                        {isDone ? "오늘 행동했어요" : routineTargetText}
-                      </Text>
-                    </View>
-                    {!isDone ? (
-                      <View style={styles.dreamTorchFireActionRow}>
-                      <TouchableOpacity
-                        style={styles.dreamTorchCompleteButton}
-                        onPress={() => onRecordDreamRoutine(piece.id, routine.id, 1)}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={styles.dreamTorchCompleteButtonText}>완료</Text>
-                      </TouchableOpacity>
-                      </View>
-                    ) : null}
-                  </View>
-                  {showDivider ? <View style={styles.dreamTorchRoutineDivider} /> : null}
-                </View>
-              );
-            })}
-            {fireProjects.map(({ project }, index) => {
-              const isDone = isProjectActionDone(project, todayKey);
-              const actionText = project.nextAction?.trim() || "다음 행동";
-
-              return (
-                <View key={`project-fire-${project.id}`}>
-                  <View style={styles.dreamTorchRoutineRow}>
-                    <View style={styles.dreamTorchRoutineTextBlock}>
-                      <Text style={styles.dreamTorchRoutineTitle}>{isDone ? `🔥 ${actionText}` : actionText}</Text>
-                      <Text style={styles.dreamTorchRoutineMeta}>
-                        {isDone ? "오늘 행동했어요" : `프로젝트 · ${project.title}`}
-                      </Text>
-                    </View>
-                    {!isDone ? (
-                      <View style={styles.dreamTorchFireActionRow}>
-                      <TouchableOpacity
-                        style={styles.dreamTorchCompleteButton}
-                        onPress={() => onCompleteProjectNextAction(project.id)}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={styles.dreamTorchCompleteButtonText}>완료</Text>
-                      </TouchableOpacity>
-                      </View>
-                    ) : null}
-                  </View>
-                  {fireRoutines.length + index < totalFireCount - 1 ? <View style={styles.dreamTorchRoutineDivider} /> : null}
-                </View>
-              );
-            })}
-          </View>
-        ) : (
-          <Text style={styles.dreamTorchEmptyText}>오늘 켤 불씨가 아직 없어요.</Text>
-        )}
-      </View>
-    </View>
-  );
-}
-
 function getDreamDdayLabel(piece: DailyTraceItem) {
   const selectedDuration = normalizeGoalDurationMonths(getSelectedGoalDuration(piece) ?? piece.goalDurationMonths);
   const startDateKey = getDreamStartDateKey(piece);
@@ -5726,230 +5509,6 @@ function getDreamDdayLabel(piece: DailyTraceItem) {
     return "D-DAY";
   }
   return "기간 종료";
-}
-
-function GoalDurationSelector({
-  piece,
-  onSelectGoalDuration,
-  isSaving,
-}: {
-  piece: DailyTraceItem;
-  onSelectGoalDuration: (itemId: string, months: GoalDurationMonths) => Promise<void>;
-  isSaving: boolean;
-}) {
-  const selectedMonths = getSelectedGoalDuration(piece);
-  const startDate = isValidDateKey(piece.goalStartDate) ? String(piece.goalStartDate) : "";
-  const targetDate = isValidDateKey(piece.goalTargetDate) ? String(piece.goalTargetDate) : "";
-
-  return (
-    <View style={styles.flowCard}>
-      <Text style={styles.flowCardTitle}>목표 기간</Text>
-      <View style={styles.goalDurationButtonRow}>
-        {([3, 6, 12] as GoalDurationMonths[]).map((months) => {
-          const isSelected = selectedMonths === months;
-          return (
-            <TouchableOpacity
-              key={months}
-              style={[
-                styles.goalDurationButton,
-                isSelected && styles.goalDurationButtonSelected,
-                isSaving && styles.traceConfirmButtonDisabled,
-              ]}
-              onPress={() => {
-                void onSelectGoalDuration(piece.id, months);
-              }}
-              disabled={isSaving}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.goalDurationButtonText, isSelected && styles.goalDurationButtonTextSelected]}>
-                {isSaving && isSelected ? "저장 중..." : `${months}개월`}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <Text style={styles.dreamPlanHint}>
-        {selectedMonths ? getGoalDurationMessage(selectedMonths) : "목표 기간을 선택하면 같은 수행 기록도 기간에 맞춰 천천히 누적돼요."}
-      </Text>
-      {startDate && targetDate ? (
-        <Text style={styles.dreamPlanHint}>{formatDateDot(startDate)} ~ {formatDateDot(targetDate)}</Text>
-      ) : null}
-    </View>
-  );
-}
-function DreamPieceCard({
-  piece,
-  isTorch = false,
-  onPinDreamTorch,
-  onHideFromDream,
-  projects,
-  torchPiece,
-  onStartProjectFromFragment,
-  onUpdateDreamTorchPlan,
-  onRecordDreamRoutine,
-  onOpenProject,
-  onCompleteProjectFromTodayMe,
-}: {
-  piece: DailyTraceItem;
-  isTorch?: boolean;
-  onPinDreamTorch: (itemId: string) => void;
-  onHideFromDream: (itemId: string) => void;
-  projects: NoieProject[];
-  torchPiece?: DailyTraceItem;
-  onStartProjectFromFragment: (itemId: string) => void;
-  onUpdateDreamTorchPlan: (itemId: string, values: Partial<DailyTraceItem>) => void;
-  onRecordDreamRoutine: (itemId: string, routineId: string, score: DreamRoutineQuickScore, value?: number) => void;
-  onOpenProject: (projectId: string) => void;
-  onCompleteProjectFromTodayMe: (projectId: string) => void;
-}) {
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [isCompleteConfirmOpen, setIsCompleteConfirmOpen] = useState(false);
-  const linkedProjects = getLinkedProjectsForFragment(piece, projects);
-  const completedProject = getCompletedProjectForFragment(piece, projects);
-  const linkedProject = completedProject ?? linkedProjects.find((project) => project.status !== "done" && !project.completedAt);
-  const state = getDreamFragmentCardState(linkedProject);
-  const displayText = getMemoryInputText(piece) || piece.title;
-  const memoText = piece.memo?.trim() ?? "";
-  const shouldShowMemo =
-    memoText.length > 0 && normalizeMemoryInput(memoText) !== normalizeMemoryInput(displayText);
-
-  return (
-    <View style={styles.traceListItem}>
-      <View style={styles.traceListTextBlock}>
-        <Text style={styles.traceItemTitle}>{state.icon} {displayText}</Text>
-        {shouldShowMemo ? <Text style={styles.traceItemMemo}>{memoText}</Text> : null}
-        <Text style={styles.dreamPieceStatusText}>{state.label}</Text>
-
-        {isTorch ? (
-          <DreamTorchPlanPanel
-            piece={piece}
-            projects={projects}
-            onUpdatePlan={onUpdateDreamTorchPlan}
-            onRecordRoutine={onRecordDreamRoutine}
-          />
-        ) : null}
-
-        <View style={styles.dreamPieceActions}>
-          {!isTorch ? (
-            <>
-              {state.kind === "none" ? (
-                <TouchableOpacity
-                  style={styles.dreamPieceActionButton}
-                  onPress={() => onStartProjectFromFragment(piece.id)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.dreamPieceActionText}>프로젝트 시작</Text>
-                </TouchableOpacity>
-              ) : null}
-              {state.kind === "progress" && linkedProject ? (
-                <TouchableOpacity
-                  style={styles.dreamPieceActionButton}
-                  onPress={() => onOpenProject(linkedProject.id)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.dreamPieceActionText}>이어가기</Text>
-                </TouchableOpacity>
-              ) : null}
-              {state.kind === "progress" && linkedProject ? (
-                <TouchableOpacity
-                  style={styles.dreamPieceActionButtonMuted}
-                  onPress={() => setIsCompleteConfirmOpen(true)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.dreamPieceActionTextMuted}>완료</Text>
-                </TouchableOpacity>
-              ) : null}
-            </>
-          ) : null}
-          {!isTorch ? (
-            <TouchableOpacity
-              style={styles.dreamPieceActionButtonMuted}
-              onPress={() => setIsMoreMenuOpen((value) => !value)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.dreamPieceActionTextMuted}>⋯</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        {isMoreMenuOpen && !isTorch ? (
-          <View style={styles.dreamPieceMoreMenu}>
-            <TouchableOpacity
-              style={styles.dreamPieceMoreMenuItem}
-              onPress={() => {
-                setIsMoreMenuOpen(false);
-                onPinDreamTorch(piece.id);
-              }}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.dreamPieceMoreMenuText}>꿈의 횃불로 밝히기</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.dreamPieceMoreMenuItem}
-              onPress={() => {
-                setIsMoreMenuOpen(false);
-                setIsDeleteConfirmOpen(true);
-              }}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.dreamPieceMoreMenuText}>삭제</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        {isCompleteConfirmOpen && linkedProject ? (
-          <View style={styles.dreamPieceCompleteConfirmBox}>
-            <Text style={styles.dreamPieceCompleteConfirmText}>이 꿈의 파편을 완성할까요?</Text>
-            <View style={styles.dreamPieceActions}>
-              <TouchableOpacity
-                style={styles.dreamPieceCompleteButton}
-                onPress={() => {
-                  setIsCompleteConfirmOpen(false);
-                  onCompleteProjectFromTodayMe(linkedProject.id);
-                }}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.dreamPieceCompleteButtonText}>완료하기</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.dreamPieceActionButtonMuted}
-                onPress={() => setIsCompleteConfirmOpen(false)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.dreamPieceActionTextMuted}>취소</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
-
-        {isDeleteConfirmOpen ? (
-          <View style={styles.dreamPieceDeleteConfirmBox}>
-            <Text style={styles.dreamPieceDeleteConfirmText}>이 꿈의 파편을 삭제할까요?</Text>
-            <View style={styles.dreamPieceActions}>
-              <TouchableOpacity
-                style={styles.dreamPieceDeleteButton}
-                onPress={() => {
-                  setIsDeleteConfirmOpen(false);
-                  onHideFromDream(piece.id);
-                }}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.dreamPieceDeleteButtonText}>삭제</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.dreamPieceActionButtonMuted}
-                onPress={() => setIsDeleteConfirmOpen(false)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.dreamPieceActionTextMuted}>취소</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
-      </View>
-    </View>
-  );
 }
 
 type DreamProgressBreakdown = {
@@ -13834,160 +13393,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
-  goalDurationButtonRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  goalDurationButton: {
-    alignItems: "center",
-    backgroundColor: "#151515",
-    borderColor: "#303030",
-    borderRadius: 8,
-    borderWidth: 1,
-    flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  goalDurationButtonSelected: {
-    backgroundColor: "#e5e7eb",
-    borderColor: "#f9fafb",
-  },
-  goalDurationButtonText: {
-    color: "#d1d5db",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  goalDurationButtonTextSelected: {
-    color: "#111111",
-  },
-  dreamTorchSimplePanel: {
-    gap: 16,
-  },
-  dreamTorchGoalRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-  },
-  dreamTorchGoalText: {
-    color: "#f8fafc",
-    flex: 1,
-    fontSize: 18,
-    fontWeight: "900",
-    lineHeight: 26,
-  },
-  dreamTorchDdayText: {
-    color: "#fbbf24",
-    flexShrink: 0,
-    fontSize: 14,
-    fontWeight: "900",
-    lineHeight: 24,
-  },
-  dreamTorchSection: {
-    gap: 10,
-  },
-  dreamTorchSectionTitle: {
-    color: "#e5e7eb",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  dreamTorchFireHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  dreamTorchCountText: {
-    color: "#aeb4c0",
-    flexShrink: 0,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  dreamTorchRoutineList: {
-    borderTopColor: "#2a2a2a",
-    borderTopWidth: 1,
-  },
-  dreamTorchRoutineRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    minHeight: 58,
-    paddingVertical: 12,
-  },
-  dreamTorchRoutineIconBox: {
-    alignItems: "center",
-    flexShrink: 0,
-    justifyContent: "center",
-    width: 22,
-  },
-  dreamTorchRoutineIcon: {
-    color: "#fbbf24",
-    fontSize: 16,
-    fontWeight: "900",
-    lineHeight: 20,
-  },
-  dreamTorchRoutineTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  dreamTorchRoutineTitle: {
-    color: "#f2f4f8",
-    fontSize: 14,
-    fontWeight: "900",
-    lineHeight: 20,
-  },
-  dreamTorchRoutineMeta: {
-    color: "#9ca3af",
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 18,
-    marginTop: 2,
-  },
-  dreamTorchCompleteButton: {
-    borderColor: "#4a5568",
-    borderRadius: 999,
-    borderWidth: 1,
-    flexShrink: 0,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  dreamTorchFireActionRow: {
-    flexDirection: "row",
-    flexShrink: 0,
-    gap: 6,
-  },
-  dreamTorchCompleteButtonText: {
-    color: "#e5e7eb",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  dreamTorchCancelButton: {
-    borderColor: "#3a3a3a",
-    borderRadius: 999,
-    borderWidth: 1,
-    flexShrink: 0,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  dreamTorchCancelButtonText: {
-    color: "#9ca3af",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  dreamTorchFireButtonDisabled: {
-    opacity: 0.45,
-  },
-  dreamTorchRoutineDivider: {
-    backgroundColor: "#2a2a2a",
-    height: 1,
-    marginLeft: 32,
-  },
-  dreamTorchEmptyText: {
-    color: "#9ca3af",
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 18,
-  },
   dreamPlanBox: {
     backgroundColor: "#141414",
     borderColor: "#2d2d2d",
@@ -14235,48 +13640,6 @@ const styles = StyleSheet.create({
     color: "#cbd5e1",
     fontSize: 12,
     fontWeight: "800",
-  },
-  completedDreamFragmentsBox: {
-    borderColor: "#262626",
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 14,
-    padding: 10,
-  },
-  completedDreamFragmentsHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  completedDreamFragmentsTitle: {
-    color: "#f2f4f8",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  completedDreamFragmentsToggle: {
-    color: "#d1d5db",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  completedDreamFragmentsList: {
-    gap: 10,
-    marginTop: 12,
-  },
-  completedDreamFragmentItem: {
-    gap: 3,
-  },
-  completedDreamFragmentTitle: {
-    color: "#f2f4f8",
-    fontSize: 13,
-    fontWeight: "900",
-    lineHeight: 19,
-  },
-  completedDreamFragmentMeta: {
-    color: "#9ca3af",
-    fontSize: 12,
-    fontWeight: "800",
-    lineHeight: 18,
-    paddingLeft: 18,
   },
   dreamFragmentInfoBox: {
     backgroundColor: "#161616",
