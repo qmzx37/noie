@@ -81,7 +81,7 @@ export function getDailyRoutineCompletionRatio(
     return 0;
   }
   const record = findRoutineRecord(records, routine.id, dateKey);
-  if (isRoutineRecordExplicitlyCompleted(record)) {
+  if (isRoutineRecordFullyCompleted(record, routine, dateKey)) {
     return 1;
   }
 
@@ -754,9 +754,11 @@ export function isRoutineRecordExplicitlyCompleted(record?: DreamRoutineRecord) 
   const recordWithCompletion = record as DreamRoutineRecord & {
     completed?: boolean;
     completedAt?: string;
+    completionType?: string;
   };
   return (
     recordWithCompletion.completed === true ||
+    recordWithCompletion.completionType === "full" ||
     Boolean(recordWithCompletion.completedAt) ||
     safeNumber(record.score) >= 1
   );
@@ -764,8 +766,31 @@ export function isRoutineRecordExplicitlyCompleted(record?: DreamRoutineRecord) 
 
 
 
+export function isRoutineRecordFullyCompleted(
+  record?: DreamRoutineRecord,
+  routine?: DreamRoutine,
+  dateKey?: string
+) {
+  if (!record) {
+    return false;
+  }
+  if (isRoutineRecordExplicitlyCompleted(record)) {
+    return true;
+  }
+  if (!routine || !dateKey) {
+    return false;
+  }
+  const targetValue = getEffectiveRoutineTargetValue(routine, dateKey);
+  if (targetValue <= 0) {
+    return safeNumber(record.score) >= 1;
+  }
+  return getRoutineRecordMeasuredValue(record) >= targetValue;
+}
+
+
+
 export function isRoutineActionDoneToday(record?: DreamRoutineRecord) {
-  return Boolean(record && (getRoutineRecordActualValue(record) > 0 || record.score > 0));
+  return isRoutineRecordFullyCompleted(record);
 }
 
 

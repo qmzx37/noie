@@ -163,6 +163,7 @@ import {
   getEffectiveRoutineTargetValue,
   getProjectsRelatedToDream,
   getRoutineRecordActualValue,
+  getRoutineRecordMeasuredValue,
   isRoutineAvailableForTodayMe,
   isRoutineActionDoneToday,
   safeNumber,
@@ -3082,20 +3083,26 @@ export default function App() {
       const score = completedOnly
         ? existingRecord?.score ?? 1
         : calculateRoutineScore(routine, normalizedValue, dateKey);
-      const nextRecord = {
-        ...existingRecord,
-        id: existingRecord?.id ?? createId("routine-record"),
-        routineId,
-        date: dateKey,
-        score,
-        value: completedOnly ? existingRecord?.value : normalizedValue,
-        note: originalText ?? existingRecord?.note,
-        createdAt: existingRecord?.createdAt ?? now,
-        updatedAt: now,
-      } as DreamRoutineRecord & { completed?: boolean };
-      if (completedOnly) {
-        nextRecord.completed = true;
-      }
+      const nextRecord = completedOnly
+        ? buildCompletedRoutineRecord({
+            routine,
+            dateKey,
+            existingRecord,
+            now,
+            originalText,
+            fallbackValue: normalizedValue,
+          })
+        : ({
+            ...existingRecord,
+            id: existingRecord?.id ?? createId("routine-record"),
+            routineId,
+            date: dateKey,
+            score,
+            value: normalizedValue,
+            note: originalText ?? existingRecord?.note,
+            createdAt: existingRecord?.createdAt ?? now,
+            updatedAt: now,
+          } as DreamRoutineRecord);
       const nextRecords = upsertDreamRoutineRecord(item.routineRecords ?? [], nextRecord);
       didUpdate = true;
 
@@ -3176,6 +3183,78 @@ export default function App() {
       completedOnly: value === undefined && score > 0,
     });
   };
+
+  useEffect(() => {
+    const today = getLocalDateString(new Date());
+    const now = new Date().toISOString();
+    let didRepair = false;
+    const nextItems = dailyTraces.map((item) => {
+      if (!(item.routines ?? []).length || !(item.routineRecords ?? []).length) {
+        return item;
+      }
+
+      let didRepairItem = false;
+      const nextRecords = (item.routineRecords ?? []).map((record) => {
+        if (record.date !== today || safeNumber(record.score) < 1) {
+          return record;
+        }
+        const routine = (item.routines ?? []).find((candidate) => candidate.id === record.routineId);
+        if (!routine) {
+          return record;
+        }
+        const targetValue = getEffectiveRoutineTargetValue(routine, today);
+        const measuredValue = getRoutineRecordMeasuredValue(record);
+        const typedRecord = record as DreamRoutineRecord & {
+          actualValue?: number;
+          completed?: boolean;
+          completionType?: "full";
+        };
+        const looksLikeLegacyCompletedRecord =
+          typedRecord.completed === true ||
+          typedRecord.completionType === "full" ||
+          measuredValue === 1;
+        if (targetValue <= 0 || measuredValue >= targetValue || !looksLikeLegacyCompletedRecord) {
+          return record;
+        }
+
+        didRepair = true;
+        didRepairItem = true;
+        return {
+          ...record,
+          value: targetValue,
+          actualValue: targetValue,
+          completed: true,
+          completionType: "full",
+          updatedAt: now,
+        } as DreamRoutineRecord & {
+          actualValue?: number;
+          completed?: boolean;
+          completionType?: "full";
+        };
+      });
+
+      if (!didRepairItem) {
+        return item;
+      }
+
+      return {
+        ...item,
+        routineRecords: nextRecords,
+        progressUpdatedAt: now,
+        updatedAt: now,
+      };
+    });
+
+    if (!didRepair) {
+      return;
+    }
+
+    setDailyTraces(nextItems);
+    saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
+      console.error("[routine-completion-repair-save-error]", error)
+    );
+    console.log("[routine-completion-records-repaired]", { dateKey: today });
+  }, [dailyTraces]);
 
   const cancelRoutineTodayRecord = (itemId: string, routineId: string) => {
     const today = getLocalDateString(new Date());
@@ -4314,6 +4393,43 @@ function upsertDreamRoutineRecord(records: DreamRoutineRecord[], nextRecord: Dre
     ),
     nextRecord,
   ].sort((left, right) => right.date.localeCompare(left.date));
+}
+
+function buildCompletedRoutineRecord({
+  routine,
+  dateKey,
+  existingRecord,
+  now,
+  originalText,
+  fallbackValue,
+}: {
+  routine: DreamRoutine;
+  dateKey: string;
+  existingRecord?: DreamRoutineRecord;
+  now: string;
+  originalText?: string;
+  fallbackValue: number;
+}) {
+  const effectiveTargetValue = getEffectiveRoutineTargetValue(routine, dateKey);
+  const completedValue = effectiveTargetValue > 0 ? effectiveTargetValue : Math.max(1, fallbackValue);
+  return {
+    ...existingRecord,
+    id: existingRecord?.id ?? createId("routine-record"),
+    routineId: routine.id,
+    date: dateKey,
+    score: 1,
+    value: completedValue,
+    actualValue: completedValue,
+    completed: true,
+    completionType: "full",
+    note: originalText ?? existingRecord?.note,
+    createdAt: existingRecord?.createdAt ?? now,
+    updatedAt: now,
+  } as DreamRoutineRecord & {
+    actualValue?: number;
+    completed?: boolean;
+    completionType?: "full";
+  };
 }
 
 function convertRoutineRecordValueToRoutineUnit(
