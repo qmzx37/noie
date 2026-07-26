@@ -27,8 +27,6 @@ import type {
   DailyTraceStatus,
   DreamCompletionCriterion,
   DreamEvidence,
-  DreamMilestone,
-  DreamMilestonePriority,
   DreamMilestoneStatus,
   DreamProjectStatus,
   DreamRole,
@@ -39,8 +37,6 @@ import type {
   DreamRoutineRecord,
   DreamRoutineRecordType,
   DreamSavePromptKind,
-  DreamSeason,
-  DreamSeasonStatus,
   EmotionAxis,
   EmotionKey,
   EmotionLevel,
@@ -154,20 +150,23 @@ import {
   parseDateOnly,
 } from "./src/noie/dateUtils";
 import {
-  buildNeutralConsistencyDays,
-  calculateConsistencyScore,
-  calculateRoutineAccumulationRatio,
-  clampRatio,
+  calculateDreamProgress,
+  getActiveDreamRoutines,
+  getActiveDreamSeason,
   findRoutineRecord,
   getConsistencyStatusSymbol,
   getConsistencyWeekdayLabel,
+  getDreamDdayLabel,
+  getDreamProjectSummary,
+  getEmptyDreamProgressBreakdown,
   getEffectiveRoutineMinimumValue,
   getEffectiveRoutineTargetValue,
+  getProjectsRelatedToDream,
   getRoutineRecordActualValue,
+  isRoutineAvailableForTodayMe,
   isRoutineActionDoneToday,
-  roundProgressPercent,
   safeNumber,
-  type ConsistencyDay,
+  type DreamProjectSummary,
 } from "./src/features/dreams/dreamProgress";
 import {
   normalizeDailyTraces,
@@ -4152,12 +4151,6 @@ function getCompletedActionDisplayText(item: DailyTraceItem) {
   return getMeaningfulDailyPieceText(item) || item.title;
 }
 
-type DreamProjectSummary = DreamProgressBreakdown & {
-  progressPercent: number;
-  linkedProjectCount: number;
-  doneProjectCount: number;
-};
-
 function DreamProjectSummaryCard({ summary }: { summary: DreamProjectSummary }) {
   const [isProgressDetailsOpen, setIsProgressDetailsOpen] = useState(false);
 
@@ -4215,60 +4208,6 @@ function DreamProjectSummaryCard({ summary }: { summary: DreamProjectSummary }) 
     </View>
   );
 }
-
-function getDreamDdayLabel(piece: DailyTraceItem) {
-  const selectedDuration = normalizeGoalDurationMonths(getSelectedGoalDuration(piece) ?? piece.goalDurationMonths);
-  const startDateKey = getDreamStartDateKey(piece);
-  const targetDateKey = getDreamTargetDateKey(piece, startDateKey, selectedDuration);
-  const targetDate = parseDateOnly(targetDateKey);
-  const today = parseDateOnly(getLocalDateString(new Date()));
-
-  if (!targetDate || !today) {
-    return "";
-  }
-
-  const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / 86400000);
-  if (diffDays > 0) {
-    return `D-${diffDays}`;
-  }
-  if (diffDays === 0) {
-    return "D-DAY";
-  }
-  return "기간 종료";
-}
-
-type DreamProgressBreakdown = {
-  executionProgress: number;
-  timeProgress: number;
-  baseProgress: number;
-  paceBonus: number;
-  baseExecutionProgress: number;
-  elapsedPeriodPercent: number;
-  periodAdjustment: number;
-  hasExecutionData: boolean;
-  goalDurationMonths?: GoalDurationMonths | null;
-  goalStartDate?: string;
-  goalTargetDate?: string;
-  milestoneProgress: number;
-  cumulativeRoutineProgress: number;
-  recent28DayPace: number;
-  projectProgress: number;
-  evidenceProgress: number;
-  reliability: "낮음" | "보통" | "높음";
-  reliabilityReason: string;
-  nextMilestone?: DreamMilestone;
-  activeSeason?: DreamSeason;
-  milestoneWeightTotal: number;
-  routineWeight: number;
-  milestoneWeight: number;
-  consistencyScore: number;
-  consistencyDays: ConsistencyDay[];
-};
-
-type ProgressWeights = {
-  routineWeight: number;
-  milestoneWeight: number;
-};
 
 function DreamTorchPlanPanel({
   piece,
@@ -4377,232 +4316,6 @@ function upsertDreamRoutineRecord(records: DreamRoutineRecord[], nextRecord: Dre
   ].sort((left, right) => right.date.localeCompare(left.date));
 }
 
-function normalizeSingleSeason(seasons?: DreamSeason[]) {
-  if (!Array.isArray(seasons) || seasons.length === 0) {
-    return [];
-  }
-
-  const selectedSeason =
-    seasons.find((season) => season.status === "active") ?? seasons[0];
-
-  return [
-    {
-      ...selectedSeason,
-      status: "active" as DreamSeasonStatus,
-    },
-  ];
-}
-
-function getActiveDreamSeason(piece: DailyTraceItem) {
-  if (piece.currentSeason) {
-    return { ...piece.currentSeason, status: "active" as DreamSeasonStatus };
-  }
-
-  const seasons = normalizeSingleSeason(piece.seasons);
-  return seasons.find((season) => season.id === piece.activeSeasonId) ?? seasons[0];
-}
-
-function getActiveDreamRoutines(piece: DailyTraceItem, activeSeason?: DreamSeason) {
-  return (piece.routines ?? []).filter((routine) => {
-    if (!isRoutineVisibleInTodayMe(routine)) {
-      return false;
-    }
-
-    return !activeSeason || !routine.relatedSeasonId || routine.relatedSeasonId === activeSeason.id;
-  });
-}
-
-function getDreamRoutinesForConsistency(piece: DailyTraceItem, activeSeason?: DreamSeason) {
-  const routineRecordIds = new Set((piece.routineRecords ?? []).map((record) => record.routineId));
-  return (piece.routines ?? []).filter((routine) => {
-    if (activeSeason && routine.relatedSeasonId && routine.relatedSeasonId !== activeSeason.id) {
-      return false;
-    }
-    return isRoutineVisibleInTodayMe(routine) || routineRecordIds.has(routine.id);
-  });
-}
-
-function getProjectsRelatedToDream(piece: DailyTraceItem, projects: NoieProject[]) {
-  return projects.filter((project) => {
-    return (
-      project.relatedDreamTorchId === piece.id ||
-      project.sourceDreamFragmentId === piece.id ||
-      project.sourceMemoryId === piece.id
-    );
-  });
-}
-
-function calculateDreamProgress(piece: DailyTraceItem, _projects: NoieProject[]): DreamProgressBreakdown {
-  const activeSeason = getActiveDreamSeason(piece);
-  const milestones = (piece.milestones ?? []).filter(
-    (milestone) => !activeSeason || !milestone.relatedSeasonId || milestone.relatedSeasonId === activeSeason.id
-  );
-  const activeRoutines = getActiveDreamRoutines(piece, activeSeason);
-  const consistencyRoutines = getDreamRoutinesForConsistency(piece, activeSeason);
-  const selectedDuration = normalizeGoalDurationMonths(getSelectedGoalDuration(piece) ?? piece.goalDurationMonths);
-  const goalStartDate = getDreamStartDateKey(piece);
-  const goalTargetDate = getDreamTargetDateKey(piece, goalStartDate, selectedDuration);
-  const routineAccumulationRatio = calculateRoutineAccumulationRatio({
-    routines: activeRoutines,
-    routineRecords: piece.routineRecords ?? [],
-    startDateKey: goalStartDate,
-    targetDateKey: goalTargetDate,
-  });
-  const milestoneProgressRatio = calculateMilestoneProgressRatio(milestones);
-  const weights = resolveProgressWeights({
-    hasRoutines: activeRoutines.length > 0,
-    hasMilestones: milestones.length > 0,
-  });
-  const executionProgress = calculateOverallDreamProgress({
-    routineAccumulationRatio,
-    milestoneProgressRatio,
-    hasRoutines: activeRoutines.length > 0,
-    hasMilestones: milestones.length > 0,
-  });
-  const consistency = calculateConsistencyScore(consistencyRoutines, piece.routineRecords ?? []);
-  const cumulativeRoutineProgress = Math.round(clampRatio(routineAccumulationRatio) * 100);
-  const milestoneProgress = Math.round(clampRatio(milestoneProgressRatio) * 100);
-  const hasExecutionData =
-    activeRoutines.length > 0 ||
-    milestones.length > 0 ||
-    (piece.routineRecords ?? []).length > 0;
-
-  return {
-    executionProgress,
-    timeProgress: 0,
-    baseProgress: executionProgress,
-    paceBonus: 0,
-    baseExecutionProgress: executionProgress,
-    elapsedPeriodPercent: 0,
-    periodAdjustment: 0,
-    hasExecutionData,
-    goalDurationMonths: selectedDuration,
-    goalStartDate,
-    goalTargetDate,
-    milestoneProgress,
-    cumulativeRoutineProgress,
-    recent28DayPace: consistency.score,
-    projectProgress: 0,
-    evidenceProgress: 0,
-    reliability: hasExecutionData ? "높음" : "낮음",
-    reliabilityReason: hasExecutionData
-      ? "반복 목표와 완료 단계 원본 데이터로 계산했어요."
-      : "반복 목표와 완료 단계가 아직 없어요.",
-    nextMilestone: selectNextDreamMilestone(milestones),
-    activeSeason,
-    milestoneWeightTotal: milestones.length,
-    routineWeight: weights.routineWeight,
-    milestoneWeight: weights.milestoneWeight,
-    consistencyScore: consistency.score,
-    consistencyDays: consistency.days,
-  };
-}
-
-function normalizeGoalDurationMonths(value: unknown): GoalDurationMonths {
-  if (value === 3 || value === "3" || value === "3months" || value === "3개월") {
-    return 3;
-  }
-  if (value === 12 || value === "12" || value === "12months" || value === "12개월") {
-    return 12;
-  }
-  return 6;
-}
-
-function addMonthsSafe(sourceDate: Date, months: number): Date {
-  const result = new Date(sourceDate);
-  const originalDay = result.getDate();
-  result.setDate(1);
-  result.setMonth(result.getMonth() + months);
-  const finalDayOfMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-  result.setDate(Math.min(originalDay, finalDayOfMonth));
-  return result;
-}
-
-function getDreamStartDateKey(piece: DailyTraceItem) {
-  const typedPiece = piece as DailyTraceItem & {
-    journeyStartedAt?: string;
-    dreamStartedAt?: string;
-  };
-  const candidates = [
-    typedPiece.journeyStartedAt,
-    typedPiece.dreamStartedAt,
-    piece.goalStartDate,
-    piece.createdAt,
-    piece.date,
-  ];
-  const selected = candidates.find((value) => Boolean(parseDateOnly(value)));
-  return selected ? getLocalDateString(parseDateOnly(selected) ?? new Date()) : getLocalDateString(new Date());
-}
-
-function getDreamTargetDateKey(
-  piece: DailyTraceItem,
-  startDateKey: string,
-  durationMonths: GoalDurationMonths
-) {
-  if (isValidDateKey(piece.goalTargetDate)) {
-    return String(piece.goalTargetDate);
-  }
-  const startDate = parseDateOnly(startDateKey) ?? new Date();
-  return getLocalDateString(addMonthsSafe(startDate, durationMonths));
-}
-
-function calculateMilestoneProgressRatio(milestones: DreamMilestone[]) {
-  if (milestones.length === 0) {
-    return 0;
-  }
-  const completedCount = milestones.filter(
-    (milestone) => milestone.status === "done" || Boolean(milestone.completedAt)
-  ).length;
-  return clampRatio(completedCount / milestones.length);
-}
-
-function resolveProgressWeights({
-  hasRoutines,
-  hasMilestones,
-}: {
-  hasRoutines: boolean;
-  hasMilestones: boolean;
-}): ProgressWeights {
-  if (hasRoutines && hasMilestones) {
-    return { routineWeight: 70, milestoneWeight: 30 };
-  }
-  if (hasRoutines) {
-    return { routineWeight: 100, milestoneWeight: 0 };
-  }
-  if (hasMilestones) {
-    return { routineWeight: 0, milestoneWeight: 100 };
-  }
-  return { routineWeight: 0, milestoneWeight: 0 };
-}
-
-function calculateOverallDreamProgress({
-  routineAccumulationRatio,
-  milestoneProgressRatio,
-  hasRoutines,
-  hasMilestones,
-}: {
-  routineAccumulationRatio: number;
-  milestoneProgressRatio: number;
-  hasRoutines: boolean;
-  hasMilestones: boolean;
-}) {
-  const weights = resolveProgressWeights({ hasRoutines, hasMilestones });
-  const routineContribution = clampRatio(routineAccumulationRatio) * weights.routineWeight;
-  const milestoneContribution = clampRatio(milestoneProgressRatio) * weights.milestoneWeight;
-
-  return roundProgressPercent(routineContribution + milestoneContribution);
-}
-
-function selectNextDreamMilestone(milestones: DreamMilestone[]) {
-  const priorityScore: Record<DreamMilestonePriority, number> = { high: 0, medium: 1, low: 2 };
-  return [...milestones]
-    .filter((milestone) => milestone.status !== "done")
-    .sort((left, right) => {
-      const priorityDiff = priorityScore[left.priority] - priorityScore[right.priority];
-      return priorityDiff !== 0 ? priorityDiff : left.createdAt.localeCompare(right.createdAt);
-    })[0];
-}
-
 function convertRoutineRecordValueToRoutineUnit(
   value: number,
   sourceUnit?: string | null,
@@ -4703,28 +4416,7 @@ function getVisibleTodayMeCards(
 }
 
 function isActiveTodayMeRoutine(routine: DreamRoutine) {
-  return isRoutineVisibleInTodayMe(routine);
-}
-
-function isRoutineVisibleInTodayMe(routine: DreamRoutine) {
   return isRoutineAvailableForTodayMe(routine);
-}
-
-function isRoutineAvailableForTodayMe(routine: DreamRoutine) {
-  const typedRoutine = routine as DreamRoutine & {
-    deletedAt?: string | null;
-    hidden?: boolean;
-    status?: string;
-  };
-  return (
-    typedRoutine.deletedAt == null &&
-    typedRoutine.hidden !== true &&
-    typedRoutine.status !== "deleted" &&
-    typedRoutine.status !== "hidden" &&
-    routine.lifecycleStatus !== "completed" &&
-    routine.lifecycleStatus !== "archived" &&
-    routine.archivedFromTodayMe !== true
-  );
 }
 
 function getTodayMeCardOrder(card: TodayMeCard, torchPiece: DailyTraceItem | undefined, todayKey: string) {
@@ -4945,47 +4637,6 @@ function extractProjectTitle(...values: unknown[]): string {
 
 
 
-
-function getEmptyDreamProgressBreakdown(): DreamProgressBreakdown {
-  return {
-    executionProgress: 0,
-    timeProgress: 0,
-    baseProgress: 0,
-    paceBonus: 0,
-    baseExecutionProgress: 0,
-    elapsedPeriodPercent: 0,
-    periodAdjustment: 0,
-    hasExecutionData: false,
-    goalDurationMonths: null,
-    goalStartDate: "",
-    goalTargetDate: "",
-    milestoneProgress: 0,
-    cumulativeRoutineProgress: 0,
-    recent28DayPace: 0,
-    projectProgress: 0,
-    evidenceProgress: 0,
-    reliability: "낮음",
-    reliabilityReason: "목표 계획이 아직 설정되지 않았어요.",
-    milestoneWeightTotal: 0,
-    routineWeight: 0,
-    milestoneWeight: 0,
-    consistencyScore: 0,
-    consistencyDays: buildNeutralConsistencyDays(),
-  };
-}
-
-function getDreamProjectSummary(projects: NoieProject[], torchPiece?: DailyTraceItem, allProjects: NoieProject[] = projects): DreamProjectSummary {
-  const progress = torchPiece
-    ? calculateDreamProgress(torchPiece, getProjectsRelatedToDream(torchPiece, allProjects))
-    : getEmptyDreamProgressBreakdown();
-
-  return {
-    ...progress,
-    progressPercent: progress.executionProgress,
-    linkedProjectCount: projects.length,
-    doneProjectCount: projects.filter((project) => project.status === "done").length,
-  };
-}
 
 function formatDreamProjectStatus(status?: DreamProjectStatus) {
   const labelMap: Record<DreamProjectStatus, string> = {
