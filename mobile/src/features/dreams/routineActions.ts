@@ -1,6 +1,7 @@
 import type {
   DailyTraceItem,
   DreamRoutine,
+  DreamRoutineRecord,
   DreamRoutineRecordType,
 } from "../../noie/types";
 
@@ -41,6 +42,54 @@ export type UpdateRoutineDailyTargetInput = {
   unit?: string;
   now: string;
   updateProgress?: boolean;
+};
+
+export type BuildRoutineRecordInput = {
+  recordId: string;
+  routineId: string;
+  dateKey: string;
+  score: DreamRoutineRecord["score"];
+  value: number;
+  now: string;
+  existingRecord?: DreamRoutineRecord;
+  note?: string;
+};
+
+export type BuildCompletedRoutineRecordInput = {
+  recordId: string;
+  routineId: string;
+  dateKey: string;
+  score: DreamRoutineRecord["score"];
+  value: number;
+  now: string;
+  existingRecord?: DreamRoutineRecord;
+  note?: string;
+};
+
+export type UpdateRoutineRecordInput = {
+  itemId?: string;
+  routineId: string;
+  record: DreamRoutineRecord;
+  now: string;
+};
+
+export type UpdateRoutineRecordResult = {
+  items: DailyTraceItem[];
+  didUpdate: boolean;
+};
+
+export type RemoveRoutineRecordInput = {
+  itemId: string;
+  routineId: string;
+  dateKey: string;
+  now: string;
+};
+
+export type UpdateRoutineTodayMeStateInput = {
+  itemId: string;
+  routineId: string;
+  now: string;
+  state: "completed" | "archived";
 };
 
 export function buildTodayMeRoutine(input: BuildRoutineInput): DreamRoutine {
@@ -174,6 +223,134 @@ export function updateRoutineDailyTargetForItem(
           : routine
       ),
       ...(input.updateProgress === false ? {} : { progressUpdatedAt: input.now }),
+      updatedAt: input.now,
+    };
+  });
+}
+
+export function buildRoutineRecord(input: BuildRoutineRecordInput): DreamRoutineRecord {
+  return {
+    ...input.existingRecord,
+    id: input.existingRecord?.id ?? input.recordId,
+    routineId: input.routineId,
+    date: input.dateKey,
+    score: input.score,
+    value: input.value,
+    note: input.note ?? input.existingRecord?.note,
+    createdAt: input.existingRecord?.createdAt ?? input.now,
+    updatedAt: input.now,
+  };
+}
+
+export function buildCompletedRoutineRecord(
+  input: BuildCompletedRoutineRecordInput
+): DreamRoutineRecord & {
+  actualValue?: number;
+  completed?: boolean;
+  completionType?: "full";
+} {
+  return {
+    ...input.existingRecord,
+    id: input.existingRecord?.id ?? input.recordId,
+    routineId: input.routineId,
+    date: input.dateKey,
+    score: input.score,
+    value: input.value,
+    actualValue: input.value,
+    completed: true,
+    completionType: "full",
+    note: input.note ?? input.existingRecord?.note,
+    createdAt: input.existingRecord?.createdAt ?? input.now,
+    updatedAt: input.now,
+  };
+}
+
+export function upsertRoutineRecord(
+  records: DreamRoutineRecord[],
+  nextRecord: DreamRoutineRecord
+) {
+  return [
+    ...records.filter(
+      (record) => !(record.routineId === nextRecord.routineId && record.date === nextRecord.date)
+    ),
+    nextRecord,
+  ].sort((left, right) => right.date.localeCompare(left.date));
+}
+
+export function updateRoutineRecordInItems(
+  items: DailyTraceItem[],
+  input: UpdateRoutineRecordInput
+): UpdateRoutineRecordResult {
+  let didUpdate = false;
+  const nextItems = items.map((item) => {
+    if (input.itemId && item.id !== input.itemId) {
+      return item;
+    }
+    if (!(item.routines ?? []).some((routine) => routine.id === input.routineId)) {
+      return item;
+    }
+
+    didUpdate = true;
+    return {
+      ...item,
+      routineRecords: upsertRoutineRecord(item.routineRecords ?? [], input.record),
+      progressUpdatedAt: input.now,
+      updatedAt: input.now,
+    };
+  });
+
+  return { items: nextItems, didUpdate };
+}
+
+export function removeRoutineRecordFromItems(
+  items: DailyTraceItem[],
+  input: RemoveRoutineRecordInput
+): DailyTraceItem[] {
+  return items.map((item) => {
+    if (item.id !== input.itemId) {
+      return item;
+    }
+    return {
+      ...item,
+      routineRecords: (item.routineRecords ?? []).filter(
+        (record) => !(record.routineId === input.routineId && record.date === input.dateKey)
+      ),
+      progressUpdatedAt: input.now,
+      updatedAt: input.now,
+    };
+  });
+}
+
+export function updateRoutineTodayMeStateInItems(
+  items: DailyTraceItem[],
+  input: UpdateRoutineTodayMeStateInput
+): DailyTraceItem[] {
+  return items.map((item) => {
+    if (item.id !== input.itemId) {
+      return item;
+    }
+
+    return {
+      ...item,
+      routines: (item.routines ?? []).map((routine) => {
+        if (routine.id !== input.routineId) {
+          return routine;
+        }
+        if (input.state === "completed") {
+          return {
+            ...routine,
+            active: false,
+            lifecycleStatus: "completed",
+            completedAt: input.now,
+            updatedAt: input.now,
+          };
+        }
+        return {
+          ...routine,
+          archivedFromTodayMe: true,
+          updatedAt: input.now,
+        };
+      }),
       updatedAt: input.now,
     };
   });

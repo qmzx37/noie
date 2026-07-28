@@ -32,7 +32,6 @@ import type {
   DreamRole,
   DreamRoutine,
   DreamRoutineDailySetting,
-  DreamRoutineLifecycleStatus,
   DreamRoutineQuickScore,
   DreamRoutineRecord,
   DreamRoutineRecordType,
@@ -109,10 +108,15 @@ import {
 } from "./src/features/dreams/dreamActions";
 import {
   addRoutineToTorch,
+  buildCompletedRoutineRecord as buildCompletedRoutineRecordAction,
+  buildRoutineRecord,
   buildTodayMeRoutine,
+  removeRoutineRecordFromItems,
   restoreTodayMeRoutineInTorch,
   updateRoutineDailyTargetForItem,
+  updateRoutineRecordInItems,
   updateRoutineTargetInItems,
+  updateRoutineTodayMeStateInItems,
 } from "./src/features/dreams/routineActions";
 import {
   ProjectCreateScreen,
@@ -2863,60 +2867,60 @@ export default function App() {
 
     let routineTitle = "";
     let displayUnit = unit ?? "";
-    let didUpdate = false;
-    let nextItems = dailyTraces.map((item) => {
+    const targetItem = dailyTraces.find((item) => {
       if (itemId && item.id !== itemId) {
-        return item;
+        return false;
       }
-      if (!(item.routines ?? []).some((routine) => routine.id === routineId)) {
-        return item;
-      }
-
-      const routine = (item.routines ?? []).find((candidate) => candidate.id === routineId);
-      if (!routine) {
-        return item;
-      }
-      routineTitle = routine.title;
-      displayUnit = unit ?? routine.unit ?? "";
-      const normalizedValue = convertRoutineRecordValueToRoutineUnit(
-        safeActualValue,
-        unit,
-        routine.unit
-      );
-      const existingRecord = findRoutineRecord(item.routineRecords ?? [], routineId, dateKey);
-      const score = completedOnly
-        ? existingRecord?.score ?? 1
-        : calculateRoutineScore(routine, normalizedValue, dateKey);
-      const nextRecord = completedOnly
-        ? buildCompletedRoutineRecord({
-            routine,
-            dateKey,
-            existingRecord,
-            now,
-            originalText,
-            fallbackValue: normalizedValue,
-          })
-        : ({
-            ...existingRecord,
-            id: existingRecord?.id ?? createId("routine-record"),
-            routineId,
-            date: dateKey,
-            score,
-            value: normalizedValue,
-            note: originalText ?? existingRecord?.note,
-            createdAt: existingRecord?.createdAt ?? now,
-            updatedAt: now,
-          } as DreamRoutineRecord);
-      const nextRecords = upsertDreamRoutineRecord(item.routineRecords ?? [], nextRecord);
-      didUpdate = true;
-
-      return {
-        ...item,
-        routineRecords: nextRecords,
-        progressUpdatedAt: now,
-        updatedAt: now,
-      };
+      return (item.routines ?? []).some((routine) => routine.id === routineId);
     });
+    const routine = targetItem?.routines?.find((candidate) => candidate.id === routineId);
+    if (!targetItem || !routine) {
+      return false;
+    }
+
+    routineTitle = routine.title;
+    displayUnit = unit ?? routine.unit ?? "";
+    const normalizedValue = convertRoutineRecordValueToRoutineUnit(
+      safeActualValue,
+      unit,
+      routine.unit
+    );
+    const existingRecord = findRoutineRecord(targetItem.routineRecords ?? [], routineId, dateKey);
+    const score = completedOnly
+      ? existingRecord?.score ?? 1
+      : calculateRoutineScore(routine, normalizedValue, dateKey);
+    const recordId = existingRecord?.id ?? createId("routine-record");
+    const effectiveTargetValue = getEffectiveRoutineTargetValue(routine, dateKey);
+    const completedValue = effectiveTargetValue > 0 ? effectiveTargetValue : Math.max(1, normalizedValue);
+    const nextRecord = completedOnly
+      ? buildCompletedRoutineRecordAction({
+          recordId,
+          routineId,
+          dateKey,
+          score,
+          value: completedValue,
+          existingRecord,
+          now,
+          note: originalText,
+        })
+      : buildRoutineRecord({
+          recordId,
+          routineId,
+          dateKey,
+          score,
+          value: normalizedValue,
+          existingRecord,
+          now,
+          note: originalText,
+        });
+    const recordResult = updateRoutineRecordInItems(dailyTraces, {
+      itemId,
+      routineId,
+      record: nextRecord,
+      now,
+    });
+    let nextItems = recordResult.items;
+    const didUpdate = recordResult.didUpdate;
 
     if (didUpdate && source === "chat") {
       const traceTitle = completedOnly
@@ -3064,18 +3068,11 @@ export default function App() {
     const today = getLocalDateString(new Date());
     const now = new Date().toISOString();
     setDailyTraces((currentItems) => {
-      const nextItems = currentItems.map((item) => {
-        if (item.id !== itemId) {
-          return item;
-        }
-        return {
-          ...item,
-          routineRecords: (item.routineRecords ?? []).filter(
-            (record) => !(record.routineId === routineId && record.date === today)
-          ),
-          progressUpdatedAt: now,
-          updatedAt: now,
-        };
+      const nextItems = removeRoutineRecordFromItems(currentItems, {
+        itemId,
+        routineId,
+        dateKey: today,
+        now,
       });
       saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[routine-today-cancel-save-error]", error)
@@ -3125,25 +3122,11 @@ export default function App() {
   const completeRoutineFromTodayMe = (itemId: string, routineId: string) => {
     const now = new Date().toISOString();
     setDailyTraces((currentItems) => {
-      const nextItems = currentItems.map((item) => {
-        if (item.id !== itemId) {
-          return item;
-        }
-        return {
-          ...item,
-          routines: (item.routines ?? []).map((routine) =>
-            routine.id === routineId
-              ? {
-                  ...routine,
-                  active: false,
-                  lifecycleStatus: "completed" as DreamRoutineLifecycleStatus,
-                  completedAt: now,
-                  updatedAt: now,
-                }
-              : routine
-          ),
-          updatedAt: now,
-        };
+      const nextItems = updateRoutineTodayMeStateInItems(currentItems, {
+        itemId,
+        routineId,
+        now,
+        state: "completed",
       });
       saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[today-me-routine-complete-save-error]", error)
@@ -3156,23 +3139,11 @@ export default function App() {
   const removeRoutineFromTodayMe = (itemId: string, routineId: string) => {
     const now = new Date().toISOString();
     setDailyTraces((currentItems) => {
-      const nextItems = currentItems.map((item) => {
-        if (item.id !== itemId) {
-          return item;
-        }
-        return {
-          ...item,
-          routines: (item.routines ?? []).map((routine) =>
-            routine.id === routineId
-              ? {
-                  ...routine,
-                  archivedFromTodayMe: true,
-                  updatedAt: now,
-                }
-              : routine
-          ),
-          updatedAt: now,
-        };
+      const nextItems = updateRoutineTodayMeStateInItems(currentItems, {
+        itemId,
+        routineId,
+        now,
+        state: "archived",
       });
       saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[today-me-routine-remove-save-error]", error)
@@ -4153,52 +4124,6 @@ function buildCompletionCriteria(
       evidenceIds: previous?.evidenceIds,
     };
   });
-}
-
-function upsertDreamRoutineRecord(records: DreamRoutineRecord[], nextRecord: DreamRoutineRecord) {
-  return [
-    ...records.filter(
-      (record) => !(record.routineId === nextRecord.routineId && record.date === nextRecord.date)
-    ),
-    nextRecord,
-  ].sort((left, right) => right.date.localeCompare(left.date));
-}
-
-function buildCompletedRoutineRecord({
-  routine,
-  dateKey,
-  existingRecord,
-  now,
-  originalText,
-  fallbackValue,
-}: {
-  routine: DreamRoutine;
-  dateKey: string;
-  existingRecord?: DreamRoutineRecord;
-  now: string;
-  originalText?: string;
-  fallbackValue: number;
-}) {
-  const effectiveTargetValue = getEffectiveRoutineTargetValue(routine, dateKey);
-  const completedValue = effectiveTargetValue > 0 ? effectiveTargetValue : Math.max(1, fallbackValue);
-  return {
-    ...existingRecord,
-    id: existingRecord?.id ?? createId("routine-record"),
-    routineId: routine.id,
-    date: dateKey,
-    score: 1,
-    value: completedValue,
-    actualValue: completedValue,
-    completed: true,
-    completionType: "full",
-    note: originalText ?? existingRecord?.note,
-    createdAt: existingRecord?.createdAt ?? now,
-    updatedAt: now,
-  } as DreamRoutineRecord & {
-    actualValue?: number;
-    completed?: boolean;
-    completionType?: "full";
-  };
 }
 
 function convertRoutineRecordValueToRoutineUnit(
