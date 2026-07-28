@@ -111,6 +111,8 @@ import {
   addRoutineToTorch,
   buildTodayMeRoutine,
   restoreTodayMeRoutineInTorch,
+  updateRoutineDailyTargetForItem,
+  updateRoutineTargetInItems,
 } from "./src/features/dreams/routineActions";
 import {
   ProjectCreateScreen,
@@ -1816,43 +1818,15 @@ export default function App() {
     const now = new Date().toISOString();
     const today = getLocalDateString(new Date());
     const applyMode = action === "today" ? "today" : "default";
-    const nextItems = dailyTraces.map((item) => ({
-      ...item,
-      routines: (item.routines ?? []).map((routine) => {
-        if (routine.id !== routingResult.matchedRoutineId) {
-          return routine;
-        }
-        if (applyMode === "default") {
-          const nextDailySettings = { ...(routine.dailySettings ?? {}) };
-          delete nextDailySettings[today];
-          return {
-            ...routine,
-            targetValue: routingResult.targetValue ?? routine.targetValue,
-            minimumValue: 0,
-            unit: routingResult.unit ?? routine.unit,
-            dailySettings: nextDailySettings,
-            updatedAt: now,
-          };
-        }
-        return {
-          ...routine,
-          dailySettings: {
-            ...(routine.dailySettings ?? {}),
-            [today]: {
-              ...(routine.dailySettings?.[today] ?? {}),
-              targetValue: routingResult.targetValue ?? routine.targetValue,
-              minimumValue: 0,
-              unit: routingResult.unit ?? routine.unit,
-              updatedAt: now,
-            },
-          },
-          updatedAt: now,
-        };
-      }),
-      updatedAt: (item.routines ?? []).some((routine) => routine.id === routingResult.matchedRoutineId)
-        ? now
-        : item.updatedAt,
-    }));
+    const nextItems = updateRoutineTargetInItems(dailyTraces, {
+      routineId: routingResult.matchedRoutineId,
+      targetValue: routingResult.targetValue,
+      minimumValue: 0,
+      unit: routingResult.unit ?? undefined,
+      dateKey: today,
+      now,
+      mode: applyMode,
+    });
     setDailyTraces(nextItems);
     await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     setPendingRoutineAdjustment(null);
@@ -3120,42 +3094,24 @@ export default function App() {
     const today = getLocalDateString(new Date());
 
     setDailyTraces((currentItems) => {
-      const nextItems = currentItems.map((item) => {
-        if (item.id !== itemId) {
-          return item;
-        }
+      const targetItem = currentItems.find((item) => item.id === itemId);
+      const targetRoutine = targetItem?.routines?.find((routine) => routine.id === routineId);
+      if (!targetRoutine) {
+        return currentItems;
+      }
 
-        const nextRoutines = (item.routines ?? []).map((routine) => {
-          if (routine.id !== routineId) {
-            return routine;
-          }
-
-          const currentTarget = getEffectiveRoutineTargetValue(routine, today);
-          const nextTarget = Math.max(30, roundRoutineTarget(currentTarget + delta));
-          const currentMinimum = getEffectiveRoutineMinimumValue(routine, today);
-          const nextMinimum = currentMinimum > 0 ? Math.min(currentMinimum, nextTarget) : currentMinimum;
-          return {
-            ...routine,
-            dailySettings: {
-              ...(routine.dailySettings ?? {}),
-              [today]: {
-                ...(routine.dailySettings?.[today] ?? {}),
-                targetValue: nextTarget,
-                minimumValue: nextMinimum,
-                unit: routine.unit,
-                updatedAt: now,
-              },
-            },
-            updatedAt: now,
-          };
-        });
-
-        return {
-          ...item,
-          routines: nextRoutines,
-          progressUpdatedAt: now,
-          updatedAt: now,
-        };
+      const currentTarget = getEffectiveRoutineTargetValue(targetRoutine, today);
+      const nextTarget = Math.max(30, roundRoutineTarget(currentTarget + delta));
+      const currentMinimum = getEffectiveRoutineMinimumValue(targetRoutine, today);
+      const nextMinimum = currentMinimum > 0 ? Math.min(currentMinimum, nextTarget) : currentMinimum;
+      const nextItems = updateRoutineDailyTargetForItem(currentItems, {
+        itemId,
+        routineId,
+        dateKey: today,
+        targetValue: nextTarget,
+        minimumValue: nextMinimum,
+        unit: targetRoutine.unit,
+        now,
       });
 
       saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
