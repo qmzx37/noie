@@ -108,6 +108,11 @@ import {
   updateDreamFragmentNextAction,
 } from "./src/features/dreams/dreamActions";
 import {
+  addRoutineToTorch,
+  buildTodayMeRoutine,
+  restoreTodayMeRoutineInTorch,
+} from "./src/features/dreams/routineActions";
+import {
   ProjectCreateScreen,
   ProjectScreen,
 } from "./src/features/projects/ProjectFeature";
@@ -1558,23 +1563,12 @@ export default function App() {
         typeof routingResult.targetValue === "number" && routingResult.targetValue > 0
           ? routingResult.targetValue
           : existingRoutine.targetValue;
-      const nextTorch: DailyTraceItem = {
-        ...targetTorch,
-        routines: (targetTorch.routines ?? []).map((routine) =>
-          routine.id === existingRoutine.id
-            ? {
-                ...routine,
-                targetValue: nextTargetValue,
-                unit: routingResult.unit ?? routine.unit,
-                lifecycleStatus: "active",
-                archivedFromTodayMe: false,
-                active: true,
-                updatedAt: now,
-              }
-            : routine
-        ),
-        updatedAt: now,
-      };
+      const nextTorch = restoreTodayMeRoutineInTorch(targetTorch, {
+        routineId: existingRoutine.id,
+        targetValue: nextTargetValue,
+        unit: routingResult.unit,
+        now,
+      });
       const nextItems = torchPiece
         ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
         : dedupeMemories([
@@ -1607,7 +1601,7 @@ export default function App() {
       return;
     }
 
-    const newRoutine: DreamRoutine = {
+    const newRoutine = buildTodayMeRoutine({
       id: createId("routine"),
       title: routineTitle,
       recordType: "quantity",
@@ -1615,18 +1609,9 @@ export default function App() {
       targetValue: routingResult.targetValue ?? undefined,
       minimumValue: routingResult.minimumValue ?? 0,
       unit: routingResult.unit,
-      dailySettings: {},
-      lifecycleStatus: "active",
-      archivedFromTodayMe: false,
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const nextTorch: DailyTraceItem = {
-      ...targetTorch,
-      routines: [...(targetTorch.routines ?? []), newRoutine],
-      updatedAt: now,
-    };
+      now,
+    });
+    const nextTorch = addRoutineToTorch(targetTorch, newRoutine, now);
     const nextItems = torchPiece
       ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
       : dedupeMemories([
@@ -1760,22 +1745,11 @@ export default function App() {
 
     if (existingRoutine) {
       const nextTargetValue = Math.max(30, input.targetValue || existingRoutine.targetValue || 30);
-      const nextTorch: DailyTraceItem = {
-        ...targetTorch,
-        routines: (targetTorch.routines ?? []).map((routine) =>
-          routine.id === existingRoutine.id
-            ? {
-                ...routine,
-                targetValue: nextTargetValue,
-                lifecycleStatus: "active",
-                archivedFromTodayMe: false,
-                active: true,
-                updatedAt: now,
-              }
-            : routine
-        ),
-        updatedAt: now,
-      };
+      const nextTorch = restoreTodayMeRoutineInTorch(targetTorch, {
+        routineId: existingRoutine.id,
+        targetValue: nextTargetValue,
+        now,
+      });
       const nextItems = torchPiece
         ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
         : dedupeMemories([
@@ -1798,7 +1772,7 @@ export default function App() {
       return true;
     }
 
-    const newRoutine: DreamRoutine = {
+    const newRoutine = buildTodayMeRoutine({
       id: createId("routine"),
       title: routineTitle,
       recordType: "quantity",
@@ -1806,18 +1780,9 @@ export default function App() {
       targetValue: Math.max(30, input.targetValue),
       minimumValue: 0,
       unit: "분",
-      dailySettings: {},
-      lifecycleStatus: "active",
-      archivedFromTodayMe: false,
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const nextTorch: DailyTraceItem = {
-      ...targetTorch,
-      routines: [...(targetTorch.routines ?? []), newRoutine],
-      updatedAt: now,
-    };
+      now,
+    });
+    const nextTorch = addRoutineToTorch(targetTorch, newRoutine, now);
     const nextItems = torchPiece
       ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
       : dedupeMemories([
@@ -6415,7 +6380,7 @@ function makeLifeActionRecordTitle(title: string) {
 function parseRoutineGoalCandidate(text: string): Pick<NoieSaveRoutingResult, "title" | "repeatType" | "targetValue" | "unit"> | null {
   const normalizedText = text.trim();
   const hasRepeat = /매일|매주|주\s*\d+\s*회|하루에|매일마다|아침마다|저녁마다|꾸준히|반복해서|\d+(?:\.\d+)?\s*(분|시간|회|개|페이지|세트|장)\s*씩/.test(normalizedText);
-  const hasIntent = /할래|그릴래|읽을래|운동할래|공부할래|하려고\s*해|하기로\s*했|목표로\s*할래|습관으로\s*만들|꾸준히\s*할\s*거야|할\s*거야/.test(normalizedText);
+  const hasIntent = /할래|그릴래|읽을래|운동할래|공부할래|하려고\s*해|하기로\s*했|목표로\s*할래|습관으로\s*만들|꾸준히\s*할\s*거야|할\s*거야|추가해줘|넣어줘|만들어줘|반복\s*목표|오늘의\s*나/.test(normalizedText);
   const durationTarget = parseDurationValueWithUnit(normalizedText);
   const targetMatch = durationTarget ? null : normalizedText.match(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트|장)\s*씩?/);
   if (!hasRepeat || !hasIntent) {
@@ -6437,8 +6402,11 @@ function parseRoutineGoalCandidate(text: string): Pick<NoieSaveRoutingResult, "t
 
 function normalizeRoutineTitle(text: string) {
   let title = text
+    .replace(/오늘의\s*나에|오늘의\s*나/g, "")
     .replace(/매일마다|매일|매주|주\s*\d+\s*회|하루에|아침마다|저녁마다|꾸준히|반복해서/g, "")
     .replace(/\d+(?:\.\d+)?\s*(시간|분|회|개|페이지|세트|장)\s*씩?/g, "")
+    .replace(/반복\s*목표|목표/g, "")
+    .replace(/추가해줘|넣어줘|만들어줘/g, "")
     .replace(/공부할래|공부하려고\s*해|연습할래|해볼래|시작할래|하고\s*싶어|할래|하려고\s*해|하기로\s*했어|목표로\s*할래|습관으로\s*만들래|꾸준히\s*할\s*거야|할\s*거야/g, "")
     .replace(/씩/g, " ")
     .trim();
@@ -7217,6 +7185,9 @@ function extractRoutineDurationTitleCandidate(text: string) {
 
   return stripTrailingKoreanParticles(text.slice(0, durationMatch.index ?? 0))
     .replace(/["'“”‘’]/g, "")
+    .replace(/오늘의\s*나에|오늘의\s*나/g, "")
+    .replace(/매일마다|매일|매주|평일마다|주말마다|아침마다|저녁마다|꾸준히|반복해서/g, "")
+    .replace(/반복\s*목표|목표/g, "")
     .replace(/목표\s*시간|목표|시간/g, "")
     .replace(/\s+/g, " ")
     .trim()
@@ -7232,6 +7203,9 @@ function findRoutineDurationCreationRoute(
   if (isActualRoutineExecutionText(text)) {
     return null;
   }
+  if (/(오전|오후|아침|저녁|밤|새벽)?\s*\d{1,2}\s*시/.test(text) && /알림|일정|예약|해야\s*해|해야해|해야\s*돼|해야돼/.test(text)) {
+    return null;
+  }
 
   const durationMatch = findRoutineDurationExpression(text);
   const targetMinutes = parseRoutineDurationMinutes(text);
@@ -7240,13 +7214,13 @@ function findRoutineDurationCreationRoute(
   }
 
   const hasRoutineIntent =
-    /하고\s*싶어|하려고\s*해|할래|꾸준히\s*할래|매일\s*할래|이어가고\s*싶어/.test(text);
+    /하고\s*싶어|하려고\s*해|할래|꾸준히\s*할래|매일\s*할래|이어가고\s*싶어|추가해줘|넣어줘|만들어줘|반복\s*목표|오늘의\s*나/.test(text);
   if (!hasRoutineIntent) {
     return null;
   }
 
   const title = extractRoutineDurationTitleCandidate(text);
-  if (!title || findRoutineForDurationAdjustment(title, items)) {
+  if (!title) {
     return null;
   }
 
@@ -7655,7 +7629,14 @@ function normalizeRoutineKey(title: string, repeatType?: string, targetValue?: n
 
 function normalizeRoutineTitleKey(title: string) {
   return stripTrailingKoreanParticles(title)
-    .replace(/\s+/g, " ")
+    .replace(/오늘의\s*나에/g, "")
+    .replace(/매일|매주|평일마다|주말마다/g, "")
+    .replace(/\d+(?:\.\d+)?\s*(시간|분|회|개|페이지|세트)/g, "")
+    .replace(/반복\s*목표/g, "")
+    .replace(/추가해줘|넣어줘|만들어줘/g, "")
+    .replace(/하고\s*싶어|하려고\s*해/g, "")
+    .replace(/하기/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "")
     .trim()
     .toLowerCase();
 }
