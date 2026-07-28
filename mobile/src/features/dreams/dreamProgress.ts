@@ -226,8 +226,10 @@ export function calculateConsistencyScore(
       (routine) =>
         routine.repeatType !== "weekly" &&
         !hasPausedDate(routine, dateKey) &&
-        (isRoutineActiveOnDate(routine, dateKey) ||
-          Boolean(findRoutineRecord(routineRecords, routine.id, dateKey)))
+        (dateKey === todayKey
+          ? isRoutineAvailableForTodayMe(routine) && isRoutineActiveOnDate(routine, dateKey)
+          : isRoutineActiveOnDate(routine, dateKey) ||
+            Boolean(findRoutineRecord(routineRecords, routine.id, dateKey)))
     );
     if (scheduledRoutines.length === 0) {
       if (__DEV__) {
@@ -235,10 +237,23 @@ export function calculateConsistencyScore(
           dateKey,
           scheduledRoutineIds: [],
           matchedRecordIds: recordsForDate.map((record) => record.id),
+          completedRoutineIds: [],
           ratios: [],
           finalRatio: 0,
           status: "neutral",
         });
+        if (dateKey === todayKey) {
+          console.log("[TODAY ME VS CONSISTENCY]", {
+            todayKey,
+            visibleRoutineIds: routines
+              .filter((routine) => isRoutineAvailableForTodayMe(routine))
+              .map((routine) => routine.id),
+            consistencyRoutineIds: [],
+            completedRoutineIds: [],
+            ratio: 0,
+            status: "neutral",
+          });
+        }
       }
       return { dateKey, ratio: 0, status: "neutral" };
     }
@@ -254,10 +269,16 @@ export function calculateConsistencyScore(
     const ratio = routineRatios.reduce((sum, value) => sum + value, 0) / scheduledRoutines.length;
     const status: ConsistencyDay["status"] = ratio >= 1 ? "complete" : ratio > 0 ? "partial" : "missed";
     if (__DEV__) {
+      const completedRoutineIds = scheduledRoutines
+        .filter((routine) =>
+          getDailyRoutineCompletionRatio(routine, dateKey, routineRecords) >= 1
+        )
+        .map((routine) => routine.id);
       console.log("[CONSISTENCY DAY]", {
         dateKey,
         scheduledRoutineIds: scheduledRoutines.map((routine) => routine.id),
         matchedRecordIds: recordsForDate.map((record) => record.id),
+        completedRoutineIds,
         ratios: scheduledRoutines.map((routine, index) => ({
           routineId: routine.id,
           recordId: findRoutineRecord(routineRecords, routine.id, dateKey)?.id,
@@ -271,6 +292,18 @@ export function calculateConsistencyScore(
         finalRatio: ratio,
         status,
       });
+      if (dateKey === todayKey) {
+        console.log("[TODAY ME VS CONSISTENCY]", {
+          todayKey,
+          visibleRoutineIds: routines
+            .filter((routine) => isRoutineAvailableForTodayMe(routine))
+            .map((routine) => routine.id),
+          consistencyRoutineIds: scheduledRoutines.map((routine) => routine.id),
+          completedRoutineIds,
+          ratio,
+          status,
+        });
+      }
     }
     return {
       dateKey,
