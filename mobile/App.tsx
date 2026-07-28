@@ -16,7 +16,6 @@ import {
 import type {
   AnalysisSource,
   AnalyzeEmotionResponse,
-  ChatApiResponse,
   ChatMessage,
   ChatSession,
   DailyPiece,
@@ -41,8 +40,6 @@ import type {
   EmotionLevel,
   EmotionRecord,
   EmotionSignals,
-  ExtractDailyTraceResponse,
-  GenerateTitleResponse,
   GoalDurationMonths,
   MemorySavePolicy,
   MemorySavePolicyType,
@@ -70,7 +67,6 @@ import {
   TRACE_QUESTION_LABELS,
 } from "./src/noie/constants";
 import {
-  API_BASE_URL,
   TRACE_REMINDER_OPTIONS,
 } from "./src/constants/appConstants";
 import {
@@ -219,6 +215,12 @@ import {
   getTodayMeProjects,
   isActiveTodayMeProject,
 } from "./src/noie/selectors";
+import {
+  extractDailyTraceCandidate as requestDailyTraceCandidate,
+  generateTitle as requestGeneratedTitle,
+  requestChatReply as requestNoieChatReply,
+  requestProjectChatReply as requestNoieProjectChatReply,
+} from "./src/noie/noieApi";
 
 type NoieSaveRoute =
   | "routine_record"
@@ -1193,59 +1195,23 @@ export default function App() {
     messages: NoieProjectMessage[],
     project: NoieProject
   ) => {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        messages: toProjectChatHistory(messages),
-        is_project: true,
-        project_name: project.title,
-        project_goal: project.goal,
-      }),
+    return requestNoieProjectChatReply({
+      text,
+      messages: toProjectChatHistory(messages),
+      projectName: project.title,
+      projectGoal: project.goal,
     });
-
-    if (!response.ok) {
-      throw new Error(`프로젝트 API 응답 오류: ${response.status}`);
-    }
-
-    return (await response.json()) as ChatApiResponse;
   };
 
   const requestChatReply = async (text: string, messages: ChatMessage[]) => {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        messages: toChatHistory(messages),
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`API 응답 오류: ${response.status}`);
-    }
-
-    return (await response.json()) as ChatApiResponse;
+    return requestNoieChatReply(text, toChatHistory(messages));
   };
 
   const extractDailyTraceCandidate = async (text: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/extract-daily-trace`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          current_date: getLocalDateString(new Date()),
-        }),
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const data = (await response.json()) as ExtractDailyTraceResponse;
+      const data = await requestDailyTraceCandidate(text, getLocalDateString(new Date()));
       if (
+        !data ||
         !data.has_trace ||
         !data.type ||
         !data.date ||
@@ -1272,17 +1238,7 @@ export default function App() {
 
   const generateTitle = async (text: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/generate-title`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`제목 API 응답 오류: ${response.status}`);
-      }
-
-      const data = (await response.json()) as GenerateTitleResponse;
+      const data = await requestGeneratedTitle(text);
       return cleanTitle(data.title) || makeFallbackTitle(text);
     } catch (error) {
       return makeFallbackTitle(text);
