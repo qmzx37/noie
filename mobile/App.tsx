@@ -102,6 +102,13 @@ import {
   selectTodayMeRecommendation as selectTodayMeRecommendationFromLogic,
 } from "./src/features/dreams/todayMeLogic";
 import {
+  buildDreamSaveMemories,
+  completeDreamFragment,
+  promoteExistingDreamItemToTorch,
+  renameDreamFragment,
+  updateDreamFragmentNextAction,
+} from "./src/features/dreams/dreamActions";
+import {
   ProjectCreateScreen,
   ProjectScreen,
 } from "./src/features/projects/ProjectFeature";
@@ -1317,70 +1324,6 @@ export default function App() {
     }
   };
 
-  const mergeDreamTorchMemory = (
-    currentItems: DailyTraceItem[],
-    newItem: DailyTraceItem
-  ) => {
-    const newItemKey = getMemorySemanticKey(newItem);
-    const existingTorch = currentItems.find((item) => {
-      const isTorch = item.pinnedAsDreamTorch || item.dreamRole === "torch" || item.saveTargets?.includes("dream_torch");
-      return isTorch && getMemorySemanticKey(item) === newItemKey;
-    });
-
-    if (!existingTorch) {
-      return newItem;
-    }
-
-    return {
-      ...existingTorch,
-      ...newItem,
-      id: existingTorch.id,
-      createdAt: existingTorch.createdAt,
-      goalStartDate: existingTorch.goalStartDate,
-      goalTargetDate: existingTorch.goalTargetDate,
-      goalDurationMonths: existingTorch.goalDurationMonths,
-      completionCriteria: existingTorch.completionCriteria,
-      currentSeason: existingTorch.currentSeason,
-      seasons: existingTorch.seasons,
-      activeSeasonId: existingTorch.activeSeasonId,
-      milestones: existingTorch.milestones,
-      currentMilestoneId: existingTorch.currentMilestoneId,
-      evidence: existingTorch.evidence,
-      routines: existingTorch.routines,
-      routineRecords: existingTorch.routineRecords,
-      overallProgress: existingTorch.overallProgress,
-      baseProgress: existingTorch.baseProgress,
-      paceBonus: existingTorch.paceBonus,
-      progressUpdatedAt: existingTorch.progressUpdatedAt,
-      pinnedAsDreamTorch: true,
-      dreamRole: "torch" as const,
-      hiddenFromDream: false,
-      updatedAt: newItem.updatedAt,
-    };
-  };
-
-  const buildDreamSaveMemories = (
-    currentItems: DailyTraceItem[],
-    newItem: DailyTraceItem,
-    options: { replaceTorch: boolean }
-  ) => {
-    const now = new Date().toISOString();
-    const itemToSave = options.replaceTorch
-      ? mergeDreamTorchMemory(currentItems, newItem)
-      : newItem;
-    const sourceMemories = options.replaceTorch
-      ? currentItems
-          .filter((item) => item.id !== itemToSave.id)
-          .map((item) =>
-            item.pinnedAsDreamTorch
-              ? { ...item, pinnedAsDreamTorch: false, updatedAt: now }
-              : item
-          )
-      : currentItems;
-
-    return dedupeMemories([...sourceMemories, itemToSave]);
-  };
-
   const applyDreamSaveResult = async (
     messageId: string,
     newItem: DailyTraceItem,
@@ -1392,7 +1335,8 @@ export default function App() {
     const updatedMemories = buildDreamSaveMemories(
       mergedSourceMemories,
       newItem,
-      options
+      options,
+      { dedupeMemories, getMemorySemanticKey }
     );
     const savedItem = updatedMemories.find((item) => getMemorySemanticKey(item) === getMemorySemanticKey(newItem)) ?? newItem;
     const now = new Date().toISOString();
@@ -1435,27 +1379,7 @@ export default function App() {
     if (routingResult?.matchedDailyTraceId) {
       const targetItem = dailyTraces.find((item) => item.id === routingResult.matchedDailyTraceId);
       if (targetItem) {
-        const nextItems = dailyTraces.map((item) => {
-          if (item.id === targetItem.id) {
-            return {
-              ...item,
-              saveTargets: Array.from(new Set([...(item.saveTargets ?? []), "dream_torch"])) as SaveDecision["saveTargets"],
-              dreamRole: "torch" as DreamRole,
-              pinnedAsDreamTorch: true,
-              hiddenFromDream: false,
-              updatedAt: now,
-            };
-          }
-
-          return item.pinnedAsDreamTorch || item.dreamRole === "torch"
-            ? {
-                ...item,
-                pinnedAsDreamTorch: false,
-                dreamRole: item.dreamRole === "torch" ? undefined : item.dreamRole,
-                updatedAt: now,
-              }
-            : item;
-        });
+        const nextItems = promoteExistingDreamItemToTorch(dailyTraces, targetItem.id, now);
         setDailyTraces(nextItems);
         setDreamTorchId(targetItem.id);
         await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
@@ -2060,14 +1984,11 @@ export default function App() {
 
     const now = new Date().toISOString();
     const nextTitle = routingResult.nextTitle.trim();
-    const nextItems = dailyTraces.map((item) =>
-      item.id === routingResult.matchedDailyTraceId
-        ? {
-            ...item,
-            title: nextTitle,
-            updatedAt: now,
-          }
-        : item
+    const nextItems = renameDreamFragment(
+      dailyTraces,
+      routingResult.matchedDailyTraceId,
+      nextTitle,
+      now
     );
     setDailyTraces(nextItems);
     await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
@@ -2093,53 +2014,20 @@ export default function App() {
 
     const now = new Date().toISOString();
     const today = getLocalDateString(new Date());
-    const fragment = dailyTraces.find((item) => item.id === routingResult.matchedDailyTraceId);
-    if (!fragment) {
+    const result = completeDreamFragment({
+      currentItems: dailyTraces,
+      fragmentId: routingResult.matchedDailyTraceId,
+      todayKey: today,
+      now,
+      originalText: routingResult.originalText,
+      helpers: { createId },
+    });
+    if (!result.completedFragment) {
       return;
     }
 
-    const completionSourceId = `dream_fragment_complete:${fragment.id}:${today}`;
-    const nextItemsBase = dailyTraces.map((item) =>
-      item.id === fragment.id
-        ? {
-            ...item,
-            projectStatus: "done" as DreamProjectStatus,
-            completedAt: (item as DailyTraceItem & { completedAt?: string }).completedAt ?? now,
-            updatedAt: now,
-          } as DailyTraceItem
-        : item
-    );
-    const hasCompletionTrace = nextItemsBase.some((item) => {
-      const typedItem = item as DailyTraceItem & { sourceId?: string };
-      return typedItem.sourceId === completionSourceId;
-    });
-    const nextItems = hasCompletionTrace
-      ? nextItemsBase
-      : [
-          ...nextItemsBase,
-          {
-            id: createId("trace"),
-            type: "record" as DailyTraceItemType,
-            date: today,
-            title: `${fragment.title} 완료`,
-            memo: "꿈의 파편",
-            text: routingResult.originalText,
-            originalText: routingResult.originalText,
-            sourceText: routingResult.originalText,
-            memoryType: "achievement" as MemorySavePolicyType,
-            saveTargets: ["daily_piece", "daily_trace"] as SaveDecision["saveTargets"],
-            importance: 94,
-            displayCategory: "꿈의 파편 완료",
-            category: "dream_fragment_complete",
-            sourceType: "dream_fragment_complete",
-            sourceId: completionSourceId,
-            relatedDreamTorchId: fragment.relatedDreamTorchId,
-            createdAt: now,
-          } as DailyTraceItem,
-        ];
-
-    setDailyTraces(nextItems);
-    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
+    setDailyTraces(result.nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, result.nextItems);
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
       ...session,
@@ -2162,14 +2050,11 @@ export default function App() {
 
     const now = new Date().toISOString();
     const nextAction = routingResult.nextAction.trim();
-    const nextItems = dailyTraces.map((item) =>
-      item.id === routingResult.matchedDailyTraceId
-        ? {
-            ...item,
-            nextAction,
-            updatedAt: now,
-          }
-        : item
+    const nextItems = updateDreamFragmentNextAction(
+      dailyTraces,
+      routingResult.matchedDailyTraceId,
+      nextAction,
+      now
     );
     setDailyTraces(nextItems);
     await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
