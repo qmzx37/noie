@@ -77,6 +77,12 @@ import {
   DailyTraceFrame,
 } from "./src/features/traces/DailyTraceSection";
 import {
+  cancelDailyTraceSchedule,
+  removeDailyTraceGoalItem,
+  toggleDailyTraceCompletion,
+  updateDailyTraceReminder,
+} from "./src/features/traces/dailyTraceActions";
+import {
   DreamFeature,
   type CompletedDreamFragmentDisplayItem,
   type DreamFragmentDisplayItem,
@@ -2305,36 +2311,9 @@ export default function App() {
 
   const toggleDailyTraceDone = (itemId: string, dateKey?: string) => {
     const now = new Date().toISOString();
+    const targetDateKey = dateKey ?? getLocalDateString(new Date());
     setDailyTraces((currentItems) =>
-      currentItems.map((item) => {
-        if (item.id !== itemId || item.type !== "todo") {
-          return item;
-        }
-
-        if (isLifeRepeatTraceItem(item)) {
-          const targetDateKey = dateKey ?? getLocalDateString(new Date());
-          const typedItem = item as DailyTraceItem & { completedDates?: Record<string, string> };
-          if (typedItem.completedDates?.[targetDateKey]) {
-            return item;
-          }
-          return {
-            ...item,
-            completedDates: {
-              ...(typedItem.completedDates ?? {}),
-              [targetDateKey]: now,
-            },
-            updatedAt: now,
-          } as DailyTraceItem;
-        }
-
-        const nextDone = !item.isDone;
-        return {
-          ...item,
-          isDone: nextDone,
-          ...(nextDone ? { completedAt: now } : { completedAt: undefined }),
-          updatedAt: now,
-        } as DailyTraceItem;
-      })
+      toggleDailyTraceCompletion(currentItems, itemId, now, targetDateKey)
     );
   };
 
@@ -2601,15 +2580,12 @@ export default function App() {
 
     const now = new Date().toISOString();
     const reminder = routingResult.reminder;
-    const nextItems = dailyTraces.map((item) =>
-      item.id === routingResult.matchedDailyTraceId
-        ? {
-            ...item,
-            reminder,
-            memo: `🔔 ${routingResult.unit ?? getReminderLabelByValue(reminder)}`,
-            updatedAt: now,
-          }
-        : item
+    const nextItems = updateDailyTraceReminder(
+      dailyTraces,
+      routingResult.matchedDailyTraceId,
+      reminder,
+      `🔔 ${routingResult.unit ?? getReminderLabelByValue(reminder)}`,
+      now
     );
     setDailyTraces(nextItems);
     await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
@@ -2629,16 +2605,7 @@ export default function App() {
     const now = new Date().toISOString();
     let deletedTitle = "";
     let didDelete = false;
-    const nextItems = dailyTraces.map((item) =>
-      item.id === scheduleId
-        ? {
-            ...item,
-            status: "cancelled",
-            cancelledAt: now,
-            updatedAt: now,
-          }
-        : item
-    );
+    const nextItems = cancelDailyTraceSchedule(dailyTraces, scheduleId, now);
     const target = dailyTraces.find((item) => item.id === scheduleId);
     if (target) {
       deletedTitle = target.title;
@@ -3352,9 +3319,7 @@ export default function App() {
   };
   const deleteDailyTraceGoal = (itemId: string) => {
     setDailyTraces((currentItems) =>
-      currentItems.filter(
-        (item) => !(item.id === itemId && item.type === "goal")
-      )
+      removeDailyTraceGoalItem(currentItems, itemId)
     );
   };
 
