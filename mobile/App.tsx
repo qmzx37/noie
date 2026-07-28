@@ -52,7 +52,6 @@ import type {
   NoieProjectMessage,
   NumericEmotionAxis,
   PrimaryAxis,
-  ProjectDailyActionRecord,
   ProjectEmotionAdminView,
   ProjectFormState,
   SaveDecision,
@@ -112,6 +111,17 @@ import {
   ProjectCreateScreen,
   ProjectScreen,
 } from "./src/features/projects/ProjectFeature";
+import {
+  archiveProjectInList,
+  buildCompletedProjectTrace,
+  buildProject,
+  cancelProjectNextActionInList,
+  completeProjectInList,
+  completeProjectNextActionInList,
+  reactivateTodayMeProjectInList,
+  removeProjectFromTodayMeInList,
+  updateProjectInList,
+} from "./src/features/projects/projectActions";
 import {
   ChatScreen,
   Sidebar,
@@ -621,14 +631,13 @@ export default function App() {
     }
 
     const now = new Date().toISOString();
-    const newProject: NoieProject = {
+    const newProject = buildProject({
       id: createId("project"),
       title,
       goal,
       deadline: deadline || undefined,
-      createdAt: now,
-      updatedAt: now,
-    };
+      now,
+    });
 
     setProjects((currentProjects) => [newProject, ...currentProjects]);
     setActiveProjectId(newProject.id);
@@ -649,27 +658,18 @@ export default function App() {
     }
 
     setProjects((currentProjects) =>
-      currentProjects.map((project) =>
-        project.id === projectId
-          ? {
-              ...project,
-              title,
-              goal,
-              deadline: deadline || undefined,
-              updatedAt: new Date().toISOString(),
-            }
-          : project
+      updateProjectInList(
+        currentProjects,
+        projectId,
+        { title, goal, deadline: deadline || undefined },
+        new Date().toISOString()
       )
     );
   };
 
   const archiveProject = (projectId: string) => {
     setProjects((currentProjects) =>
-      currentProjects.map((project) =>
-        project.id === projectId
-          ? { ...project, isArchived: true, updatedAt: new Date().toISOString() }
-          : project
-      )
+      archiveProjectInList(currentProjects, projectId, new Date().toISOString())
     );
 
     if (activeProjectId === projectId) {
@@ -1917,50 +1917,35 @@ export default function App() {
       return;
     }
     const now = new Date().toISOString();
-    const nextProjects = projects.map((project) =>
-      project.id === routingResult.matchedProjectId
-        ? {
-            ...project,
-            status: "done" as DreamProjectStatus,
-            archivedFromTodayMe: true,
-            completedAt: now,
-            updatedAt: now,
-          }
-        : project
+    const nextProjects = completeProjectInList(
+      projects,
+      routingResult.matchedProjectId,
+      now,
+      { archiveFromTodayMe: true }
     );
     setProjects(nextProjects);
     await saveJsonValue(STORAGE_KEYS.projects, nextProjects);
 
     const today = getLocalDateString(new Date());
-    const completedTraceSourceId = `completed_project:${routingResult.matchedProjectId}:${today}`;
-    const hasCompletedTrace = dailyTraces.some((item) => {
-      const typedItem = item as DailyTraceItem & { sourceId?: string };
-      return typedItem.sourceId === completedTraceSourceId;
+    const traceResult = buildCompletedProjectTrace({
+      currentItems: dailyTraces,
+      projectId: routingResult.matchedProjectId,
+      title: routingResult.title,
+      originalText: routingResult.originalText,
+      todayKey: today,
+      now,
+      traceId: createId("trace"),
+      completedTitle: `${routingResult.title} 프로젝트 완료`,
+      completedMemo: "완료한 프로젝트",
+      displayCategory: "완료한 프로젝트",
+      saveNoieMemory,
     });
-    if (!hasCompletedTrace) {
-      const completedTrace = {
-        id: createId("trace"),
-        type: "record" as DailyTraceItemType,
-        date: today,
-        title: `${routingResult.title} 프로젝트 완료`,
-        memo: "완료한 프로젝트",
-        text: routingResult.originalText,
-        originalText: routingResult.originalText,
-        sourceText: routingResult.originalText,
-        memoryType: "achievement" as MemorySavePolicyType,
-        saveTargets: ["daily_piece", "daily_trace"] as SaveDecision["saveTargets"],
-        importance: 94,
-        displayCategory: "완료한 프로젝트",
-        category: "completed_project",
-        sourceType: "completed_project",
-        sourceId: completedTraceSourceId,
-        createdAt: now,
-      } as DailyTraceItem;
-      const nextItems = saveNoieMemory(dailyTraces, completedTrace, routingResult.originalText, {
-        shouldLog: false,
-      }).items;
-      setDailyTraces(nextItems);
-      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
+    if (traceResult.traceCreated) {
+      setDailyTraces(traceResult.nextItems);
+      await saveJsonValue(
+        STORAGE_KEYS.dailyTraces,
+        traceResult.nextItems
+      );
     }
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
@@ -2078,26 +2063,14 @@ export default function App() {
       return;
     }
     const today = getLocalDateString(new Date());
-    const nextProjects = projects.map((project) => {
-      if (project.id !== routingResult.matchedProjectId) {
-        return project;
-      }
-      const action = routingResult.matchedNextAction ?? project.nextAction?.trim() ?? routingResult.title;
-      return {
-        ...project,
-        dailyActionRecords: {
-          ...(project.dailyActionRecords ?? {}),
-          [today]: {
-            action,
-            completed: true,
-            source: "quick_check" as const,
-            createdAt: project.dailyActionRecords?.[today]?.createdAt ?? completedAt,
-            updatedAt: completedAt,
-          },
-        },
-        updatedAt: completedAt,
-      };
-    });
+    const nextProjects = completeProjectNextActionInList(
+      projects,
+      routingResult.matchedProjectId,
+      today,
+      completedAt,
+      routingResult.title,
+      routingResult.matchedNextAction ?? undefined
+    );
     setProjects(nextProjects);
     await saveJsonValue(STORAGE_KEYS.projects, nextProjects);
   };
@@ -3291,16 +3264,7 @@ export default function App() {
   const completeProjectFromTodayMe = (projectId: string) => {
     const now = new Date().toISOString();
     setProjects((currentProjects) => {
-      const nextProjects = currentProjects.map((project) =>
-        project.id === projectId
-          ? {
-              ...project,
-              status: "done" as DreamProjectStatus,
-              completedAt: now,
-              updatedAt: now,
-            }
-          : project
-      );
+      const nextProjects = completeProjectInList(currentProjects, projectId, now);
       saveJsonValue(STORAGE_KEYS.projects, nextProjects).catch((error) =>
         console.error("[today-me-project-complete-save-error]", error)
       );
@@ -3312,16 +3276,7 @@ export default function App() {
   const removeProjectFromTodayMe = (projectId: string) => {
     const now = new Date().toISOString();
     setProjects((currentProjects) => {
-      const nextProjects = currentProjects.map((project) =>
-        project.id === projectId
-          ? {
-              ...project,
-              archivedFromTodayMe: true,
-              pinnedToTodayMe: false,
-              updatedAt: now,
-            }
-          : project
-      );
+      const nextProjects = removeProjectFromTodayMeInList(currentProjects, projectId, now);
       saveJsonValue(STORAGE_KEYS.projects, nextProjects).catch((error) =>
         console.error("[today-me-project-remove-save-error]", error)
       );
@@ -3374,18 +3329,7 @@ export default function App() {
     const now = new Date().toISOString();
     const today = getLocalDateString(new Date());
     setProjects((currentProjects) => {
-      const nextProjects = currentProjects.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-        const nextDailyActionRecords = { ...(project.dailyActionRecords ?? {}) };
-        delete nextDailyActionRecords[today];
-        return {
-          ...project,
-          dailyActionRecords: nextDailyActionRecords,
-          updatedAt: now,
-        };
-      });
+      const nextProjects = cancelProjectNextActionInList(currentProjects, projectId, today, now);
       saveJsonValue(STORAGE_KEYS.projects, nextProjects).catch((error) =>
         console.error("[today-me-project-action-cancel-save-error]", error)
       );
@@ -3427,20 +3371,12 @@ export default function App() {
           return false;
         }
 
-        const nextProjects = safeProjects.map((project) =>
-          project.id === existingProject.id
-            ? {
-                ...project,
-                isArchived: false,
-                pinnedToTodayMe: true,
-                archivedFromTodayMe: false,
-                todayMeOrder: typeof project.todayMeOrder === "number" ? project.todayMeOrder : getNextTodayMeOrder(safeProjects),
-                relatedDreamTorchId: project.relatedDreamTorchId ?? input.relatedDreamTorchId ?? undefined,
-                relatedDreamFragmentId: project.relatedDreamFragmentId ?? input.relatedDreamFragmentId ?? undefined,
-                sourceDreamFragmentId: project.sourceDreamFragmentId ?? input.relatedDreamFragmentId ?? undefined,
-                updatedAt: now,
-              }
-            : project
+        const nextProjects = reactivateTodayMeProjectInList(
+          safeProjects,
+          existingProject.id,
+          input,
+          getNextTodayMeOrder(safeProjects),
+          now
         );
         setProjects(nextProjects);
         await saveJsonValue(STORAGE_KEYS.projects, nextProjects);
