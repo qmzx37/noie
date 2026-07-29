@@ -149,23 +149,11 @@ import { EmotionFlowFeature } from "./src/features/emotions/EmotionFlowFeature";
 import type { DailyLongRecord } from "./src/features/traces/traceFeature";
 import {
   buildWeeklyTraceDates,
-  formatDailyTraceSelectedDate,
   formatShortTraceDate,
-  formatTimeFromIso,
-  formatUpcomingTraceDate,
   getDailyLongRecordTitle,
-  getDailyTraceDisplayTime,
-  getDailyTraceRowIcon,
-  getDailyTraceRowMemo,
-  getDailyTraceRowSource,
-  getEmptyLongRecordText,
-  getEmptySelectedDayText,
   getExistingReminderLabel,
   getLifeRepeatCompletedAt,
   getTraceEmptyScheduleText,
-  getTraceReminderLabel,
-  getTraceRemainingSectionTitle,
-  getTraceScheduleSectionTitle,
   isCancelledTraceItem,
   isCompletedTraceScheduleItem,
   isDreamFragmentTraceItem,
@@ -3694,24 +3682,8 @@ export default function App() {
               styles={styles}
               helpers={{
                 getDailyTraceItemsForDate,
-                isScheduledDailyTraceItemForDate,
                 buildUpcomingTraceSchedules,
                 getTraceDaySymbol,
-                formatShortTraceDate,
-                formatDailyTraceSelectedDate,
-                getEmptySelectedDayText,
-                getTraceScheduleSectionTitle,
-                getTraceRemainingSectionTitle,
-                getDailyLongRecordTitle,
-                getEmptyLongRecordText,
-                formatTimeFromIso,
-                formatUpcomingTraceDate,
-                getTraceReminderLabel,
-                isLifeRepeatTraceItem,
-                getDailyTraceRowMemo,
-                getDailyTraceDisplayTime,
-                getDailyTraceRowSource,
-                getDailyTraceRowIcon,
               }}
               dailyTraces={dailyTraces}
               dailyLongRecords={dailyLongRecords}

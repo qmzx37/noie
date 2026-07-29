@@ -24,30 +24,30 @@ import {
 import type { DailyLongRecord } from "./traceFeature";
 import {
   buildWeeklyTraceDates,
+  formatDailyTraceSelectedDate,
+  formatShortTraceDate,
+  formatTimeFromIso,
+  formatUpcomingTraceDate,
+  getDailyLongRecordTitle,
+  getDailyTraceDisplayTime,
+  getDailyTraceRowIcon,
+  getDailyTraceRowMemo,
+  getDailyTraceRowSource,
+  getEmptyLongRecordText,
+  getEmptySelectedDayText,
+  getTraceReminderLabel,
+  getTraceRemainingSectionTitle,
+  getTraceScheduleSectionTitle,
   isFutureDateKey,
+  isLifeRepeatTraceItem,
+  isScheduledDailyTraceItemForDate,
   shiftTraceDateKey,
 } from "./traceFeature";
 
 export type DailyTraceHelpers = {
   getDailyTraceItemsForDate: (items: DailyTraceItem[], dateKey: string) => DailyTraceItem[];
-  isScheduledDailyTraceItemForDate: (item: DailyTraceItem, dateKey: string) => boolean;
   buildUpcomingTraceSchedules: (items: DailyTraceItem[], todayKey: string) => Array<{ item: DailyTraceItem; dateKey: string; reminderLabel: string }>;
   getTraceDaySymbol: (items: DailyTraceItem[], dateKey: string, selectedDate: string) => string;
-  formatShortTraceDate: (dateKey: string) => string;
-  formatDailyTraceSelectedDate: (dateKey: string) => string;
-  getEmptySelectedDayText: (dateKey: string, todayKey: string) => string;
-  getTraceScheduleSectionTitle: (dateKey: string, todayKey: string) => string;
-  getTraceRemainingSectionTitle: (dateKey: string, todayKey: string) => string;
-  getDailyLongRecordTitle: (dateKey: string, todayKey: string) => string;
-  getEmptyLongRecordText: (dateKey: string, todayKey: string) => string;
-  formatTimeFromIso: (value: string) => string;
-  formatUpcomingTraceDate: (dateKey: string, todayKey: string) => string;
-  getTraceReminderLabel: (item: DailyTraceItem) => string;
-  isLifeRepeatTraceItem: (item: DailyTraceItem) => boolean;
-  getDailyTraceRowMemo: (item: DailyTraceItem, dateKey?: string) => string | undefined;
-  getDailyTraceDisplayTime: (item: DailyTraceItem, dateKey?: string) => string;
-  getDailyTraceRowSource: (item: DailyTraceItem, dateKey?: string) => string;
-  getDailyTraceRowIcon: (item: DailyTraceItem, dateKey?: string) => string;
 };
 
 export type DailyTraceSectionStyles = Record<string, any>;
@@ -232,18 +232,8 @@ export function DailyTraceCalendar({
 }) {
   const {
     getDailyTraceItemsForDate,
-    isScheduledDailyTraceItemForDate,
     buildUpcomingTraceSchedules,
     getTraceDaySymbol,
-    formatShortTraceDate,
-    formatDailyTraceSelectedDate,
-    getEmptySelectedDayText,
-    getTraceScheduleSectionTitle,
-    getTraceRemainingSectionTitle,
-    getDailyLongRecordTitle,
-    getEmptyLongRecordText,
-    formatTimeFromIso,
-    formatUpcomingTraceDate,
   } = helpers;
   const [isMonthCalendarOpen, setIsMonthCalendarOpen] = useState(false);
   const [isAddPanelOpen, setIsAddPanelOpen] = useState(false);
@@ -746,7 +736,6 @@ export function DailyTraceCalendar({
                   {scheduledItems.map((item, index) => (
                     <DailyTraceScheduledRow
                       styles={styles}
-                      helpers={helpers}
                       key={item.id}
                       item={item}
                       isLast={index === scheduledItems.length - 1}
@@ -780,7 +769,6 @@ export function DailyTraceCalendar({
                   {remainingItems.map((item, index) => (
                     <DailyTraceRecordRow
                       styles={styles}
-                      helpers={helpers}
                       key={item.id}
                       item={item}
                       dateKey={selectedDate}
@@ -960,7 +948,6 @@ export function DailyTraceCalendar({
 
 function DailyTraceScheduledRow({
   styles,
-  helpers,
   item,
   isLast,
   dateKey,
@@ -974,7 +961,6 @@ function DailyTraceScheduledRow({
   onDeleteLifeRepeat,
 }: {
   styles: DailyTraceSectionStyles;
-  helpers: DailyTraceHelpers;
   item: DailyTraceItem;
   isLast: boolean;
   dateKey: string;
@@ -987,7 +973,6 @@ function DailyTraceScheduledRow({
   onEndLifeRepeat: (item: DailyTraceItem) => void;
   onDeleteLifeRepeat: (item: DailyTraceItem) => void;
 }) {
-  const { getTraceReminderLabel, isLifeRepeatTraceItem } = helpers;
   const reminderLabel = getTraceReminderLabel(item);
   const isLifeRepeat = isLifeRepeatTraceItem(item);
   const repeatLabel = isLifeRepeat ? "매일 반복 · " : "";
@@ -1066,18 +1051,15 @@ function DailyTraceScheduledRow({
 
 function DailyTraceRecordRow({
   styles,
-  helpers,
   item,
   dateKey,
   isLast,
 }: {
   styles: DailyTraceSectionStyles;
-  helpers: DailyTraceHelpers;
   item: DailyTraceItem;
   dateKey: string;
   isLast: boolean;
 }) {
-  const { getDailyTraceRowMemo, getDailyTraceDisplayTime, getDailyTraceRowSource, getDailyTraceRowIcon } = helpers;
   const memo = getDailyTraceRowMemo(item, dateKey);
   const displayTime = getDailyTraceDisplayTime(item, dateKey);
   const source = getDailyTraceRowSource(item, dateKey);
