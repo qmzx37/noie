@@ -7,8 +7,80 @@ import type {
   MemorySavePolicy,
   MemorySavePolicyType,
   NoieMemory,
+  SaveDecision,
 } from "./types";
 import { getLocalDateString } from "./dateUtils";
+
+export type NoieSaveRoute =
+  | "routine_record"
+  | "routine_create"
+  | "routine_adjustment_intent"
+  | "routine_adjustment_confirm"
+  | "project_create"
+  | "completed_action"
+  | "completed_project"
+  | "life_schedule_once"
+  | "life_schedule_repeat"
+  | "life_schedule_date_request"
+  | "life_schedule_missing_date"
+  | "life_schedule_reminder_update"
+  | "life_schedule_cancel"
+  | "life_action_record"
+  | "dream_torch"
+  | "dream_fragment"
+  | "dream_fragment_rename"
+  | "dream_fragment_complete"
+  | "dream_fragment_next_action_update"
+  | "daily_long_record_create"
+  | "daily_long_record_title_update"
+  | "daily_long_record_append"
+  | "daily_trace_update"
+  | "daily_trace"
+  | "important_day_event"
+  | "daily_idea"
+  | "achievement"
+  | "sensitive_event"
+  | "none";
+
+export type NoieSaveRoutingResult = {
+  route: NoieSaveRoute;
+  title: string;
+  originalText: string;
+  normalizedText: string;
+  reason?: string;
+  confidence: number;
+  scheduledDate?: string | null;
+  needsDateSelection?: boolean;
+  recurrence?: "daily" | "weekly" | null;
+  repeatType?: "daily" | "weekly" | null;
+  targetValue?: number | null;
+  minimumValue?: number | null;
+  unit?: string;
+  actualValue?: number | null;
+  actualUnit?: string | null;
+  displayValue?: number | null;
+  displayUnit?: string | null;
+  endTime?: string | null;
+  endDisplayUnit?: string | null;
+  reminder?: string | null;
+  isExplicitOverride?: boolean;
+  isSensitive?: boolean;
+  isOtherPerson?: boolean;
+  matchedRoutineId?: string | null;
+  matchedProjectId?: string | null;
+  matchedNextAction?: string | null;
+  hasExistingRoutineRecord?: boolean;
+  matchedDailyTraceId?: string | null;
+  targetGoalTitle?: string | null;
+  previousDurationMinutes?: number | null;
+  newDurationMinutes?: number | null;
+  previousTitle?: string | null;
+  nextTitle?: string | null;
+  nextAction?: string | null;
+  longRecordBody?: string | null;
+  longRecordTitle?: string | null;
+  isAdditiveRecord?: boolean;
+};
 
 export function getMemoryInputText(input: {
   title?: string;
@@ -41,6 +113,193 @@ export function getMemoryPolicy(memory: NoieMemory): MemorySavePolicy {
     undefined,
     memory
   );
+}
+
+export function getMemoryPolicyForRoute(
+  memoryPolicy: MemorySavePolicy,
+  routingResult: NoieSaveRoutingResult
+): MemorySavePolicy {
+  if (routingResult.route === "routine_create") {
+    return {
+      type: "goal",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 88,
+      label: "반복 목표",
+      saveTargets: [],
+    };
+  }
+
+  if (routingResult.route === "project_create") {
+    return {
+      type: "project",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 86,
+      label: "오늘의 나 프로젝트",
+      saveTargets: [],
+    };
+  }
+
+  if (routingResult.route === "routine_record") {
+    return {
+      type: "achievement",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 72,
+      label: "반복 목표 수행",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  if (
+    routingResult.route === "life_schedule_once" ||
+    routingResult.route === "life_schedule_repeat" ||
+    routingResult.route === "life_schedule_date_request" ||
+    routingResult.route === "life_schedule_reminder_update" ||
+    routingResult.route === "life_schedule_cancel"
+  ) {
+    return {
+      type: "todo",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 70,
+      label: routingResult.route === "life_schedule_repeat" ? "생활 반복 예정" : "생활 예정",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  if (routingResult.route === "life_action_record") {
+    return {
+      type: "daily_context",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 70,
+      label: "직접 기록",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  if (routingResult.route === "dream_torch") {
+    return {
+      type: "dream",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: Math.max(memoryPolicy.importance, 95),
+      label: "꿈의 횃불",
+      saveTargets: ["dream_torch"],
+      dreamRole: "torch",
+    };
+  }
+
+  if (routingResult.route === "dream_fragment") {
+    return {
+      type: "project",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 96,
+      label: "꿈의 파편",
+      saveTargets: ["dream_fragment"],
+      dreamRole: "fragment",
+    };
+  }
+
+  if (
+    routingResult.route === "dream_fragment_rename" ||
+    routingResult.route === "dream_fragment_complete" ||
+    routingResult.route === "dream_fragment_next_action_update"
+  ) {
+    return {
+      type: "project",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 96,
+      label: "꿈의 파편",
+      saveTargets: [],
+      dreamRole: "fragment",
+    };
+  }
+
+  if (routingResult.route === "important_day_event") {
+    return {
+      type: "important_note",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 92,
+      label: "오늘의 중요한 사건",
+      saveTargets: ["daily_piece", "daily_trace"],
+    };
+  }
+
+  if (routingResult.route === "daily_trace") {
+    return {
+      type: "daily_context",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 70,
+      label: "하루의 흔적",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  if (
+    routingResult.route === "daily_long_record_create" ||
+    routingResult.route === "daily_long_record_title_update" ||
+    routingResult.route === "daily_long_record_append" ||
+    routingResult.route === "daily_trace_update"
+  ) {
+    return {
+      type: "daily_context",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 70,
+      label: "날짜별 기록",
+      saveTargets: [],
+    };
+  }
+
+  if (routingResult.route === "daily_idea") {
+    return {
+      type: "idea",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 72,
+      label: "오늘의 아이디어",
+      saveTargets: ["daily_piece", "daily_trace"],
+    };
+  }
+
+  if (routingResult.route === "completed_action" || routingResult.route === "completed_project") {
+    return {
+      type: "achievement",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: routingResult.route === "completed_project" ? 94 : 84,
+      label: routingResult.route === "completed_project" ? "완료한 프로젝트" : "완료한 행동",
+      saveTargets: ["daily_piece", "daily_trace"],
+    };
+  }
+
+  if (routingResult.route === "routine_adjustment_intent" || routingResult.route === "routine_adjustment_confirm") {
+    return {
+      type: "none",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 0,
+      label: "반복 목표 조정",
+      saveTargets: [],
+    };
+  }
+
+  if (routingResult.route === "life_schedule_missing_date") {
+    return buildMemorySavePolicy("none");
+  }
+
+  if (routingResult.route === "none" || routingResult.isOtherPerson) {
+    return buildMemorySavePolicy("none");
+  }
+
+  return memoryPolicy;
 }
 
 export function shouldSaveToDailyTrace(memoryPolicy: MemorySavePolicy) {
@@ -554,6 +813,61 @@ export function buildMemorySavePolicy(
   return {
     ...policyMap[type],
     importance: calculateMemoryImportance(type, options),
+  };
+}
+
+export function buildMemorySavePolicyFromDecision(decision: SaveDecision): MemorySavePolicy {
+  if (
+    decision.shouldStore === false ||
+    decision.savePolicy === "none" ||
+    decision.uiType === "none" ||
+    decision.memoryType === "none" ||
+    decision.saveTargets.length === 0
+  ) {
+    return {
+      type: "none",
+      shouldSave: false,
+      requiresConfirmation: false,
+      importance: decision.importance ?? 0,
+      label: decision.displayCategory || "저장 안 함",
+      saveTargets: [],
+    };
+  }
+
+  if (decision.memoryType === "dream" || decision.memoryType === "goal") {
+    return {
+      type: decision.memoryType,
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: decision.importance,
+      label: decision.displayCategory,
+      saveTargets: ["dream_piece", "daily_trace"],
+    };
+  }
+
+  if (
+    decision.memoryType === "todo" ||
+    decision.memoryType === "task" ||
+    decision.memoryType === "schedule" ||
+    decision.memoryType === "daily_plan"
+  ) {
+    return {
+      type: decision.memoryType,
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: decision.importance,
+      label: decision.displayCategory,
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  return {
+    type: decision.memoryType,
+    shouldSave: true,
+    requiresConfirmation: true,
+    importance: decision.importance,
+    label: decision.displayCategory,
+    saveTargets: decision.saveTargets,
   };
 }
 
