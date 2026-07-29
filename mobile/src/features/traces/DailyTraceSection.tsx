@@ -23,11 +23,13 @@ import {
 } from "../../noie/dateUtils";
 import type { DailyLongRecord } from "./traceFeature";
 import {
+  buildUpcomingTraceSchedules,
   buildWeeklyTraceDates,
   formatDailyTraceSelectedDate,
   formatShortTraceDate,
   formatTimeFromIso,
   formatUpcomingTraceDate,
+  getDailyTraceItemsForDate,
   getDailyLongRecordTitle,
   getDailyTraceDisplayTime,
   getDailyTraceRowIcon,
@@ -38,17 +40,12 @@ import {
   getTraceReminderLabel,
   getTraceRemainingSectionTitle,
   getTraceScheduleSectionTitle,
+  getTraceDaySymbol,
   isFutureDateKey,
   isLifeRepeatTraceItem,
   isScheduledDailyTraceItemForDate,
   shiftTraceDateKey,
 } from "./traceFeature";
-
-export type DailyTraceHelpers = {
-  getDailyTraceItemsForDate: (items: DailyTraceItem[], dateKey: string) => DailyTraceItem[];
-  buildUpcomingTraceSchedules: (items: DailyTraceItem[], todayKey: string) => Array<{ item: DailyTraceItem; dateKey: string; reminderLabel: string }>;
-  getTraceDaySymbol: (items: DailyTraceItem[], dateKey: string, selectedDate: string) => string;
-};
 
 export type DailyTraceSectionStyles = Record<string, any>;
 
@@ -107,7 +104,6 @@ export function DailyTraceFrame({
 
 type DailyTraceScreenProps = {
   styles: DailyTraceSectionStyles;
-  helpers: DailyTraceHelpers;
   dailyTraces: DailyTraceItem[];
   dailyLongRecords: DailyLongRecord[];
   selectedTraceDate: string;
@@ -140,7 +136,6 @@ type DailyTraceScreenProps = {
 
 export function DailyTraceScreen({
   styles,
-  helpers,
   dailyTraces,
   dailyLongRecords,
   selectedTraceDate,
@@ -168,7 +163,6 @@ export function DailyTraceScreen({
     >
       <DailyTraceCalendar
         styles={styles}
-        helpers={helpers}
         items={dailyTraces}
         dailyLongRecords={dailyLongRecords}
         selectedDate={selectedTraceDate}
@@ -188,7 +182,6 @@ export function DailyTraceScreen({
 }
 export function DailyTraceCalendar({
   styles,
-  helpers,
   items,
   dailyLongRecords,
   selectedDate,
@@ -204,7 +197,6 @@ export function DailyTraceCalendar({
   onDeleteLifeRepeatSchedule,
 }: {
   styles: DailyTraceSectionStyles;
-  helpers: DailyTraceHelpers;
   items: DailyTraceItem[];
   dailyLongRecords: DailyLongRecord[];
   selectedDate: string;
@@ -230,11 +222,6 @@ export function DailyTraceCalendar({
   onEndLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
   onDeleteLifeRepeatSchedule: (itemId: string) => Promise<boolean>;
 }) {
-  const {
-    getDailyTraceItemsForDate,
-    buildUpcomingTraceSchedules,
-    getTraceDaySymbol,
-  } = helpers;
   const [isMonthCalendarOpen, setIsMonthCalendarOpen] = useState(false);
   const [isAddPanelOpen, setIsAddPanelOpen] = useState(false);
   const [isLongRecordEditorOpen, setIsLongRecordEditorOpen] = useState(false);

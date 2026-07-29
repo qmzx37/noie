@@ -1,6 +1,12 @@
 import { addDays, getLocalDateString, parseDateOnly } from "../../noie/dateUtils";
 import { TRACE_REMINDER_OPTIONS } from "../../constants/appConstants";
 import type { DailyTraceItem } from "../../noie/types";
+import {
+  dedupeMemories,
+  getMemoryPolicy,
+  normalizeMemoryInput,
+  shouldSaveToDailyTrace,
+} from "../../noie/memoryLogic";
 
 export type DailyLongRecord = {
   id: string;
@@ -186,6 +192,208 @@ export function isDreamFragmentTraceItem(item: DailyTraceItem) {
     Boolean(item.linkedProjectId && item.memoryType === "project") ||
     Boolean(typedItem.sourceDreamFragmentId)
   );
+}
+
+export function getDailyTraceItemsForDate(items: DailyTraceItem[], dateKey: string) {
+  const originalIndexById = new Map(items.map((item, index) => [item.id, index]));
+  return dedupeMemories(items)
+    .map((item, index) => ({
+      item,
+      index: originalIndexById.get(item.id) ?? index,
+    }))
+    .filter((item) => {
+      const memoryPolicy = getMemoryPolicy(item.item);
+      return (
+        !isCancelledTraceItem(item.item) &&
+        (item.item.date === dateKey || isLifeRepeatTraceActiveOnDate(item.item, dateKey)) &&
+        shouldSaveToDailyTrace(memoryPolicy)
+      );
+    })
+    .sort((left, right) => sortDailyTraceItemsForDisplay(left, right))
+    .map(({ item }) => item);
+}
+
+function isLifeRepeatTraceActiveOnDate(item: DailyTraceItem, dateKey: string) {
+  if (!isLifeRepeatTraceItem(item) || isCancelledTraceItem(item)) {
+    return false;
+  }
+
+  const typedItem = item as DailyTraceItem & {
+    excludedDateKeys?: string[];
+    endDateKey?: string;
+    endDate?: string;
+    active?: boolean;
+    status?: string;
+  };
+  if (typedItem.active === false || typedItem.status === "ended") {
+    return false;
+  }
+  if ((typedItem.excludedDateKeys ?? []).includes(dateKey)) {
+    return false;
+  }
+  const endDateKey = typedItem.endDateKey ?? typedItem.endDate;
+  if (endDateKey && dateKey >= endDateKey) {
+    return false;
+  }
+
+  return item.date <= dateKey;
+}
+
+function sortDailyTraceItemsForDisplay(
+  left: { item: DailyTraceItem; index: number },
+  right: { item: DailyTraceItem; index: number }
+) {
+  const leftTime = left.item.time;
+  const rightTime = right.item.time;
+  if (leftTime && rightTime && leftTime !== rightTime) {
+    return leftTime.localeCompare(rightTime);
+  }
+
+  if (leftTime && !rightTime) {
+    return -1;
+  }
+
+  if (!leftTime && rightTime) {
+    return 1;
+  }
+
+  return left.index - right.index;
+}
+
+export type UpcomingTraceSchedule = {
+  item: DailyTraceItem;
+  dateKey: string;
+  reminderLabel: string;
+};
+
+export function buildUpcomingTraceSchedules(items: DailyTraceItem[], todayKey: string): UpcomingTraceSchedule[] {
+  const candidates: UpcomingTraceSchedule[] = [];
+
+  dedupeMemories(items).forEach((item) => {
+    const memoryPolicy = getMemoryPolicy(item);
+    if (!shouldSaveToDailyTrace(memoryPolicy) || isCancelledTraceItem(item) || isCompletedTraceScheduleItem(item)) {
+      return;
+    }
+
+    if (isLifeRepeatTraceItem(item)) {
+      const nextRepeatDate = findNextLifeRepeatDate(item, todayKey);
+      if (nextRepeatDate) {
+        candidates.push({
+          item,
+          dateKey: nextRepeatDate,
+          reminderLabel: getExistingReminderLabel(item),
+        });
+      }
+      return;
+    }
+
+    if (!isScheduledDailyTraceItemForDate(item, item.date) || item.date < todayKey) {
+      return;
+    }
+
+    if (item.date === todayKey && isTraceTimePastToday(item)) {
+      return;
+    }
+
+    candidates.push({
+      item,
+      dateKey: item.date,
+      reminderLabel: getExistingReminderLabel(item),
+    });
+  });
+
+  return dedupeUpcomingTraceSchedules(candidates).sort(sortUpcomingTraceSchedules);
+}
+
+function findNextLifeRepeatDate(item: DailyTraceItem, todayKey: string) {
+  const today = parseDateOnly(todayKey) ?? new Date();
+  for (let offset = 0; offset <= 30; offset += 1) {
+    const dateKey = getLocalDateString(addDays(today, offset));
+    if (!isLifeRepeatTraceActiveOnDate(item, dateKey) || getLifeRepeatCompletedAt(item, dateKey)) {
+      continue;
+    }
+
+    if (dateKey === todayKey && isTraceTimePastToday(item)) {
+      continue;
+    }
+
+    return dateKey;
+  }
+
+  return "";
+}
+
+function dedupeUpcomingTraceSchedules(schedules: UpcomingTraceSchedule[]) {
+  const scheduleByKey = new Map<string, UpcomingTraceSchedule>();
+  schedules.forEach((schedule) => {
+    const typedItem = schedule.item as DailyTraceItem & { sourceId?: string };
+    const key = [
+      schedule.dateKey,
+      typedItem.sourceId || schedule.item.id,
+      schedule.item.time ?? "",
+      normalizeMemoryInput(schedule.item.title),
+    ].join(":");
+    if (!scheduleByKey.has(key)) {
+      scheduleByKey.set(key, schedule);
+    }
+  });
+  return Array.from(scheduleByKey.values());
+}
+
+function sortUpcomingTraceSchedules(left: UpcomingTraceSchedule, right: UpcomingTraceSchedule) {
+  if (left.dateKey !== right.dateKey) {
+    return left.dateKey.localeCompare(right.dateKey);
+  }
+
+  const leftTime = left.item.time ?? "99:99";
+  const rightTime = right.item.time ?? "99:99";
+  if (leftTime !== rightTime) {
+    return leftTime.localeCompare(rightTime);
+  }
+
+  return left.item.createdAt.localeCompare(right.item.createdAt);
+}
+
+function isTraceTimePastToday(item: DailyTraceItem) {
+  if (!item.time) {
+    return false;
+  }
+
+  const now = new Date();
+  const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  return item.time < currentTime;
+}
+
+export function getTraceDaySymbol(
+  items: DailyTraceItem[],
+  dateKey: string,
+  selectedDate: string
+) {
+  if (dateKey === selectedDate) {
+    return "◉";
+  }
+
+  const dayItems = getDailyTraceItemsForDate(items, dateKey);
+  if (dayItems.length === 0) {
+    return "·";
+  }
+
+  const remainingItems = dayItems.filter((item) => !isScheduledDailyTraceItemForDate(item, dateKey));
+  const scheduledItems = dayItems.filter((item) => isScheduledDailyTraceItemForDate(item, dateKey));
+
+  if (remainingItems.some(isDreamFragmentTraceItem)) {
+    return "✦";
+  }
+
+  if (remainingItems.length >= 2) {
+    return "●";
+  }
+
+  if (remainingItems.length === 1) {
+    return "•";
+  }
+
+  return scheduledItems.length > 0 ? "○" : "·";
 }
 
 export function getDailyTraceRowIcon(item: DailyTraceItem, dateKey?: string) {
