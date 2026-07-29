@@ -1,5 +1,6 @@
 import type { DailyTraceItem } from "../../noie/types";
 import { isLifeRepeatTraceItem } from "./traceFeature";
+import type { DailyLongRecord } from "./traceFeature";
 
 type CompletedDatesTraceItem = DailyTraceItem & {
   completedDates?: Record<string, string>;
@@ -84,6 +85,129 @@ export function updateDailyTraceReminder(
           ...item,
           reminder,
           memo,
+          updatedAt: now,
+        }
+      : item
+  );
+}
+
+export function saveDailyLongRecordInList(
+  records: DailyLongRecord[],
+  dateKey: string,
+  title: string | undefined,
+  body: string,
+  newRecordId: string,
+  now: string
+) {
+  const existingRecord = records.find((record) => record.dateKey === dateKey);
+  if (existingRecord) {
+    return records.map((record) =>
+      record.dateKey === dateKey
+        ? {
+            ...record,
+            title: title || undefined,
+            body,
+            updatedAt: now,
+          }
+        : record
+    );
+  }
+
+  return [
+    ...records,
+    {
+      id: newRecordId,
+      dateKey,
+      title: title || undefined,
+      body,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+export function replaceDailyLongRecordBodyInList(
+  records: DailyLongRecord[],
+  dateKey: string,
+  body: string,
+  newRecordId: string,
+  now: string
+) {
+  const existingRecord = records.find((record) => record.dateKey === dateKey);
+  return [
+    ...records.filter((record) => record.dateKey !== dateKey),
+    {
+      id: existingRecord?.id ?? newRecordId,
+      dateKey,
+      title: existingRecord?.title,
+      body,
+      createdAt: existingRecord?.createdAt ?? now,
+      updatedAt: now,
+    },
+  ];
+}
+
+export function updateDailyLongRecordTitleInList(
+  records: DailyLongRecord[],
+  dateKey: string,
+  title: string,
+  now: string
+) {
+  const existingRecord = records.find((record) => record.dateKey === dateKey);
+  if (!existingRecord) {
+    return records;
+  }
+
+  return records.map((record) =>
+    record.dateKey === dateKey
+      ? {
+          ...record,
+          title,
+          updatedAt: now,
+        }
+      : record
+  );
+}
+
+export function appendDailyLongRecordBodyInList(
+  records: DailyLongRecord[],
+  dateKey: string,
+  body: string,
+  newRecordId: string,
+  now: string
+) {
+  const existingRecord = records.find((record) => record.dateKey === dateKey);
+  return [
+    ...records.filter((record) => record.dateKey !== dateKey),
+    existingRecord
+      ? {
+          ...existingRecord,
+          body: `${existingRecord.body.trim()}\n\n${body}`,
+          updatedAt: now,
+        }
+      : {
+          id: newRecordId,
+          dateKey,
+          body,
+          createdAt: now,
+          updatedAt: now,
+        },
+  ];
+}
+
+export function updateRecentDailyTraceLineInItems(
+  items: DailyTraceItem[],
+  itemId: string,
+  nextText: string,
+  now: string
+) {
+  return items.map((item) =>
+    item.id === itemId
+      ? {
+          ...item,
+          title: nextText,
+          text: nextText,
+          memo: nextText,
           updatedAt: now,
         }
       : item

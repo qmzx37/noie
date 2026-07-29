@@ -77,10 +77,15 @@ import {
   DailyTraceFrame,
 } from "./src/features/traces/DailyTraceSection";
 import {
+  appendDailyLongRecordBodyInList,
   cancelDailyTraceSchedule,
   removeDailyTraceGoalItem,
+  replaceDailyLongRecordBodyInList,
+  saveDailyLongRecordInList,
   toggleDailyTraceCompletion,
+  updateDailyLongRecordTitleInList,
   updateDailyTraceReminder,
+  updateRecentDailyTraceLineInItems,
 } from "./src/features/traces/dailyTraceActions";
 import {
   DreamFeature,
@@ -2381,31 +2386,10 @@ export default function App() {
     const title = input.title?.trim();
     const now = new Date().toISOString();
     setDailyLongRecords((currentRecords) => {
-      const existingRecord = currentRecords.find((record) => record.dateKey === input.dateKey);
-      if (existingRecord) {
-        return currentRecords.map((record) =>
-          record.dateKey === input.dateKey
-            ? {
-                ...record,
-                title: title || undefined,
-                body,
-                updatedAt: now,
-              }
-            : record
-        );
-      }
-
-      return [
-        ...currentRecords,
-        {
-          id: createId("daily-long-record"),
-          dateKey: input.dateKey,
-          title: title || undefined,
-          body,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ];
+      const newRecordId = currentRecords.some((record) => record.dateKey === input.dateKey)
+        ? ""
+        : createId("daily-long-record");
+      return saveDailyLongRecordInList(currentRecords, input.dateKey, title, body, newRecordId, now);
     });
 
     return true;
@@ -2423,17 +2407,18 @@ export default function App() {
 
     const now = new Date().toISOString();
     let didSave = false;
-    const nextRecords = normalizeDailyLongRecords([
-      ...dailyLongRecords.filter((record) => record.dateKey !== dateKey),
-      {
-        id: dailyLongRecords.find((record) => record.dateKey === dateKey)?.id ?? createId("daily-long-record"),
+    const newRecordId = dailyLongRecords.some((record) => record.dateKey === dateKey)
+      ? ""
+      : createId("daily-long-record");
+    const nextRecords = normalizeDailyLongRecords(
+      replaceDailyLongRecordBodyInList(
+        dailyLongRecords,
         dateKey,
-        title: dailyLongRecords.find((record) => record.dateKey === dateKey)?.title,
         body,
-        createdAt: dailyLongRecords.find((record) => record.dateKey === dateKey)?.createdAt ?? now,
-        updatedAt: now,
-      },
-    ]);
+        newRecordId,
+        now
+      )
+    );
     didSave = true;
     setDailyLongRecords(nextRecords);
     await saveJsonValue(STORAGE_KEYS.dailyLongRecords, nextRecords);
@@ -2468,15 +2453,7 @@ export default function App() {
       return;
     }
 
-    const nextRecords = dailyLongRecords.map((record) =>
-      record.dateKey === dateKey
-        ? {
-            ...record,
-            title,
-            updatedAt: now,
-          }
-        : record
-    );
+    const nextRecords = updateDailyLongRecordTitleInList(dailyLongRecords, dateKey, title, now);
     setDailyLongRecords(nextRecords);
     await saveJsonValue(STORAGE_KEYS.dailyLongRecords, nextRecords);
     setSelectedTraceDate(dateKey);
@@ -2503,23 +2480,18 @@ export default function App() {
     }
 
     const now = new Date().toISOString();
-    const existingRecord = dailyLongRecords.find((record) => record.dateKey === dateKey);
-    const nextRecords = normalizeDailyLongRecords([
-      ...dailyLongRecords.filter((record) => record.dateKey !== dateKey),
-      existingRecord
-        ? {
-            ...existingRecord,
-            body: `${existingRecord.body.trim()}\n\n${body}`,
-            updatedAt: now,
-          }
-        : {
-            id: createId("daily-long-record"),
-            dateKey,
-            body,
-            createdAt: now,
-            updatedAt: now,
-          },
-    ]);
+    const newRecordId = dailyLongRecords.some((record) => record.dateKey === dateKey)
+      ? ""
+      : createId("daily-long-record");
+    const nextRecords = normalizeDailyLongRecords(
+      appendDailyLongRecordBodyInList(
+        dailyLongRecords,
+        dateKey,
+        body,
+        newRecordId,
+        now
+      )
+    );
     setDailyLongRecords(nextRecords);
     await saveJsonValue(STORAGE_KEYS.dailyLongRecords, nextRecords);
     setSelectedTraceDate(dateKey);
@@ -2545,16 +2517,11 @@ export default function App() {
 
     const now = new Date().toISOString();
     const nextText = routingResult.nextTitle.trim();
-    const nextItems = dailyTraces.map((item) =>
-      item.id === routingResult.matchedDailyTraceId
-        ? {
-            ...item,
-            title: nextText,
-            text: nextText,
-            memo: nextText,
-            updatedAt: now,
-          }
-        : item
+    const nextItems = updateRecentDailyTraceLineInItems(
+      dailyTraces,
+      routingResult.matchedDailyTraceId,
+      nextText,
+      now
     );
     setDailyTraces(nextItems);
     await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
