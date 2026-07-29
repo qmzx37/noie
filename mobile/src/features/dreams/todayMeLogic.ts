@@ -1,4 +1,5 @@
 import { MAX_TODAY_ME_CARDS } from "../../noie/constants";
+import { normalizeRoutineTitleKey } from "../routines/routineRoutingLogic";
 import type { DailyTraceItem, DreamRoutine, NoieProject } from "../../noie/types";
 import { getTodayMeProjects, isActiveTodayMeProject } from "../../noie/selectors";
 import { getLocalDateString } from "../../noie/dateUtils";
@@ -48,11 +49,81 @@ export function getVisibleTodayMeCards(
   const activeSeason = torchPiece ? getActiveDreamSeason(torchPiece) : undefined;
   const routines = torchPiece ? getActiveDreamRoutines(torchPiece, activeSeason) : [];
   const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
-  return buildTodayMeCards(routines, todayMeProjects, torchPiece, todayKey).slice(0, MAX_TODAY_ME_CARDS);
+  return selectVisibleTodayMeCards(
+    buildTodayMeCards(routines, todayMeProjects, torchPiece, todayKey)
+  );
 }
 
 export function isActiveTodayMeRoutine(routine: DreamRoutine) {
   return isRoutineAvailableForTodayMe(routine);
+}
+
+function selectVisibleTodayMeCards(cards: TodayMeCard[]) {
+  const selected: TodayMeCard[] = [];
+
+  for (const card of cards) {
+    const hasSemanticDuplicate = card.cardType === "routine" && selected.some(
+      (selectedCard) => selectedCard.cardType === "routine" && areRoutineTitlesSemanticallyDuplicate(
+        selectedCard.routine.title,
+        card.routine.title
+      )
+    );
+
+    if (hasSemanticDuplicate) {
+      continue;
+    }
+
+    selected.push(card);
+    if (selected.length >= MAX_TODAY_ME_CARDS) {
+      break;
+    }
+  }
+
+  return selected;
+}
+
+export function areRoutineTitlesSemanticallyDuplicate(leftTitle: string, rightTitle: string) {
+  const leftKey = normalizeRoutineTitleKey(leftTitle);
+  const rightKey = normalizeRoutineTitleKey(rightTitle);
+
+  if (!leftKey || !rightKey) {
+    return false;
+  }
+  if (leftKey === rightKey) {
+    return true;
+  }
+
+  const leftCore = getRoutineSemanticCore(leftTitle);
+  const rightCore = getRoutineSemanticCore(rightTitle);
+  return Boolean(leftCore && rightCore && leftCore === rightCore);
+}
+
+function getRoutineSemanticCore(title: string) {
+  let core = normalizeRoutineTitleKey(title);
+  let previous = "";
+
+  while (core && core !== previous) {
+    previous = core;
+    core = stripRoutineGenericActionSuffix(core);
+  }
+
+  return core;
+}
+
+function stripRoutineGenericActionSuffix(value: string) {
+  const genericActionTerms = [
+    "\uD558\uAE30",
+    "\uACF5\uBD80",
+    "\uC791\uC5C5",
+  ];
+
+  for (const term of genericActionTerms) {
+    if (value.endsWith(term) && value.length > term.length) {
+      return value.slice(0, -term.length);
+    }
+  }
+
+  return value;
 }
 
 function getTodayMeCardOrder(card: TodayMeCard, torchPiece: DailyTraceItem | undefined, todayKey: string) {
