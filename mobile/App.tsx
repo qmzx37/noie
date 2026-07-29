@@ -79,9 +79,12 @@ import {
 import {
   appendDailyLongRecordBodyInList,
   cancelDailyTraceSchedule,
+  deleteLifeRepeatScheduleInItems,
+  endLifeRepeatScheduleFromDateInItems,
   removeDailyTraceGoalItem,
   replaceDailyLongRecordBodyInList,
   saveDailyLongRecordInList,
+  skipLifeRepeatScheduleOnDateInItems,
   toggleDailyTraceCompletion,
   updateDailyLongRecordTitleInList,
   updateDailyTraceReminder,
@@ -2615,22 +2618,10 @@ export default function App() {
 
   const skipLifeRepeatScheduleOnDate = async (itemId: string, dateKey: string) => {
     const now = new Date().toISOString();
-    let title = "";
-    let didUpdate = false;
-    const nextItems = dailyTraces.map((item) => {
-      if (item.id !== itemId || !isLifeRepeatTraceItem(item)) {
-        return item;
-      }
-      const typedItem = item as DailyTraceItem & { excludedDateKeys?: string[] };
-      const excludedDateKeys = Array.from(new Set([...(typedItem.excludedDateKeys ?? []), dateKey]));
-      title = item.title;
-      didUpdate = true;
-      return {
-        ...item,
-        excludedDateKeys,
-        updatedAt: now,
-      } as DailyTraceItem;
-    });
+    const result = skipLifeRepeatScheduleOnDateInItems(dailyTraces, itemId, dateKey, now);
+    const title = result.title;
+    const didUpdate = result.didUpdate;
+    const nextItems = result.nextItems;
     if (!didUpdate) {
       return false;
     }
@@ -2642,20 +2633,10 @@ export default function App() {
 
   const endLifeRepeatScheduleFromDate = async (itemId: string, dateKey: string) => {
     const now = new Date().toISOString();
-    let title = "";
-    let didUpdate = false;
-    const nextItems = dailyTraces.map((item) => {
-      if (item.id !== itemId || !isLifeRepeatTraceItem(item)) {
-        return item;
-      }
-      title = item.title;
-      didUpdate = true;
-      return {
-        ...item,
-        endDateKey: dateKey,
-        updatedAt: now,
-      } as DailyTraceItem;
-    });
+    const result = endLifeRepeatScheduleFromDateInItems(dailyTraces, itemId, dateKey, now);
+    const title = result.title;
+    const didUpdate = result.didUpdate;
+    const nextItems = result.nextItems;
     if (!didUpdate) {
       return false;
     }
@@ -2667,20 +2648,12 @@ export default function App() {
 
   const deleteLifeRepeatScheduleById = async (itemId: string) => {
     const now = new Date().toISOString();
-    const target = dailyTraces.find((item) => item.id === itemId && isLifeRepeatTraceItem(item));
+    const result = deleteLifeRepeatScheduleInItems(dailyTraces, itemId, now);
+    const target = result.didUpdate ? { title: result.title } : null;
     if (!target) {
       return false;
     }
-    const nextItems = dailyTraces.map((item) =>
-      item.id === itemId && isLifeRepeatTraceItem(item)
-        ? {
-            ...item,
-            status: "deleted",
-            deletedAt: now,
-            updatedAt: now,
-          }
-        : item
-    );
+    const nextItems = result.nextItems;
     setDailyTraces(nextItems);
     await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
     setDailyTraceCleanupMessage(`${target.title} 반복 일정을 삭제했어요.`);

@@ -15,6 +15,19 @@ type CancelledScheduleTraceItem = DailyTraceItem & {
   cancelledAt?: string;
 };
 
+type LifeRepeatTraceItem = DailyTraceItem & {
+  excludedDateKeys?: string[];
+  endDateKey?: string;
+  status?: string;
+  deletedAt?: string;
+};
+
+export type LifeRepeatTraceActionResult = {
+  nextItems: DailyTraceItem[];
+  didUpdate: boolean;
+  title: string;
+};
+
 export function toggleDailyTraceCompletion(
   items: DailyTraceItem[],
   itemId: string,
@@ -212,4 +225,90 @@ export function updateRecentDailyTraceLineInItems(
         }
       : item
   );
+}
+
+export function skipLifeRepeatScheduleOnDateInItems(
+  items: DailyTraceItem[],
+  itemId: string,
+  dateKey: string,
+  now: string
+): LifeRepeatTraceActionResult {
+  let title = "";
+  let didUpdate = false;
+  const nextItems = items.map((item) => {
+    if (item.id !== itemId || !isLifeRepeatTraceItem(item)) {
+      return item;
+    }
+    const typedItem = item as LifeRepeatTraceItem;
+    const excludedDateKeys = Array.from(new Set([...(typedItem.excludedDateKeys ?? []), dateKey]));
+    title = item.title;
+    didUpdate = true;
+    return {
+      ...item,
+      excludedDateKeys,
+      updatedAt: now,
+    };
+  });
+
+  return {
+    nextItems,
+    didUpdate,
+    title: didUpdate ? title : "",
+  };
+}
+
+export function endLifeRepeatScheduleFromDateInItems(
+  items: DailyTraceItem[],
+  itemId: string,
+  dateKey: string,
+  now: string
+): LifeRepeatTraceActionResult {
+  let title = "";
+  let didUpdate = false;
+  const nextItems = items.map((item) => {
+    if (item.id !== itemId || !isLifeRepeatTraceItem(item)) {
+      return item;
+    }
+    title = item.title;
+    didUpdate = true;
+    return {
+      ...item,
+      endDateKey: dateKey,
+      updatedAt: now,
+    };
+  });
+
+  return {
+    nextItems,
+    didUpdate,
+    title: didUpdate ? title : "",
+  };
+}
+
+export function deleteLifeRepeatScheduleInItems(
+  items: DailyTraceItem[],
+  itemId: string,
+  now: string
+): LifeRepeatTraceActionResult {
+  let title = "";
+  let didUpdate = false;
+  const nextItems = items.map((item) => {
+    if (item.id !== itemId || !isLifeRepeatTraceItem(item)) {
+      return item;
+    }
+    title = item.title;
+    didUpdate = true;
+    return {
+      ...item,
+      status: "deleted",
+      deletedAt: now,
+      updatedAt: now,
+    };
+  });
+
+  return {
+    nextItems,
+    didUpdate,
+    title: didUpdate ? title : "",
+  };
 }
