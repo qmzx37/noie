@@ -85,7 +85,7 @@ export function DailyTraceFrame({
           onPress={onBackToChat}
           activeOpacity={0.85}
         >
-          <Text style={styles.backToChatButtonText}>채팅</Text>
+          <Text style={styles.backToChatButtonText}>채팅으로 돌아가기</Text>
         </TouchableOpacity>
       </View>
 
@@ -102,6 +102,88 @@ export function DailyTraceFrame({
         <Text style={styles.traceCandidateMemo}>{cleanupMessage}</Text>
       ) : null}
     </ScrollView>
+  );
+}
+
+type DailyTraceScreenProps = {
+  styles: DailyTraceSectionStyles;
+  helpers: DailyTraceHelpers;
+  dailyTraces: DailyTraceItem[];
+  dailyLongRecords: DailyLongRecord[];
+  selectedTraceDate: string;
+  calendarMonth: Date;
+  onSelectTraceDate: (date: string) => void;
+  onChangeCalendarMonth: (date: Date) => void;
+  onToggleDailyTraceDone: (itemId: string, dateKey?: string) => void;
+  onDeleteDailyTraceGoal: (itemId: string) => void;
+  onAddDailyTraceItem: (input: {
+    type: "todo" | "schedule" | "record";
+    date: string;
+    title: string;
+    time?: string;
+    endTime?: string;
+    reminder?: string;
+  }) => boolean;
+  onSaveDailyLongRecord: (input: {
+    dateKey: string;
+    title?: string;
+    body: string;
+  }) => boolean;
+  onDeleteSchedule: (itemId: string) => Promise<{ didDelete: boolean; title: string }>;
+  onSkipLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
+  onEndLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
+  onDeleteLifeRepeatSchedule: (itemId: string) => Promise<boolean>;
+  onCleanupDuplicateMemories: () => void;
+  cleanupMessage: string;
+  onBackToChat: () => void;
+};
+
+export function DailyTraceScreen({
+  styles,
+  helpers,
+  dailyTraces,
+  dailyLongRecords,
+  selectedTraceDate,
+  calendarMonth,
+  onSelectTraceDate,
+  onChangeCalendarMonth,
+  onToggleDailyTraceDone,
+  onDeleteDailyTraceGoal: _onDeleteDailyTraceGoal,
+  onAddDailyTraceItem,
+  onSaveDailyLongRecord,
+  onDeleteSchedule,
+  onSkipLifeRepeatSchedule,
+  onEndLifeRepeatSchedule,
+  onDeleteLifeRepeatSchedule,
+  onCleanupDuplicateMemories,
+  cleanupMessage,
+  onBackToChat,
+}: DailyTraceScreenProps) {
+  return (
+    <DailyTraceFrame
+      styles={styles}
+      cleanupMessage={cleanupMessage}
+      onBackToChat={onBackToChat}
+      onCleanupDuplicateMemories={onCleanupDuplicateMemories}
+    >
+      <DailyTraceCalendar
+        styles={styles}
+        helpers={helpers}
+        items={dailyTraces}
+        dailyLongRecords={dailyLongRecords}
+        selectedDate={selectedTraceDate}
+        calendarMonth={calendarMonth}
+        onSelectDate={onSelectTraceDate}
+        onChangeMonth={onChangeCalendarMonth}
+        onToggleDone={onToggleDailyTraceDone}
+        onAddItem={onAddDailyTraceItem}
+        onSaveLongRecord={onSaveDailyLongRecord}
+        onDeleteSchedule={onDeleteSchedule}
+        onSkipLifeRepeatSchedule={onSkipLifeRepeatSchedule}
+        onEndLifeRepeatSchedule={onEndLifeRepeatSchedule}
+        onDeleteLifeRepeatSchedule={onDeleteLifeRepeatSchedule}
+      />
+    </DailyTraceFrame>
   );
 }
 export function DailyTraceCalendar({

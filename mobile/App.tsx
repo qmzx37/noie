@@ -73,8 +73,7 @@ import {
   STORAGE_KEYS,
 } from "./src/constants/storageKeys";
 import {
-  DailyTraceCalendar,
-  DailyTraceFrame,
+  DailyTraceScreen,
 } from "./src/features/traces/DailyTraceSection";
 import {
   appendDailyLongRecordBodyInList,
@@ -3692,6 +3691,28 @@ export default function App() {
             />
           ) : screenMode === "dailyTrace" ? (
             <DailyTraceScreen
+              styles={styles}
+              helpers={{
+                getDailyTraceItemsForDate,
+                isScheduledDailyTraceItemForDate,
+                buildUpcomingTraceSchedules,
+                getTraceDaySymbol,
+                formatShortTraceDate,
+                formatDailyTraceSelectedDate,
+                getEmptySelectedDayText,
+                getTraceScheduleSectionTitle,
+                getTraceRemainingSectionTitle,
+                getDailyLongRecordTitle,
+                getEmptyLongRecordText,
+                formatTimeFromIso,
+                formatUpcomingTraceDate,
+                getTraceReminderLabel,
+                isLifeRepeatTraceItem,
+                getDailyTraceRowMemo,
+                getDailyTraceDisplayTime,
+                getDailyTraceRowSource,
+                getDailyTraceRowIcon,
+              }}
               dailyTraces={dailyTraces}
               dailyLongRecords={dailyLongRecords}
               selectedTraceDate={selectedTraceDate}
@@ -4340,102 +4361,6 @@ function ResumeMaterialCard({ material }: { material: ResumeMaterial }) {
         </View>
       ))}
     </View>
-  );
-}
-
-function DailyTraceScreen({
-  dailyTraces,
-  dailyLongRecords,
-  selectedTraceDate,
-  calendarMonth,
-  onSelectTraceDate,
-  onChangeCalendarMonth,
-  onToggleDailyTraceDone,
-  onDeleteDailyTraceGoal: _onDeleteDailyTraceGoal,
-  onAddDailyTraceItem,
-  onSaveDailyLongRecord,
-  onDeleteSchedule,
-  onSkipLifeRepeatSchedule,
-  onEndLifeRepeatSchedule,
-  onDeleteLifeRepeatSchedule,
-  onCleanupDuplicateMemories,
-  cleanupMessage,
-  onBackToChat,
-}: {
-  dailyTraces: DailyTraceItem[];
-  dailyLongRecords: DailyLongRecord[];
-  selectedTraceDate: string;
-  calendarMonth: Date;
-  onSelectTraceDate: (date: string) => void;
-  onChangeCalendarMonth: (date: Date) => void;
-  onToggleDailyTraceDone: (itemId: string, dateKey?: string) => void;
-  onDeleteDailyTraceGoal: (itemId: string) => void;
-  onAddDailyTraceItem: (input: {
-    type: "todo" | "schedule" | "record";
-    date: string;
-    title: string;
-    time?: string;
-    endTime?: string;
-    reminder?: string;
-  }) => boolean;
-  onSaveDailyLongRecord: (input: {
-    dateKey: string;
-    title?: string;
-    body: string;
-  }) => boolean;
-  onDeleteSchedule: (itemId: string) => Promise<{ didDelete: boolean; title: string }>;
-  onSkipLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
-  onEndLifeRepeatSchedule: (itemId: string, dateKey: string) => Promise<boolean>;
-  onDeleteLifeRepeatSchedule: (itemId: string) => Promise<boolean>;
-  onCleanupDuplicateMemories: () => void;
-  cleanupMessage: string;
-  onBackToChat: () => void;
-}) {
-  return (
-    <DailyTraceFrame
-      styles={styles}
-      cleanupMessage={cleanupMessage}
-      onBackToChat={onBackToChat}
-      onCleanupDuplicateMemories={onCleanupDuplicateMemories}
-    >
-      <DailyTraceCalendar
-        styles={styles}
-        helpers={{
-          getDailyTraceItemsForDate,
-          isScheduledDailyTraceItemForDate,
-          buildUpcomingTraceSchedules,
-          getTraceDaySymbol,
-          formatShortTraceDate,
-          formatDailyTraceSelectedDate,
-          getEmptySelectedDayText,
-          getTraceScheduleSectionTitle,
-          getTraceRemainingSectionTitle,
-          getDailyLongRecordTitle,
-          getEmptyLongRecordText,
-          formatTimeFromIso,
-          formatUpcomingTraceDate,
-          getTraceReminderLabel,
-          isLifeRepeatTraceItem,
-          getDailyTraceRowMemo,
-          getDailyTraceDisplayTime,
-          getDailyTraceRowSource,
-          getDailyTraceRowIcon,
-        }}
-        items={dailyTraces}
-        dailyLongRecords={dailyLongRecords}
-        selectedDate={selectedTraceDate}
-        calendarMonth={calendarMonth}
-        onSelectDate={onSelectTraceDate}
-        onChangeMonth={onChangeCalendarMonth}
-        onToggleDone={onToggleDailyTraceDone}
-        onAddItem={onAddDailyTraceItem}
-        onSaveLongRecord={onSaveDailyLongRecord}
-        onDeleteSchedule={onDeleteSchedule}
-        onSkipLifeRepeatSchedule={onSkipLifeRepeatSchedule}
-        onEndLifeRepeatSchedule={onEndLifeRepeatSchedule}
-        onDeleteLifeRepeatSchedule={onDeleteLifeRepeatSchedule}
-      />
-    </DailyTraceFrame>
   );
 }
 

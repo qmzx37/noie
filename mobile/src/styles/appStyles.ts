@@ -75,6 +75,42 @@ export const styles = StyleSheet.create({
 
 
 
+  flowScroll: { backgroundColor: "#050505", flex: 1 },
+  flowContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    paddingBottom: 34,
+  },
+  flowHeaderRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  flowHeaderTextBlock: { flex: 1, minWidth: 210 },
+  flowTitle: {
+    color: "#ffffff",
+    fontSize: 24,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+  flowSubtitle: { color: "#9ca3af", fontSize: 14, lineHeight: 20 },
+  backToChatButton: {
+    alignItems: "center",
+    backgroundColor: "#f2f4f8",
+    borderRadius: 10,
+    flexShrink: 0,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 12,
+  },
+  backToChatButtonText: {
+    color: "#050505",
+    fontSize: 13,
+    fontWeight: "900",
+  },
   flowCard: {
     backgroundColor: "#111111",
     borderColor: "#262626",
