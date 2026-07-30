@@ -72,6 +72,15 @@ type RoutineScheduleBucket = {
   endDateKey: string;
 };
 
+type TodayConsistencyRoutineGroup = {
+  primaryRoutineId: string;
+  routines: DreamRoutine[];
+};
+
+type DreamProgressOptions = {
+  todayConsistencyRoutineGroups?: TodayConsistencyRoutineGroup[];
+};
+
 export function getDailyRoutineCompletionRatio(
   routine: DreamRoutine,
   dateKey: string,
@@ -212,7 +221,8 @@ export function calculateRoutineAccumulationRatio({
 
 export function calculateConsistencyScore(
   routines: DreamRoutine[],
-  routineRecords: DreamRoutineRecord[]
+  routineRecords: DreamRoutineRecord[],
+  options: { todayRoutineGroups?: TodayConsistencyRoutineGroup[] } = {}
 ) {
   const todayKey = getLocalDateString(new Date());
   const today = parseDateOnly(todayKey) ?? new Date();
@@ -222,16 +232,33 @@ export function calculateConsistencyScore(
     const recordsForDate = routineRecords.filter(
       (record) => normalizeRoutineRecordDateKey(record.date) === dateKey
     );
-    const scheduledRoutines = routines.filter(
-      (routine) =>
-        routine.repeatType !== "weekly" &&
-        !hasPausedDate(routine, dateKey) &&
-        (dateKey === todayKey
-          ? isRoutineAvailableForTodayMe(routine) && isRoutineActiveOnDate(routine, dateKey)
-          : isRoutineActiveOnDate(routine, dateKey) ||
-            Boolean(findRoutineRecord(routineRecords, routine.id, dateKey)))
-    );
-    if (scheduledRoutines.length === 0) {
+    const todayRoutineGroups = dateKey === todayKey
+      ? (options.todayRoutineGroups ?? [])
+          .map((group) => ({
+            primaryRoutineId: group.primaryRoutineId,
+            routines: group.routines.filter(
+              (routine) =>
+                routine.repeatType !== "weekly" &&
+                !hasPausedDate(routine, dateKey) &&
+                (isRoutineActiveOnDate(routine, dateKey) ||
+                  Boolean(findRoutineRecord(routineRecords, routine.id, dateKey)))
+            ),
+          }))
+          .filter((group) => group.routines.length > 0)
+      : undefined;
+    const scheduledRoutines = todayRoutineGroups
+      ? []
+      : routines.filter(
+          (routine) =>
+            routine.repeatType !== "weekly" &&
+            !hasPausedDate(routine, dateKey) &&
+            (dateKey === todayKey
+              ? isRoutineAvailableForTodayMe(routine) && isRoutineActiveOnDate(routine, dateKey)
+              : isRoutineActiveOnDate(routine, dateKey) ||
+                Boolean(findRoutineRecord(routineRecords, routine.id, dateKey)))
+        );
+    const denominator = todayRoutineGroups ? todayRoutineGroups.length : scheduledRoutines.length;
+    if (denominator === 0) {
       if (__DEV__) {
         console.log("[CONSISTENCY DAY]", {
           dateKey,
@@ -257,38 +284,52 @@ export function calculateConsistencyScore(
       }
       return { dateKey, ratio: 0, status: "neutral" };
     }
-    const routineRatios = scheduledRoutines.map((routine) => {
-      const record = findRoutineRecord(routineRecords, routine.id, dateKey);
-      const explicitCompleted = isRoutineRecordExplicitlyCompleted(record);
-      const actualValue = getRoutineRecordMeasuredValue(record);
-      const targetValue = getEffectiveRoutineTargetValue(routine, dateKey);
-      const ratio = getDailyRoutineCompletionRatio(routine, dateKey, routineRecords);
-
-      return ratio;
-    });
-    const ratio = routineRatios.reduce((sum, value) => sum + value, 0) / scheduledRoutines.length;
+    const routineRatios = todayRoutineGroups
+      ? todayRoutineGroups.map((group) =>
+          Math.max(
+            ...group.routines.map((routine) =>
+              getDailyRoutineCompletionRatio(routine, dateKey, routineRecords)
+            )
+          )
+        )
+      : scheduledRoutines.map((routine) =>
+          getDailyRoutineCompletionRatio(routine, dateKey, routineRecords)
+        );
+    const ratio = routineRatios.reduce((sum, value) => sum + value, 0) / denominator;
     const status: ConsistencyDay["status"] = ratio >= 1 ? "complete" : ratio > 0 ? "partial" : "missed";
     if (__DEV__) {
-      const completedRoutineIds = scheduledRoutines
-        .filter((routine) =>
-          getDailyRoutineCompletionRatio(routine, dateKey, routineRecords) >= 1
-        )
-        .map((routine) => routine.id);
+      const completedRoutineIds = todayRoutineGroups
+        ? todayRoutineGroups
+            .filter((_group, index) => routineRatios[index] >= 1)
+            .map((group) => group.primaryRoutineId)
+        : scheduledRoutines
+            .filter((routine) =>
+              getDailyRoutineCompletionRatio(routine, dateKey, routineRecords) >= 1
+            )
+            .map((routine) => routine.id);
       console.log("[CONSISTENCY DAY]", {
         dateKey,
-        scheduledRoutineIds: scheduledRoutines.map((routine) => routine.id),
+        scheduledRoutineIds: todayRoutineGroups
+          ? todayRoutineGroups.map((group) => group.primaryRoutineId)
+          : scheduledRoutines.map((routine) => routine.id),
         matchedRecordIds: recordsForDate.map((record) => record.id),
         completedRoutineIds,
-        ratios: scheduledRoutines.map((routine, index) => ({
-          routineId: routine.id,
-          recordId: findRoutineRecord(routineRecords, routine.id, dateKey)?.id,
-          explicitCompleted: isRoutineRecordExplicitlyCompleted(
-            findRoutineRecord(routineRecords, routine.id, dateKey)
-          ),
-          actualValue: getRoutineRecordMeasuredValue(findRoutineRecord(routineRecords, routine.id, dateKey)),
-          targetValue: getEffectiveRoutineTargetValue(routine, dateKey),
-          ratio: routineRatios[index],
-        })),
+        ratios: todayRoutineGroups
+          ? todayRoutineGroups.map((group, index) => ({
+              routineId: group.primaryRoutineId,
+              groupedRoutineIds: group.routines.map((routine) => routine.id),
+              ratio: routineRatios[index],
+            }))
+          : scheduledRoutines.map((routine, index) => ({
+              routineId: routine.id,
+              recordId: findRoutineRecord(routineRecords, routine.id, dateKey)?.id,
+              explicitCompleted: isRoutineRecordExplicitlyCompleted(
+                findRoutineRecord(routineRecords, routine.id, dateKey)
+              ),
+              actualValue: getRoutineRecordMeasuredValue(findRoutineRecord(routineRecords, routine.id, dateKey)),
+              targetValue: getEffectiveRoutineTargetValue(routine, dateKey),
+              ratio: routineRatios[index],
+            })),
         finalRatio: ratio,
         status,
       });
@@ -298,7 +339,9 @@ export function calculateConsistencyScore(
           visibleRoutineIds: routines
             .filter((routine) => isRoutineAvailableForTodayMe(routine))
             .map((routine) => routine.id),
-          consistencyRoutineIds: scheduledRoutines.map((routine) => routine.id),
+          consistencyRoutineIds: todayRoutineGroups
+            ? todayRoutineGroups.map((group) => group.primaryRoutineId)
+            : scheduledRoutines.map((routine) => routine.id),
           completedRoutineIds,
           ratio,
           status,
@@ -406,7 +449,11 @@ export function getProjectsRelatedToDream(piece: DailyTraceItem, projects: NoieP
 
 
 
-export function calculateDreamProgress(piece: DailyTraceItem, _projects: NoieProject[]): DreamProgressBreakdown {
+export function calculateDreamProgress(
+  piece: DailyTraceItem,
+  _projects: NoieProject[],
+  options: DreamProgressOptions = {}
+): DreamProgressBreakdown {
   const activeSeason = getActiveDreamSeason(piece);
   const milestones = (piece.milestones ?? []).filter(
     (milestone) => !activeSeason || !milestone.relatedSeasonId || milestone.relatedSeasonId === activeSeason.id
@@ -433,7 +480,9 @@ export function calculateDreamProgress(piece: DailyTraceItem, _projects: NoiePro
     hasRoutines: activeRoutines.length > 0,
     hasMilestones: milestones.length > 0,
   });
-  const consistency = calculateConsistencyScore(consistencyRoutines, piece.routineRecords ?? []);
+  const consistency = calculateConsistencyScore(consistencyRoutines, piece.routineRecords ?? [], {
+    todayRoutineGroups: options.todayConsistencyRoutineGroups,
+  });
   const cumulativeRoutineProgress = Math.round(clampRatio(routineAccumulationRatio) * 100);
   const milestoneProgress = Math.round(clampRatio(milestoneProgressRatio) * 100);
   const hasExecutionData =
@@ -507,10 +556,11 @@ export function getEmptyDreamProgressBreakdown(): DreamProgressBreakdown {
 export function getDreamProjectSummary(
   projects: NoieProject[],
   torchPiece?: DailyTraceItem,
-  allProjects: NoieProject[] = projects
+  allProjects: NoieProject[] = projects,
+  options: DreamProgressOptions = {}
 ): DreamProjectSummary {
   const progress = torchPiece
-    ? calculateDreamProgress(torchPiece, getProjectsRelatedToDream(torchPiece, allProjects))
+    ? calculateDreamProgress(torchPiece, getProjectsRelatedToDream(torchPiece, allProjects), options)
     : getEmptyDreamProgressBreakdown();
 
   return {

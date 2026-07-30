@@ -132,6 +132,7 @@ import {
   type TodayMeRecommendation,
 } from "./src/features/dreams/TodayMeSection";
 import {
+  areRoutineTitlesSemanticallyDuplicate,
   getTodayMeFeedback,
   getTodayRoutineRecord,
   getVisibleTodayMeCards,
@@ -3400,12 +3401,17 @@ export default function App() {
         linkedProjectId: linkedProject?.id ?? null,
       };
     });
-    const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
-    const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects);
     const todayKey = getLocalDateString(new Date());
+    const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
     const todayMeCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
     const fireRoutines = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "routine" }> => card.cardType === "routine");
     const fireProjects = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "project" }> => card.cardType === "project");
+    const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects, {
+      todayConsistencyRoutineGroups: buildTodayConsistencyRoutineGroups(
+        torchPiece,
+        fireRoutines.map(({ routine }) => routine)
+      ),
+    });
     const selectedMonths = torchPiece ? getSelectedGoalDuration(torchPiece) : undefined;
     const completedRoutineCount = torchPiece
       ? fireRoutines.filter(({ routine }) => isRoutineActionDoneToday(getTodayRoutineRecord(torchPiece, routine))).length
@@ -3793,6 +3799,25 @@ function isCompletedActionTrace(item: DailyTraceItem) {
 
 function getCompletedActionDisplayText(item: DailyTraceItem) {
   return getMeaningfulDailyPieceText(item) || item.title;
+}
+
+function buildTodayConsistencyRoutineGroups(
+  torchPiece: DailyTraceItem | undefined,
+  visibleRoutines: DreamRoutine[]
+) {
+  const allRoutines = torchPiece?.routines ?? [];
+
+  return visibleRoutines.map((visibleRoutine) => {
+    const routines = allRoutines.filter((routine) =>
+      routine.id === visibleRoutine.id ||
+      areRoutineTitlesSemanticallyDuplicate(routine.title, visibleRoutine.title)
+    );
+
+    return {
+      primaryRoutineId: visibleRoutine.id,
+      routines: routines.length > 0 ? routines : [visibleRoutine],
+    };
+  });
 }
 
 function DreamProjectSummaryCard({ summary }: { summary: DreamProjectSummary }) {
