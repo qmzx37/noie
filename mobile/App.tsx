@@ -92,24 +92,21 @@ import {
   formatRoutineTargetForDisplay,
 } from "./src/features/traces/dailyTraceRoutingLogic";
 import {
-  extractRoutineDurationTitleCandidate,
-  findRoutineDurationExpression,
+  convertRoutineRecordValueToRoutineUnit,
+  findExplicitRoutineDurationAdjustmentRoute,
+  findRoutineAdjustmentIntent,
+  findRoutineDurationCreationRoute,
+  findRoutineRecordRoute,
   formatRoutineDurationMinutes,
   getRoutineAdjustmentDisplayTitle,
-  getRoutineDurationMinutes,
-  hasRoutineKeywordOverlap,
-  isActualRoutineExecutionText,
   isAdditiveRoutineRecordText,
   isExplicitAdditiveRoutineRecordRequest,
   isNonCompletionRoutineText,
-  isRoutineRecordText,
-  normalizeRoutineAdjustmentTitleText,
   normalizeRoutineKey,
   normalizeRoutineTitleKey,
-  parseRoutineDurationMinutes,
   parseRoutineGoalCandidate,
-  parseRoutineRecordRequest,
   parseTargetValueWithUnit,
+  type PendingRoutineAdjustment,
 } from "./src/features/routines/routineRoutingLogic";
 import {
   findFutureOneTimeScheduleRoute,
@@ -299,15 +296,6 @@ type NoieSuggestionAction =
   | "select_schedule_date"
   | "end_routine"
   | "none";
-
-type PendingRoutineAdjustment = {
-  routineId: string;
-  routineTitle: string;
-  currentTargetValue: number;
-  currentUnit: string;
-  requestedValue?: number | null;
-  applyMode?: "today" | "default" | null;
-};
 
 type RecordRoutineExecutionInput = {
   itemId?: string;
@@ -766,6 +754,7 @@ export default function App() {
         projects,
         pendingRoutineAdjustment,
         recentDreamReference,
+        selectedDreamTorchId: dreamTorchId,
       });
       const routedMemoryPolicy = getMemoryPolicyForRoute(memoryPolicy, routingResult);
       const assistantReply =
@@ -961,7 +950,7 @@ export default function App() {
         } else if (isDuplicateLifeScheduleRoute(routingResult, dailyTraces)) {
           dailyTraceStatus = "duplicate";
           dailyTraceNotice = "이미 하루의 흔적에 같은 생활 반복이 있어요.";
-        } else if (isDuplicateRoutineRoute(routingResult, dailyTraces)) {
+        } else if (isDuplicateRoutineRoute(routingResult, dailyTraces, dreamTorchId)) {
           dailyTraceStatus = "duplicate";
           dailyTraceNotice = "이미 오늘의 나에 같은 반복 목표가 있어요.";
         } else if (routedMemoryPolicy.requiresConfirmation) {
@@ -2084,9 +2073,16 @@ export default function App() {
           return;
         }
 
+        const routineRecordTarget = resolveTodayMeRoutineRecordTarget(
+          routingResult,
+          dailyTraces,
+          dreamTorchId
+        );
+        const routineRecordDateKey = getLocalDateString(new Date());
         const didRecord = await recordRoutineExecution({
-          routineId: routingResult.matchedRoutineId,
-          dateKey: candidate.date,
+          itemId: routineRecordTarget?.itemId ?? routingResult.matchedDailyTraceId ?? undefined,
+          routineId: routineRecordTarget?.routineId ?? routingResult.matchedRoutineId,
+          dateKey: routineRecordDateKey,
           actualValue: routingResult.actualValue,
           unit: routingResult.actualUnit ?? routingResult.unit,
           source: "chat",
@@ -2964,12 +2960,19 @@ export default function App() {
 
   const removeRoutineFromTodayMe = (itemId: string, routineId: string) => {
     const now = new Date().toISOString();
+    const today = getLocalDateString(new Date());
     setDailyTraces((currentItems) => {
-      const nextItems = updateRoutineTodayMeStateInItems(currentItems, {
+      const archivedItems = updateRoutineTodayMeStateInItems(currentItems, {
         itemId,
         routineId,
         now,
         state: "archived",
+      });
+      const nextItems = removeRoutineRecordFromItems(archivedItems, {
+        itemId,
+        routineId,
+        dateKey: today,
+        now,
       });
       saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[today-me-routine-remove-save-error]", error)
@@ -3990,26 +3993,6 @@ function formatProgressValue(value: number) {
 
 
 
-function convertRoutineRecordValueToRoutineUnit(
-  value: number,
-  sourceUnit?: string | null,
-  targetUnit?: string | null
-) {
-  const safeValue = safeNumber(value);
-  if (safeValue <= 0) {
-    return 0;
-  }
-  if (sourceUnit === "시간" && targetUnit === "분") {
-    return safeValue * 60;
-  }
-  if (sourceUnit === "분" && targetUnit === "시간") {
-    return safeValue / 60;
-  }
-  return safeValue;
-}
-
-
-
 function getRoutineUpdatedAt(routine: DreamRoutine) {
   return routine.updatedAt ?? routine.createdAt;
 }
@@ -4593,6 +4576,7 @@ function resolvePrimarySaveRoute({
   projects,
   pendingRoutineAdjustment,
   recentDreamReference,
+  selectedDreamTorchId,
 }: {
   userText: string;
   saveDecision?: SaveDecision;
@@ -4602,6 +4586,7 @@ function resolvePrimarySaveRoute({
   projects: NoieProject[];
   pendingRoutineAdjustment: PendingRoutineAdjustment | null;
   recentDreamReference?: DailyTraceItem | null;
+  selectedDreamTorchId: string | null;
 }): NoieSaveRoutingResult {
   const normalizedText = normalizeMemoryInput(userText);
   const routineCandidate = parseRoutineGoalCandidate(userText);
@@ -4723,7 +4708,9 @@ function resolvePrimarySaveRoute({
     };
   }
 
-  const routineRecord = findRoutineRecordRoute(userText, existingItems);
+  const routineRecord = findRoutineRecordRoute(userText, existingItems, {
+    preferredRoutineIds: getPreferredTodayMeRoutineIds(existingItems, selectedDreamTorchId),
+  });
   if (routineRecord) {
     return routineRecord;
   }
@@ -5152,107 +5139,6 @@ function isPlainDailyTraceText(text: string) {
   return /오늘|어제|방금|아까/.test(normalizedText) && /했어|했다|다녀왔|받았|만났|생겼|떠올랐|겪었|봤어|들었어|공부했|운동했/.test(normalizedText);
 }
 
-function findRoutineRecordRoute(
-  text: string,
-  items: DailyTraceItem[]
-): NoieSaveRoutingResult | null {
-  if (isNonCompletionRoutineText(text) || (isAdditiveRoutineRecordText(text) && !isExplicitAdditiveRoutineRecordRequest(text))) {
-    return null;
-  }
-  if (!isRoutineRecordText(text)) {
-    return null;
-  }
-  try {
-    const parsed = parseRoutineRecordRequest(text);
-    const matched = findMatchingActiveRoutineForRecord(text, parsed, items);
-    if (!matched) {
-      return null;
-    }
-    const targetUnit = matched.routine.unit ?? parsed.requestedUnit ?? parsed.observedUnit ?? "";
-    const effectiveTargetValue = getEffectiveRoutineTargetValue(matched.routine, getLocalDateString(new Date()));
-    const sourceValue =
-      parsed.requestedValue ??
-      parsed.observedValue ??
-      (effectiveTargetValue > 0 ? effectiveTargetValue : /완료|끝냈|했어|했다/.test(text) ? 1 : 0);
-    const sourceUnit = parsed.requestedUnit ?? parsed.observedUnit ?? targetUnit;
-    const convertedValue = convertRoutineRecordValueToRoutineUnit(sourceValue, sourceUnit, targetUnit);
-    const existingRecord = findRoutineRecord(matched.item.routineRecords ?? [], matched.routine.id, getLocalDateString(new Date()));
-    const existingActualValue = parsed.isAdditiveRecord ? getRoutineRecordActualValue(existingRecord) : 0;
-    const actualValue = convertedValue + existingActualValue;
-    if (!Number.isFinite(actualValue) || actualValue <= 0) {
-      return null;
-    }
-
-    return {
-      route: "routine_record",
-      title: matched.routine.title,
-      originalText: text,
-      normalizedText: normalizeMemoryInput(text),
-      confidence: matched.confidence,
-      matchedRoutineId: matched.routine.id,
-      targetValue: getEffectiveRoutineTargetValue(matched.routine, getLocalDateString(new Date())),
-      actualValue,
-      actualUnit: targetUnit,
-      displayValue: sourceValue,
-      displayUnit: sourceUnit,
-      unit: targetUnit,
-      isExplicitOverride: parsed.isExplicitOverride,
-      isAdditiveRecord: parsed.isAdditiveRecord,
-      hasExistingRoutineRecord: Boolean(existingRecord),
-      reason: parsed.isAdditiveRecord
-        ? "명시적 반복 목표 수행량 누적 기록"
-        : parsed.isExplicitOverride ? "명시적 반복 목표 수행 기록 수정" : "반복 목표 수행 기록",
-    };
-  } catch (error) {
-    console.error("[routine-record-routing-error]", error);
-    return null;
-  }
-}
-
-function findMatchingActiveRoutineForRecord(
-  text: string,
-  parsed: ReturnType<typeof parseRoutineRecordRequest>,
-  items: DailyTraceItem[]
-) {
-  const routines = getActiveRoutineEntries(items);
-  if (routines.length === 0) {
-    return null;
-  }
-  const textKey = normalizeMemoryInput(`${text} ${parsed.activityText}`);
-  const scored = routines
-    .map(({ item, routine }) => {
-      const titleKey = normalizeMemoryInput(routine.title);
-      const compactTitleKey = titleKey.replace(/하기$/g, "");
-      let score = 0;
-      if (titleKey && textKey.includes(titleKey)) {
-        score += 4;
-      }
-      if (compactTitleKey && textKey.includes(compactTitleKey)) {
-        score += 3;
-      }
-      if (/운동|헬스|러닝|달리기|체력/.test(textKey) && /운동|헬스|러닝|달리기|체력/.test(titleKey)) {
-        score += 2;
-      }
-      if (/파이썬|코딩|개발|공부|학습/.test(textKey) && /파이썬|코딩|개발|공부|학습/.test(titleKey)) {
-        score += 2;
-      }
-      if (hasRoutineKeywordOverlap(textKey, titleKey)) {
-        score += 3;
-      }
-      return { item, routine, score };
-    })
-    .filter((item) => item.score > 0)
-    .sort((left, right) => right.score - left.score);
-
-  if (scored[0]) {
-    return { item: scored[0].item, routine: scored[0].routine, confidence: Math.min(0.98, 0.72 + scored[0].score * 0.05) };
-  }
-  if (routines.length === 1) {
-    return { item: routines[0].item, routine: routines[0].routine, confidence: 0.62 };
-  }
-  return null;
-}
-
 function isProjectStartText(text: string) {
   const normalizedText = text.trim();
   if (/언젠가|나중에|되고\s*싶|완성하고\s*싶|만들고\s*싶|꿈|목표/.test(normalizedText) && !/시작할래|시작하려고|실제로\s*개발|프로젝트를\s*시작/.test(normalizedText)) {
@@ -5338,185 +5224,6 @@ function makeImportantDayEventTitle(text: string) {
     return "방학 시작";
   }
   return makeMemoryTitle(text);
-}
-
-function findRoutineForDurationAdjustment(titleText: string, items: DailyTraceItem[]) {
-  const targetKey = normalizeRoutineAdjustmentTitleText(titleText);
-  if (!targetKey) {
-    return null;
-  }
-
-  const routines = getActiveRoutineEntries(items);
-  const exactMatch = routines.find(({ routine }) => normalizeRoutineAdjustmentTitleText(routine.title) === targetKey);
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  const compactMatch = routines.find(({ routine }) => {
-    const routineKey = normalizeRoutineAdjustmentTitleText(routine.title);
-    return routineKey.replace(/\s/g, "") === targetKey.replace(/\s/g, "");
-  });
-  if (compactMatch) {
-    return compactMatch;
-  }
-
-  const containsMatches = routines.filter(({ routine }) => {
-    const routineKey = normalizeRoutineAdjustmentTitleText(routine.title);
-    return (
-      routineKey.length >= 2 &&
-      targetKey.length >= 2 &&
-      (targetKey.includes(routineKey) || routineKey.includes(targetKey))
-    );
-  });
-
-  return containsMatches.length === 1 ? containsMatches[0] : null;
-}
-
-function findRoutineDurationCreationRoute(
-  text: string,
-  items: DailyTraceItem[]
-): NoieSaveRoutingResult | null {
-  if (isActualRoutineExecutionText(text)) {
-    return null;
-  }
-  if (/(오전|오후|아침|저녁|밤|새벽)?\s*\d{1,2}\s*시/.test(text) && /알림|일정|예약|해야\s*해|해야해|해야\s*돼|해야돼/.test(text)) {
-    return null;
-  }
-
-  const durationMatch = findRoutineDurationExpression(text);
-  const targetMinutes = parseRoutineDurationMinutes(text);
-  if (!durationMatch || typeof targetMinutes !== "number") {
-    return null;
-  }
-
-  const hasRoutineIntent =
-    /하고\s*싶어|하려고\s*해|할래|꾸준히\s*할래|매일\s*할래|이어가고\s*싶어|추가해줘|넣어줘|만들어줘|반복\s*목표|오늘의\s*나/.test(text);
-  if (!hasRoutineIntent) {
-    return null;
-  }
-
-  const title = extractRoutineDurationTitleCandidate(text);
-  if (!title) {
-    return null;
-  }
-
-  return {
-    route: "routine_create",
-    title,
-    originalText: text,
-    normalizedText: normalizeMemoryInput(title),
-    confidence: 0.92,
-    repeatType: "daily",
-    targetValue: targetMinutes,
-    minimumValue: 0,
-    unit: "분",
-    reason: "기존 반복 목표가 없어 새 오늘의 나 반복 목표 후보",
-  };
-}
-
-function findExplicitRoutineDurationAdjustmentRoute(
-  text: string,
-  items: DailyTraceItem[]
-): NoieSaveRoutingResult | null {
-  if (isActualRoutineExecutionText(text)) {
-    return null;
-  }
-
-  const durationMatch = findRoutineDurationExpression(text);
-  const newDurationMinutes = parseRoutineDurationMinutes(text);
-  if (!durationMatch || typeof newDurationMinutes !== "number") {
-    return null;
-  }
-
-  const wantsDurationAdjustment =
-    /으로\s*하고\s*싶어|로\s*하고\s*싶어|으로\s*할래|로\s*할래|바꾸고\s*싶어|변경하고\s*싶어|수정하고\s*싶어|조절하고\s*싶어|늘리고\s*싶어|줄이고\s*싶어|바꿔줘|변경해줘|수정해줘|조절해줘/.test(text);
-  if (!wantsDurationAdjustment) {
-    return null;
-  }
-
-  const titleText = text.slice(0, durationMatch.index ?? 0);
-  const matchedRoutine = findRoutineForDurationAdjustment(titleText, items);
-  console.log("[TODAY ME ROUTINE TIME UPDATE CHECK]", {
-    titleText: titleText.trim(),
-    targetMinutes: newDurationMinutes,
-    matchedRoutineId: matchedRoutine?.routine.id ?? null,
-    matchedRoutineTitle: matchedRoutine?.routine.title ?? null,
-  });
-
-  if (!matchedRoutine) {
-    return null;
-  }
-
-  const displayTitle = getRoutineAdjustmentDisplayTitle(matchedRoutine.routine.title);
-  const previousDurationMinutes = getRoutineDurationMinutes(
-    matchedRoutine.routine.targetValue,
-    matchedRoutine.routine.unit
-  );
-
-  return {
-    route: "routine_adjustment_confirm",
-    title: displayTitle,
-    originalText: text,
-    normalizedText: normalizeMemoryInput(displayTitle),
-    confidence: 0.97,
-    targetValue: newDurationMinutes,
-    unit: "분",
-    matchedRoutineId: matchedRoutine.routine.id,
-    matchedDailyTraceId: matchedRoutine.item.id,
-    targetGoalTitle: displayTitle,
-    previousDurationMinutes,
-    newDurationMinutes,
-    reason: "기존 반복 목표 시간 변경 후보",
-  };
-}
-
-function getActiveRoutineEntries(items: DailyTraceItem[]) {
-  return items.flatMap((item) =>
-    (item.routines ?? [])
-      .filter((routine) => isRoutineAvailableForTodayMe(routine))
-      .map((routine) => ({ item, routine }))
-  );
-}
-
-function findRoutineAdjustmentIntent(
-  text: string,
-  items: DailyTraceItem[]
-): PendingRoutineAdjustment | null {
-  const normalizedText = text.trim();
-  if (isActualRoutineExecutionText(normalizedText)) {
-    return null;
-  }
-  const wantsAdjustment = /바꾸고\s*싶|변경|조절|조정|늘리|줄이|줄이고|늘리고|목표.*바꿔|목표.*조정/.test(normalizedText);
-  const targetDomain = /공부|학습|파이썬|코딩|영어|독서|운동|반복|목표|시간/.test(normalizedText);
-  if (!wantsAdjustment || !targetDomain) {
-    return null;
-  }
-
-  const routines = getActiveRoutineEntries(items);
-  if (routines.length === 0) {
-    return null;
-  }
-
-  const textKey = normalizeMemoryInput(normalizedText);
-  const matchedRoutine =
-    routines.find(({ routine }) => {
-      const routineKey = normalizeMemoryInput(routine.title);
-      return (
-        textKey.includes(routineKey.replace(/하기$/g, "")) ||
-        (/파이썬|코딩|공부|학습/.test(textKey) && /파이썬|코딩|공부|학습/.test(routineKey))
-      );
-    }) ?? (routines.length === 1 ? routines[0] : null);
-
-  if (!matchedRoutine) {
-    return null;
-  }
-
-  return {
-    routineId: matchedRoutine.routine.id,
-    routineTitle: matchedRoutine.routine.title,
-    currentTargetValue: matchedRoutine.routine.targetValue ?? 0,
-    currentUnit: matchedRoutine.routine.unit ?? "",
-  };
 }
 
 function findCompletedProjectRoute(
@@ -5799,17 +5506,60 @@ function isDuplicateDreamFragmentRoute(routingResult: NoieSaveRoutingResult, ite
   return Boolean(findDuplicateDreamFragment(items, routingResult.originalText));
 }
 
-function isDuplicateRoutineRoute(routingResult: NoieSaveRoutingResult, items: DailyTraceItem[]) {
+function isDuplicateRoutineRoute(
+  routingResult: NoieSaveRoutingResult,
+  items: DailyTraceItem[],
+  selectedDreamTorchId: string | null
+) {
   if (routingResult.route !== "routine_create") {
     return false;
   }
+  const torchPiece = selectDreamTorchPiece(getDreamTorchCandidates(items), selectedDreamTorchId);
+  if (!torchPiece) {
+    return false;
+  }
   const targetTitleKey = normalizeRoutineTitleKey(routingResult.title);
-  return items.some((item) =>
-    (item.routines ?? []).some((routine) =>
-      isRoutineAvailableForTodayMe(routine) &&
+  return (torchPiece.routines ?? [])
+    .filter(isActiveTodayMeRoutine)
+    .some((routine) =>
       normalizeRoutineTitleKey(routine.title) === targetTitleKey
-    )
   );
+}
+
+function resolveTodayMeRoutineRecordTarget(
+  routingResult: NoieSaveRoutingResult,
+  items: DailyTraceItem[],
+  selectedDreamTorchId: string | null
+) {
+  if (routingResult.route !== "routine_record") {
+    return null;
+  }
+  const torchPiece = selectDreamTorchPiece(getDreamTorchCandidates(items), selectedDreamTorchId);
+  if (!torchPiece) {
+    return null;
+  }
+  const activeRoutines = (torchPiece.routines ?? []).filter(isActiveTodayMeRoutine);
+  const directMatch = routingResult.matchedRoutineId
+    ? activeRoutines.find((routine) => routine.id === routingResult.matchedRoutineId)
+    : undefined;
+  if (directMatch) {
+    return { itemId: torchPiece.id, routineId: directMatch.id };
+  }
+  const targetTitleKey = normalizeRoutineTitleKey(routingResult.title);
+  const titleMatch = activeRoutines.find((routine) =>
+    normalizeRoutineTitleKey(routine.title) === targetTitleKey
+  );
+  return titleMatch ? { itemId: torchPiece.id, routineId: titleMatch.id } : null;
+}
+
+function getPreferredTodayMeRoutineIds(
+  items: DailyTraceItem[],
+  selectedDreamTorchId: string | null
+) {
+  const torchPiece = selectDreamTorchPiece(getDreamTorchCandidates(items), selectedDreamTorchId);
+  return (torchPiece?.routines ?? [])
+    .filter(isActiveTodayMeRoutine)
+    .map((routine) => routine.id);
 }
 
 function isDuplicateLifeScheduleRoute(routingResult: NoieSaveRoutingResult, items: DailyTraceItem[]) {

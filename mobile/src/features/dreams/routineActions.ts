@@ -313,7 +313,10 @@ export function removeRoutineRecordFromItems(
     return {
       ...item,
       routineRecords: (item.routineRecords ?? []).filter(
-        (record) => !(record.routineId === input.routineId && record.date === input.dateKey)
+        (record) => !(record.routineId === input.routineId && (
+          record.date === input.dateKey ||
+          record.date.slice(0, 10) === input.dateKey
+        ))
       ),
       progressUpdatedAt: input.now,
       updatedAt: input.now,

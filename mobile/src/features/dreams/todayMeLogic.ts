@@ -8,6 +8,7 @@ import {
   getActiveDreamRoutines,
   getActiveDreamSeason,
   isRoutineAvailableForTodayMe,
+  normalizeRoutineRecordDateKey,
 } from "./dreamProgress";
 
 export type TodayMeRecommendationHelpers = {
@@ -55,7 +56,7 @@ export function getVisibleTodayMeCards(
 }
 
 export function isActiveTodayMeRoutine(routine: DreamRoutine) {
-  return isRoutineAvailableForTodayMe(routine);
+  return routine.active !== false && isRoutineAvailableForTodayMe(routine);
 }
 
 function selectVisibleTodayMeCards(cards: TodayMeCard[]) {
@@ -241,7 +242,7 @@ function convertResultGoalToRoutineTitle(title: string) {
 export function getTodayRoutineRecord(piece: DailyTraceItem | undefined, routine: DreamRoutine) {
   const todayKey = getLocalDateString(new Date());
   return (piece?.routineRecords ?? [])
-    .filter((record) => record.routineId === routine.id && record.date === todayKey)
+    .filter((record) => record.routineId === routine.id && normalizeRoutineRecordDateKey(record.date) === todayKey)
     .sort((left, right) => (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt))[0];
 }
 
