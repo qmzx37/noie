@@ -92,7 +92,6 @@ import {
   formatRoutineTargetForDisplay,
 } from "./src/features/traces/dailyTraceRoutingLogic";
 import {
-  convertRoutineRecordValueToRoutineUnit,
   findExplicitRoutineDurationAdjustmentRoute,
   findRoutineAdjustmentIntent,
   findRoutineDurationCreationRoute,
@@ -144,17 +143,14 @@ import {
   updateDreamFragmentNextAction,
 } from "./src/features/dreams/dreamActions";
 import {
-  addRoutineToTorch,
-  buildCompletedRoutineRecord as buildCompletedRoutineRecordAction,
-  buildRoutineRecord,
-  buildTodayMeRoutine,
+  recordRoutineExecutionInItems,
+  removeRoutineFromTodayMeInItems,
   removeRoutineRecordFromItems,
-  restoreTodayMeRoutineInTorch,
+  upsertTodayMeRoutineInItems,
   updateRoutineDailyTargetForItem,
-  updateRoutineRecordInItems,
   updateRoutineTargetInItems,
   updateRoutineTodayMeStateInItems,
-} from "./src/features/dreams/routineActions";
+} from "./src/features/routines/routineActions";
 import {
   ProjectCreateScreen,
   ProjectScreen,
@@ -1491,25 +1487,24 @@ export default function App() {
         typeof routingResult.targetValue === "number" && routingResult.targetValue > 0
           ? routingResult.targetValue
           : existingRoutine.targetValue;
-      const nextTorch = restoreTodayMeRoutineInTorch(targetTorch, {
-        routineId: existingRoutine.id,
+      const upsertResult = upsertTodayMeRoutineInItems({
+        currentItems: dailyTraces,
+        torchItem: targetTorch,
+        existingRoutineId: existingRoutine.id,
+        title: routineTitle,
+        recordType: "quantity",
+        repeatType: routingResult.repeatType ?? "daily",
         targetValue: nextTargetValue,
+        minimumValue: routingResult.minimumValue ?? 0,
         unit: routingResult.unit,
         now,
+        newRoutineId: createId("routine"),
       });
-      const nextItems = torchPiece
-        ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
-        : dedupeMemories([
-            ...dailyTraces.map((item) =>
-              item.pinnedAsDreamTorch ? { ...item, pinnedAsDreamTorch: false, updatedAt: now } : item
-            ),
-            nextTorch,
-          ]);
 
-      setDailyTraces(nextItems);
-      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
+      setDailyTraces(upsertResult.nextItems);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, upsertResult.nextItems);
       if (!torchPiece) {
-        setDreamTorchId(nextTorch.id);
+        setDreamTorchId(upsertResult.nextTorch.id);
       }
 
       console.log("[TODAY ME ROUTINE RESTORED]", {
@@ -1529,8 +1524,9 @@ export default function App() {
       return;
     }
 
-    const newRoutine = buildTodayMeRoutine({
-      id: createId("routine"),
+    const upsertResult = upsertTodayMeRoutineInItems({
+      currentItems: dailyTraces,
+      torchItem: targetTorch,
       title: routineTitle,
       recordType: "quantity",
       repeatType: routingResult.repeatType ?? "daily",
@@ -1538,21 +1534,13 @@ export default function App() {
       minimumValue: routingResult.minimumValue ?? 0,
       unit: routingResult.unit,
       now,
+      newRoutineId: createId("routine"),
     });
-    const nextTorch = addRoutineToTorch(targetTorch, newRoutine, now);
-    const nextItems = torchPiece
-      ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
-      : dedupeMemories([
-          ...dailyTraces.map((item) =>
-            item.pinnedAsDreamTorch ? { ...item, pinnedAsDreamTorch: false, updatedAt: now } : item
-          ),
-          nextTorch,
-        ]);
 
-    setDailyTraces(nextItems);
-    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
+    setDailyTraces(upsertResult.nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, upsertResult.nextItems);
     if (!torchPiece) {
-      setDreamTorchId(nextTorch.id);
+      setDreamTorchId(upsertResult.nextTorch.id);
     }
 
     updateSession(activeSession?.id ?? activeSessionId, (session) => ({
@@ -1673,35 +1661,35 @@ export default function App() {
 
     if (existingRoutine) {
       const nextTargetValue = Math.max(30, input.targetValue || existingRoutine.targetValue || 30);
-      const nextTorch = restoreTodayMeRoutineInTorch(targetTorch, {
-        routineId: existingRoutine.id,
+      const upsertResult = upsertTodayMeRoutineInItems({
+        currentItems: dailyTraces,
+        torchItem: targetTorch,
+        existingRoutineId: existingRoutine.id,
+        title: routineTitle,
+        recordType: "quantity",
+        repeatType: "daily",
         targetValue: nextTargetValue,
+        minimumValue: 0,
         now,
+        newRoutineId: createId("routine"),
       });
-      const nextItems = torchPiece
-        ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
-        : dedupeMemories([
-            ...dailyTraces.map((item) =>
-              item.pinnedAsDreamTorch ? { ...item, pinnedAsDreamTorch: false, updatedAt: now } : item
-            ),
-            nextTorch,
-          ]);
 
-      setDailyTraces(nextItems);
-      await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
+      setDailyTraces(upsertResult.nextItems);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, upsertResult.nextItems);
       if (!torchPiece) {
-        setDreamTorchId(nextTorch.id);
+        setDreamTorchId(upsertResult.nextTorch.id);
       }
       console.log("[TODAY ME ROUTINE RESTORED]", {
-        routineId: existingRoutine.id,
+        routineId: upsertResult.routine.id,
         targetValue: nextTargetValue,
       });
       setTodayMeFeedback("기존 반복 목표를 오늘의 나에 다시 이어왔어요.");
       return true;
     }
 
-    const newRoutine = buildTodayMeRoutine({
-      id: createId("routine"),
+    const upsertResult = upsertTodayMeRoutineInItems({
+      currentItems: dailyTraces,
+      torchItem: targetTorch,
       title: routineTitle,
       recordType: "quantity",
       repeatType: "daily",
@@ -1709,25 +1697,17 @@ export default function App() {
       minimumValue: 0,
       unit: "분",
       now,
+      newRoutineId: createId("routine"),
     });
-    const nextTorch = addRoutineToTorch(targetTorch, newRoutine, now);
-    const nextItems = torchPiece
-      ? dailyTraces.map((item) => item.id === nextTorch.id ? nextTorch : item)
-      : dedupeMemories([
-          ...dailyTraces.map((item) =>
-            item.pinnedAsDreamTorch ? { ...item, pinnedAsDreamTorch: false, updatedAt: now } : item
-          ),
-          nextTorch,
-        ]);
 
-    setDailyTraces(nextItems);
-    await saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems);
+    setDailyTraces(upsertResult.nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, upsertResult.nextItems);
     if (!torchPiece) {
-      setDreamTorchId(nextTorch.id);
+      setDreamTorchId(upsertResult.nextTorch.id);
     }
     console.log("[TODAY ME ROUTINE CREATED]", {
-      routineId: newRoutine.id,
-      targetValue: newRoutine.targetValue,
+      routineId: upsertResult.routine.id,
+      targetValue: upsertResult.routine.targetValue,
     });
     setTodayMeFeedback("반복 목표를 오늘의 나에 담았어요.");
     return true;
@@ -2687,62 +2667,22 @@ export default function App() {
       return false;
     }
 
-    let routineTitle = "";
-    let displayUnit = unit ?? "";
-    const targetItem = dailyTraces.find((item) => {
-      if (itemId && item.id !== itemId) {
-        return false;
-      }
-      return (item.routines ?? []).some((routine) => routine.id === routineId);
-    });
-    const routine = targetItem?.routines?.find((candidate) => candidate.id === routineId);
-    if (!targetItem || !routine) {
-      return false;
-    }
-
-    routineTitle = routine.title;
-    displayUnit = unit ?? routine.unit ?? "";
-    const normalizedValue = convertRoutineRecordValueToRoutineUnit(
-      safeActualValue,
-      unit,
-      routine.unit
-    );
-    const existingRecord = findRoutineRecord(targetItem.routineRecords ?? [], routineId, dateKey);
-    const score = completedOnly
-      ? existingRecord?.score ?? 1
-      : calculateRoutineScore(routine, normalizedValue, dateKey);
-    const recordId = existingRecord?.id ?? createId("routine-record");
-    const effectiveTargetValue = getEffectiveRoutineTargetValue(routine, dateKey);
-    const completedValue = effectiveTargetValue > 0 ? effectiveTargetValue : Math.max(1, normalizedValue);
-    const nextRecord = completedOnly
-      ? buildCompletedRoutineRecordAction({
-          recordId,
-          routineId,
-          dateKey,
-          score,
-          value: completedValue,
-          existingRecord,
-          now,
-          note: originalText,
-        })
-      : buildRoutineRecord({
-          recordId,
-          routineId,
-          dateKey,
-          score,
-          value: normalizedValue,
-          existingRecord,
-          now,
-          note: originalText,
-        });
-    const recordResult = updateRoutineRecordInItems(dailyTraces, {
+    const recordResult = recordRoutineExecutionInItems({
+      currentItems: dailyTraces,
       itemId,
       routineId,
-      record: nextRecord,
+      dateKey,
+      actualValue: safeActualValue,
+      unit,
+      originalText,
+      completedOnly,
       now,
+      newRecordId: createId("routine-record"),
     });
-    let nextItems = recordResult.items;
-    const didUpdate = recordResult.didUpdate;
+    let nextItems = recordResult.nextItems;
+    const didUpdate = recordResult.found;
+    const routineTitle = recordResult.routineTitle ?? "";
+    const displayUnit = recordResult.displayUnit ?? unit ?? "";
 
     if (didUpdate && source === "chat") {
       const traceTitle = completedOnly
@@ -2962,18 +2902,15 @@ export default function App() {
     const now = new Date().toISOString();
     const today = getLocalDateString(new Date());
     setDailyTraces((currentItems) => {
-      const archivedItems = updateRoutineTodayMeStateInItems(currentItems, {
-        itemId,
-        routineId,
-        now,
-        state: "archived",
-      });
-      const nextItems = removeRoutineRecordFromItems(archivedItems, {
+      const result = removeRoutineFromTodayMeInItems({
+        currentItems,
         itemId,
         routineId,
         dateKey: today,
         now,
+        resetTodayRecord: true,
       });
+      const nextItems = result.nextItems;
       saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
         console.error("[today-me-routine-remove-save-error]", error)
       );
@@ -4017,22 +3954,6 @@ function formatRoutineMeta(routine: DreamRoutine) {
   const target = routine.targetValue ? `목표 ${routine.targetValue}${routine.unit ?? ""}` : "목표 수치 미설정";
   const minimum = routine.minimumValue ? `최소 ${routine.minimumValue}${routine.unit ?? ""}` : "최소 기준 없음";
   return `${target} · ${minimum}`;
-}
-
-function calculateRoutineScore(routine: DreamRoutine, value: number, dateKey?: string): DreamRoutineQuickScore {
-  if (routine.recordType === "check") {
-    return 1;
-  }
-
-  const targetValue = safeNumber(routine.targetValue);
-  const minimumValue = safeNumber(routine.minimumValue);
-  if (targetValue > 0 && value >= targetValue) {
-    return 1;
-  }
-  if (minimumValue > 0 && value >= minimumValue) {
-    return 0.5;
-  }
-  return 0;
 }
 
 function isProjectActionDone(project: NoieProject, dateKey: string) {

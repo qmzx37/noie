@@ -4,6 +4,13 @@ import type {
   DreamRoutineRecord,
   DreamRoutineRecordType,
 } from "../../noie/types";
+import { dedupeMemories } from "../../noie/memoryLogic";
+import {
+  findRoutineRecord,
+  getEffectiveRoutineTargetValue,
+  safeNumber,
+} from "../dreams/dreamProgress";
+import { convertRoutineRecordValueToRoutineUnit } from "../routines/routineRoutingLogic";
 
 export type BuildRoutineInput = {
   id: string;
@@ -92,6 +99,66 @@ export type UpdateRoutineTodayMeStateInput = {
   state: "completed" | "archived";
 };
 
+export type UpsertTodayMeRoutineInItemsInput = {
+  currentItems: DailyTraceItem[];
+  torchItem: DailyTraceItem;
+  existingRoutineId?: string;
+  title: string;
+  recordType: DreamRoutineRecordType;
+  repeatType: DreamRoutine["repeatType"];
+  targetValue?: number;
+  minimumValue?: number;
+  unit?: string;
+  now: string;
+  newRoutineId: string;
+};
+
+export type UpsertTodayMeRoutineInItemsResult = {
+  nextTorch: DailyTraceItem;
+  nextItems: DailyTraceItem[];
+  routine: DreamRoutine;
+  restored: boolean;
+  created: boolean;
+};
+
+export type RecordRoutineExecutionInItemsInput = {
+  currentItems: DailyTraceItem[];
+  itemId?: string;
+  routineId: string;
+  dateKey: string;
+  actualValue: number;
+  unit?: string;
+  originalText?: string;
+  completedOnly?: boolean;
+  now: string;
+  newRecordId: string;
+};
+
+export type RecordRoutineExecutionInItemsResult = {
+  nextItems: DailyTraceItem[];
+  targetItemId?: string;
+  routineTitle?: string;
+  displayUnit?: string;
+  savedRecord?: DreamRoutineRecord;
+  completed: boolean;
+  found: boolean;
+};
+
+export type RemoveRoutineFromTodayMeInItemsInput = {
+  currentItems: DailyTraceItem[];
+  itemId: string;
+  routineId: string;
+  dateKey: string;
+  now: string;
+  resetTodayRecord: boolean;
+};
+
+export type RemoveRoutineFromTodayMeInItemsResult = {
+  nextItems: DailyTraceItem[];
+  removed: boolean;
+  removedTodayRecord: boolean;
+};
+
 export function buildTodayMeRoutine(input: BuildRoutineInput): DreamRoutine {
   return {
     id: input.id,
@@ -145,6 +212,159 @@ export function addRoutineToTorch(
   };
 }
 
+export function upsertTodayMeRoutineInItems(
+  input: UpsertTodayMeRoutineInItemsInput
+): UpsertTodayMeRoutineInItemsResult {
+  const existingRoutine = input.existingRoutineId
+    ? input.torchItem.routines?.find((routine) => routine.id === input.existingRoutineId)
+    : undefined;
+
+  if (existingRoutine) {
+    const nextTorch = restoreTodayMeRoutineInTorch(input.torchItem, {
+      routineId: existingRoutine.id,
+      targetValue: input.targetValue,
+      unit: input.unit,
+      now: input.now,
+    });
+    const restoredRoutine = nextTorch.routines?.find((routine) => routine.id === existingRoutine.id) ?? existingRoutine;
+
+    return {
+      nextTorch,
+      nextItems: replaceTorchInItems(input.currentItems, nextTorch, input.now),
+      routine: restoredRoutine,
+      restored: true,
+      created: false,
+    };
+  }
+
+  const routine = buildTodayMeRoutine({
+    id: input.newRoutineId,
+    title: input.title,
+    recordType: input.recordType,
+    repeatType: input.repeatType,
+    targetValue: input.targetValue,
+    minimumValue: input.minimumValue,
+    unit: input.unit,
+    now: input.now,
+  });
+  const nextTorch = addRoutineToTorch(input.torchItem, routine, input.now);
+
+  return {
+    nextTorch,
+    nextItems: replaceTorchInItems(input.currentItems, nextTorch, input.now),
+    routine,
+    restored: false,
+    created: true,
+  };
+}
+
+export function recordRoutineExecutionInItems(
+  input: RecordRoutineExecutionInItemsInput
+): RecordRoutineExecutionInItemsResult {
+  const safeActualValue = Math.max(0, safeNumber(input.actualValue));
+  if (!input.routineId || !Number.isFinite(safeActualValue)) {
+    return {
+      nextItems: input.currentItems,
+      completed: false,
+      found: false,
+    };
+  }
+
+  const targetItem = input.currentItems.find((item) => {
+    if (input.itemId && item.id !== input.itemId) {
+      return false;
+    }
+    return (item.routines ?? []).some((routine) => routine.id === input.routineId);
+  });
+  const routine = targetItem?.routines?.find((candidate) => candidate.id === input.routineId);
+  if (!targetItem || !routine) {
+    return {
+      nextItems: input.currentItems,
+      completed: false,
+      found: false,
+    };
+  }
+
+  const normalizedValue = convertRoutineRecordValueToRoutineUnit(
+    safeActualValue,
+    input.unit,
+    routine.unit
+  );
+  const existingRecord = findRoutineRecord(targetItem.routineRecords ?? [], input.routineId, input.dateKey);
+  const score = input.completedOnly
+    ? existingRecord?.score ?? 1
+    : calculateRoutineScoreForAction(routine, normalizedValue);
+  const effectiveTargetValue = getEffectiveRoutineTargetValue(routine, input.dateKey);
+  const completedValue = effectiveTargetValue > 0 ? effectiveTargetValue : Math.max(1, normalizedValue);
+  const nextRecord = input.completedOnly
+    ? buildCompletedRoutineRecord({
+        recordId: input.newRecordId,
+        routineId: input.routineId,
+        dateKey: input.dateKey,
+        score,
+        value: completedValue,
+        existingRecord,
+        now: input.now,
+        note: input.originalText,
+      })
+    : buildRoutineRecord({
+        recordId: input.newRecordId,
+        routineId: input.routineId,
+        dateKey: input.dateKey,
+        score,
+        value: normalizedValue,
+        existingRecord,
+        now: input.now,
+        note: input.originalText,
+      });
+  const recordResult = updateRoutineRecordInItems(input.currentItems, {
+    itemId: input.itemId,
+    routineId: input.routineId,
+    record: nextRecord,
+    now: input.now,
+  });
+
+  return {
+    nextItems: recordResult.items,
+    targetItemId: targetItem.id,
+    routineTitle: routine.title,
+    displayUnit: input.unit ?? routine.unit ?? "",
+    savedRecord: recordResult.didUpdate ? nextRecord : undefined,
+    completed: score >= 1,
+    found: recordResult.didUpdate,
+  };
+}
+
+export function removeRoutineFromTodayMeInItems(
+  input: RemoveRoutineFromTodayMeInItemsInput
+): RemoveRoutineFromTodayMeInItemsResult {
+  const targetItem = input.currentItems.find((item) => item.id === input.itemId);
+  const removed = Boolean(targetItem?.routines?.some((routine) => routine.id === input.routineId));
+  const beforeTodayRecordCount = (targetItem?.routineRecords ?? []).filter(
+    (record) => isRoutineRecordForDate(record, input.routineId, input.dateKey)
+  ).length;
+  const archivedItems = updateRoutineTodayMeStateInItems(input.currentItems, {
+    itemId: input.itemId,
+    routineId: input.routineId,
+    now: input.now,
+    state: "archived",
+  });
+  const nextItems = input.resetTodayRecord
+    ? removeRoutineRecordFromItems(archivedItems, {
+        itemId: input.itemId,
+        routineId: input.routineId,
+        dateKey: input.dateKey,
+        now: input.now,
+      })
+    : archivedItems;
+
+  return {
+    nextItems,
+    removed,
+    removedTodayRecord: beforeTodayRecordCount > 0,
+  };
+}
+
 export function updateRoutineTargetInItems(
   items: DailyTraceItem[],
   input: UpdateRoutineTargetInput
@@ -191,6 +411,54 @@ export function updateRoutineTargetInItems(
       updatedAt: hasRoutine ? input.now : item.updatedAt,
     };
   });
+}
+
+function replaceTorchInItems(
+  items: DailyTraceItem[],
+  nextTorch: DailyTraceItem,
+  now: string
+) {
+  const hasExistingTorch = items.some((item) => item.id === nextTorch.id);
+  if (hasExistingTorch) {
+    return items.map((item) => item.id === nextTorch.id ? nextTorch : item);
+  }
+
+  return dedupeMemories([
+    ...items.map((item) =>
+      item.pinnedAsDreamTorch ? { ...item, pinnedAsDreamTorch: false, updatedAt: now } : item
+    ),
+    nextTorch,
+  ]);
+}
+
+function calculateRoutineScoreForAction(
+  routine: DreamRoutine,
+  value: number
+): DreamRoutineRecord["score"] {
+  if (routine.recordType === "check") {
+    return 1;
+  }
+
+  const targetValue = safeNumber(routine.targetValue);
+  const minimumValue = safeNumber(routine.minimumValue);
+  if (targetValue > 0 && value >= targetValue) {
+    return 1;
+  }
+  if (minimumValue > 0 && value >= minimumValue) {
+    return 0.5;
+  }
+  return 0;
+}
+
+function isRoutineRecordForDate(
+  record: DreamRoutineRecord,
+  routineId: string,
+  dateKey: string
+) {
+  return record.routineId === routineId && (
+    record.date === dateKey ||
+    record.date.slice(0, 10) === dateKey
+  );
 }
 
 export function updateRoutineDailyTargetForItem(
