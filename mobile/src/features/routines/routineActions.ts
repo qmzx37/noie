@@ -159,6 +159,42 @@ export type RemoveRoutineFromTodayMeInItemsResult = {
   removedTodayRecord: boolean;
 };
 
+export type DeleteRoutineCompletelyInput = {
+  currentItems: DailyTraceItem[];
+  routineIds: string[];
+  now: string;
+};
+
+export type DeleteRoutineCompletelyResult = {
+  nextItems: DailyTraceItem[];
+  deletedRoutineIds: string[];
+  deletedRoutineCount: number;
+  deletedRecordCount: number;
+  deletedLegacyTraceCount: number;
+};
+
+function isRoutineExecutionTraceForDeletedRoutine(
+  item: DailyTraceItem,
+  deletedRoutineIds: Set<string>
+) {
+  const typedItem = item as DailyTraceItem & {
+    sourceId?: string;
+    sourceType?: string;
+    routineId?: string;
+  };
+  if (typedItem.routineId && deletedRoutineIds.has(typedItem.routineId)) {
+    return true;
+  }
+  const sourceId = typedItem.sourceId;
+  if (typedItem.sourceType !== "routine_execution" || !sourceId) {
+    return false;
+  }
+  return Array.from(deletedRoutineIds).some((routineId) =>
+    sourceId === `routine_execution:${routineId}` ||
+    sourceId.startsWith(`routine_execution:${routineId}:`)
+  );
+}
+
 export function buildTodayMeRoutine(input: BuildRoutineInput): DreamRoutine {
   return {
     id: input.id,
@@ -362,6 +398,66 @@ export function removeRoutineFromTodayMeInItems(
     nextItems,
     removed,
     removedTodayRecord: beforeTodayRecordCount > 0,
+  };
+}
+
+export function deleteRoutineCompletelyFromItems(
+  input: DeleteRoutineCompletelyInput
+): DeleteRoutineCompletelyResult {
+  const deletedRoutineIds = Array.from(new Set(input.routineIds)).filter(Boolean);
+  const deletedRoutineIdSet = new Set(deletedRoutineIds);
+  let deletedRoutineCount = 0;
+  let deletedRecordCount = 0;
+  let deletedLegacyTraceCount = 0;
+
+  if (deletedRoutineIdSet.size === 0) {
+    return {
+      nextItems: input.currentItems,
+      deletedRoutineIds,
+      deletedRoutineCount,
+      deletedRecordCount,
+      deletedLegacyTraceCount,
+    };
+  }
+
+  const remainingItems = input.currentItems.filter((item) => {
+    const shouldDelete = isRoutineExecutionTraceForDeletedRoutine(item, deletedRoutineIdSet);
+    if (shouldDelete) {
+      deletedLegacyTraceCount += 1;
+    }
+    return !shouldDelete;
+  });
+
+  const nextItems = remainingItems.map((item) => {
+    const routines = item.routines ?? [];
+    const routineRecords = item.routineRecords ?? [];
+    const nextRoutines = routines.filter((routine) => !deletedRoutineIdSet.has(routine.id));
+    const nextRoutineRecords = routineRecords.filter((record) => !deletedRoutineIdSet.has(record.routineId));
+    const removedRoutineCount = routines.length - nextRoutines.length;
+    const removedRecordCount = routineRecords.length - nextRoutineRecords.length;
+
+    if (removedRoutineCount === 0 && removedRecordCount === 0) {
+      return item;
+    }
+
+    deletedRoutineCount += removedRoutineCount;
+    deletedRecordCount += removedRecordCount;
+
+    return {
+      ...item,
+      routines: nextRoutines,
+      routineRecords: nextRoutineRecords,
+      progressUpdatedAt: removedRecordCount > 0 ? input.now : item.progressUpdatedAt,
+      updatedAt: input.now,
+    };
+  });
+
+  return {
+    nextItems,
+    deletedRoutineIds,
+    deletedRoutineCount,
+    deletedRecordCount,
+    deletedLegacyTraceCount,
   };
 }
 

@@ -96,6 +96,7 @@ import {
   findRoutineAdjustmentIntent,
   findRoutineDurationCreationRoute,
   findRoutineRecordRoute,
+  findRoutineRemoveRoute,
   formatRoutineDurationMinutes,
   getRoutineAdjustmentDisplayTitle,
   isAdditiveRoutineRecordText,
@@ -105,6 +106,7 @@ import {
   normalizeRoutineTitleKey,
   parseRoutineGoalCandidate,
   parseTargetValueWithUnit,
+  selectPreferredRoutineCandidate,
   type PendingRoutineAdjustment,
 } from "./src/features/routines/routineRoutingLogic";
 import {
@@ -143,6 +145,7 @@ import {
   updateDreamFragmentNextAction,
 } from "./src/features/dreams/dreamActions";
 import {
+  deleteRoutineCompletelyFromItems,
   recordRoutineExecutionInItems,
   removeRoutineFromTodayMeInItems,
   removeRoutineRecordFromItems,
@@ -773,7 +776,8 @@ export default function App() {
       if (
         !resolvedTraceCandidate &&
         (routingResult.route === "routine_adjustment_intent" ||
-          routingResult.route === "routine_adjustment_confirm")
+          routingResult.route === "routine_adjustment_confirm" ||
+          routingResult.route === "routine_remove")
       ) {
         resolvedTraceCandidate = {
           type: "todo",
@@ -799,6 +803,13 @@ export default function App() {
           resolvedTraceCandidate.type = "record";
           resolvedTraceCandidate.title = routingResult.title;
           resolvedTraceCandidate.memo = `실제 수행량 · ${formatRoutineTarget(routingResult.displayValue ?? routingResult.actualValue ?? 0, routingResult.displayUnit ?? routingResult.actualUnit ?? routingResult.unit)}`;
+        }
+        if (routingResult.route === "routine_remove") {
+          resolvedTraceCandidate.type = "goal";
+          resolvedTraceCandidate.title = routingResult.title;
+          resolvedTraceCandidate.memo = routingResult.targetValue
+            ? `목표 시간 · ${formatRoutineTargetForDisplay(routingResult.targetValue, routingResult.unit)}`
+            : "";
         }
         if (routingResult.route === "important_day_event") {
           resolvedTraceCandidate.type = "record";
@@ -995,6 +1006,11 @@ export default function App() {
       }
 
       if (routingResult.route === "routine_record") {
+        dailyTraceStatus = "pending";
+        dailyTraceNotice = getPendingMemoryNotice(routedMemoryPolicy, undefined, routingResult);
+      }
+
+      if (routingResult.route === "routine_remove") {
         dailyTraceStatus = "pending";
         dailyTraceNotice = getPendingMemoryNotice(routedMemoryPolicy, undefined, routingResult);
       }
@@ -1438,10 +1454,13 @@ export default function App() {
       routineRecords: [],
     };
     const routineTitle = routingResult.title || candidate.title;
-    const routineKey = normalizeRoutineTitleKey(routineTitle);
-    const existingRoutine = (targetTorch.routines ?? []).find(
-      (routine) => normalizeRoutineTitleKey(routine.title) === routineKey
-    );
+    const existingRoutineMatch = selectPreferredRoutineCandidate({
+      routines: targetTorch.routines ?? [],
+      requestedTitle: routineTitle,
+      includeArchivedFallback: true,
+      isActiveRoutine: isActiveTodayMeRoutine,
+    });
+    const existingRoutine = existingRoutineMatch?.routine;
     const todayMeDreamFragments = getDreamFragments(dailyTraces).filter((piece) => piece.id !== targetTorch.id);
     const activeCardCount = getVisibleTodayMeCards(targetTorch, todayMeDreamFragments, projects, today).length;
     const isExistingRoutineVisible = existingRoutine ? isActiveTodayMeRoutine(existingRoutine) : false;
@@ -1634,10 +1653,13 @@ export default function App() {
       routines: [],
       routineRecords: [],
     };
-    const titleKey = normalizeRoutineTitleKey(routineTitle);
-    const existingRoutine = (targetTorch.routines ?? []).find(
-      (routine) => normalizeRoutineTitleKey(routine.title) === titleKey
-    );
+    const existingRoutineMatch = selectPreferredRoutineCandidate({
+      routines: targetTorch.routines ?? [],
+      requestedTitle: routineTitle,
+      includeArchivedFallback: true,
+      isActiveRoutine: isActiveTodayMeRoutine,
+    });
+    const existingRoutine = existingRoutineMatch?.routine;
 
     console.log("[TODAY ME ROUTINE LOOKUP]", {
       title: routineTitle,
@@ -1992,6 +2014,61 @@ export default function App() {
         routingResult.route = "life_schedule_once";
         routingResult.scheduledDate = selectedDateKey;
         routingResult.needsDateSelection = false;
+      }
+
+      if (routingResult?.route === "routine_remove") {
+        if (action !== "archive") {
+          updateSession(activeSession.id, (session) => ({
+            ...session,
+            messages: session.messages.map((item) =>
+              item.id === messageId
+                ? { ...item, dailyTraceStatus: "dismissed", dailyTraceNotice: "그대로 이어갈게요." }
+                : item
+            ),
+            updatedAt: now,
+          }));
+          return;
+        }
+
+        const removeTarget = resolveTodayMeRoutineRemoveTarget(
+          routingResult,
+          dailyTraces,
+          dreamTorchId
+        );
+        if (!removeTarget) {
+          updateSession(activeSession.id, (session) => ({
+            ...session,
+            messages: session.messages.map((item) =>
+              item.id === messageId
+                ? { ...item, dailyTraceStatus: "dismissed", dailyTraceNotice: "오늘의 나에서 해당 반복 목표를 찾지 못했어요." }
+                : item
+            ),
+            updatedAt: now,
+          }));
+          return;
+        }
+
+        const didRemove = await removeRoutineFromTodayMeById(
+          removeTarget.itemId,
+          removeTarget.routineId,
+          "chat"
+        );
+        updateSession(activeSession.id, (session) => ({
+          ...session,
+          messages: session.messages.map((item) =>
+            item.id === messageId
+              ? {
+                  ...item,
+                  dailyTraceStatus: didRemove ? "added" : "dismissed",
+                  dailyTraceNotice: didRemove
+                    ? `${removeTarget.title}를 오늘의 나에서 없앴어요.`
+                    : "오늘의 나에서 해당 반복 목표를 찾지 못했어요.",
+                }
+              : item
+          ),
+          updatedAt: now,
+        }));
+        return;
       }
 
       if (routingResult?.route === "routine_create") {
@@ -2898,24 +2975,72 @@ export default function App() {
     });
   };
 
-  const removeRoutineFromTodayMe = (itemId: string, routineId: string) => {
+  const removeRoutineFromTodayMeById = async (
+    itemId: string,
+    routineId: string,
+    source: "ui" | "chat"
+  ) => {
     const now = new Date().toISOString();
     const today = getLocalDateString(new Date());
-    setDailyTraces((currentItems) => {
-      const result = removeRoutineFromTodayMeInItems({
-        currentItems,
-        itemId,
-        routineId,
-        dateKey: today,
-        now,
-        resetTodayRecord: true,
-      });
-      const nextItems = result.nextItems;
-      saveJsonValue(STORAGE_KEYS.dailyTraces, nextItems).catch((error) =>
-        console.error("[today-me-routine-remove-save-error]", error)
-      );
-      console.log("[today-me-card-removed]", { sourceType: "routine", sourceId: routineId });
-      return nextItems;
+    const result = removeRoutineFromTodayMeInItems({
+      currentItems: dailyTraces,
+      itemId,
+      routineId,
+      dateKey: today,
+      now,
+      resetTodayRecord: true,
+    });
+    if (!result.removed) {
+      return false;
+    }
+    setDailyTraces(result.nextItems);
+    await saveJsonValue(STORAGE_KEYS.dailyTraces, result.nextItems);
+    console.log("[today-me-card-removed]", { sourceType: "routine", sourceId: routineId, source });
+    return true;
+  };
+
+  const removeRoutineFromTodayMe = (itemId: string, routineId: string) => {
+    removeRoutineFromTodayMeById(itemId, routineId, "ui").catch((error) =>
+      console.error("[today-me-routine-remove-save-error]", error)
+    );
+  };
+
+  const deleteRoutineCompletelyFromTodayMe = (itemId: string, routineId: string) => {
+    const now = new Date().toISOString();
+    const targetItem = dailyTraces.find((item) => item.id === itemId);
+    const targetRoutine = targetItem?.routines?.find((routine) => routine.id === routineId);
+    if (!targetRoutine) {
+      setTodayMeFeedback("삭제할 반복 목표를 찾지 못했어요.");
+      return;
+    }
+    const routineIds = dailyTraces.flatMap((item) =>
+      (item.routines ?? [])
+        .filter((routine) =>
+          routine.id === routineId ||
+          areRoutineTitlesSemanticallyDuplicate(routine.title, targetRoutine.title)
+        )
+        .map((routine) => routine.id)
+    );
+    const result = deleteRoutineCompletelyFromItems({
+      currentItems: dailyTraces,
+      routineIds,
+      now,
+    });
+    if (result.deletedRoutineCount === 0) {
+      setTodayMeFeedback("삭제할 반복 목표를 찾지 못했어요.");
+      return;
+    }
+    setDailyTraces(result.nextItems);
+    saveJsonValue(STORAGE_KEYS.dailyTraces, result.nextItems).catch((error) =>
+      console.error("[today-me-routine-complete-delete-save-error]", error)
+    );
+    setTodayMeFeedback(`${targetRoutine.title}을(를) 완전히 삭제했어요.`);
+    console.log("[today-me-routine-completely-deleted]", {
+      routineId,
+      deletedRoutineIds: result.deletedRoutineIds,
+      deletedRoutineCount: result.deletedRoutineCount,
+      deletedRecordCount: result.deletedRecordCount,
+      deletedLegacyTraceCount: result.deletedLegacyTraceCount,
     });
   };
 
@@ -3457,6 +3582,7 @@ export default function App() {
             onAdjustRoutineTodayTarget={adjustRoutineTodayTarget}
             onAddRoutineToTodayMe={addRoutineToTodayMe}
             onRemoveRoutineFromTodayMe={removeRoutineFromTodayMe}
+            onDeleteRoutineCompletely={deleteRoutineCompletelyFromTodayMe}
             externalFeedback={todayMeFeedback}
             isStartingProject={isStartingProject}
           />
@@ -4530,6 +4656,13 @@ function resolvePrimarySaveRoute({
     return explicitRoutineAdjustment;
   }
 
+  const routineRemove = findRoutineRemoveRoute(userText, existingItems, {
+    preferredRoutineIds: getPreferredTodayMeRoutineIds(existingItems, selectedDreamTorchId),
+  });
+  if (routineRemove) {
+    return routineRemove;
+  }
+
   const explicitRoutineCreation = findRoutineDurationCreationRoute(userText, existingItems);
   if (explicitRoutineCreation) {
     return explicitRoutineCreation;
@@ -5439,12 +5572,11 @@ function isDuplicateRoutineRoute(
   if (!torchPiece) {
     return false;
   }
-  const targetTitleKey = normalizeRoutineTitleKey(routingResult.title);
-  return (torchPiece.routines ?? [])
-    .filter(isActiveTodayMeRoutine)
-    .some((routine) =>
-      normalizeRoutineTitleKey(routine.title) === targetTitleKey
-  );
+  return Boolean(selectPreferredRoutineCandidate({
+    routines: torchPiece.routines ?? [],
+    requestedTitle: routingResult.title,
+    isActiveRoutine: isActiveTodayMeRoutine,
+  }));
 }
 
 function resolveTodayMeRoutineRecordTarget(
@@ -5460,17 +5592,37 @@ function resolveTodayMeRoutineRecordTarget(
     return null;
   }
   const activeRoutines = (torchPiece.routines ?? []).filter(isActiveTodayMeRoutine);
-  const directMatch = routingResult.matchedRoutineId
-    ? activeRoutines.find((routine) => routine.id === routingResult.matchedRoutineId)
-    : undefined;
-  if (directMatch) {
-    return { itemId: torchPiece.id, routineId: directMatch.id };
+  const selected = selectPreferredRoutineCandidate({
+    routines: activeRoutines,
+    requestedTitle: routingResult.title,
+    explicitRoutineId: routingResult.matchedRoutineId,
+    isActiveRoutine: isActiveTodayMeRoutine,
+  });
+  return selected ? { itemId: torchPiece.id, routineId: selected.routine.id } : null;
+}
+
+function resolveTodayMeRoutineRemoveTarget(
+  routingResult: NoieSaveRoutingResult,
+  items: DailyTraceItem[],
+  selectedDreamTorchId: string | null
+) {
+  if (routingResult.route !== "routine_remove") {
+    return null;
   }
-  const targetTitleKey = normalizeRoutineTitleKey(routingResult.title);
-  const titleMatch = activeRoutines.find((routine) =>
-    normalizeRoutineTitleKey(routine.title) === targetTitleKey
-  );
-  return titleMatch ? { itemId: torchPiece.id, routineId: titleMatch.id } : null;
+  const torchPiece = selectDreamTorchPiece(getDreamTorchCandidates(items), selectedDreamTorchId);
+  if (!torchPiece) {
+    return null;
+  }
+  const activeRoutines = (torchPiece.routines ?? []).filter(isActiveTodayMeRoutine);
+  const selected = selectPreferredRoutineCandidate({
+    routines: activeRoutines,
+    requestedTitle: routingResult.title,
+    explicitRoutineId: routingResult.matchedRoutineId,
+    isActiveRoutine: isActiveTodayMeRoutine,
+  });
+  return selected
+    ? { itemId: torchPiece.id, routineId: selected.routine.id, title: selected.routine.title }
+    : null;
 }
 
 function getPreferredTodayMeRoutineIds(
@@ -5559,6 +5711,10 @@ function getPendingMemoryNotice(
 
   if (routingResult?.route === "project_create") {
     return `${routingResult.title}를 프로젝트로 시작할까요?`;
+  }
+
+  if (routingResult?.route === "routine_remove") {
+    return "오늘의 나에서 이 반복 목표를 없앨까요?";
   }
 
   if (routingResult?.route === "routine_record") {

@@ -34,6 +34,7 @@ export type TodayMeSectionProps = {
   onAdjustRoutineTodayTarget: (itemId: string, routineId: string, delta: number) => void;
   onAddRoutineToTodayMe: (input: { title: string; targetValue: number }) => Promise<boolean>;
   onRemoveRoutineFromTodayMe: (itemId: string, routineId: string) => void;
+  onDeleteRoutineCompletely: (itemId: string, routineId: string) => void;
   externalFeedback: string;
   isStartingProject: boolean;
 };
@@ -48,6 +49,7 @@ export function TodayMeSection({
   onAdjustRoutineTodayTarget,
   onAddRoutineToTodayMe,
   onRemoveRoutineFromTodayMe,
+  onDeleteRoutineCompletely,
   externalFeedback,
   isStartingProject,
   todayKey,
@@ -88,6 +90,14 @@ export function TodayMeSection({
       return;
     }
     onRemoveRoutineFromTodayMe(deleteTarget.itemId, deleteTarget.id);
+    setDeleteTarget(null);
+  };
+
+  const confirmDeleteTargetCompletely = () => {
+    if (!deleteTarget) {
+      return;
+    }
+    onDeleteRoutineCompletely(deleteTarget.itemId, deleteTarget.id);
     setDeleteTarget(null);
   };
 
@@ -229,9 +239,13 @@ export function TodayMeSection({
                   {isDeleteConfirmOpen ? (
                     <View style={styles.todayMeDeleteConfirmBox}>
                       <Text style={styles.todayMeDeleteConfirmText}>이 반복 목표를 오늘의 나에서 삭제할까요?</Text>
+                      <Text style={styles.todayMeDeleteConfirmText}>{`${routine.title}을(를) 완전히 삭제할까요?\n이 루틴과 연결된 과거 수행 기록도 함께 삭제됩니다.`}</Text>
                       <View style={styles.todayMeDeleteConfirmActions}>
                         <TouchableOpacity style={styles.todayMeDeleteConfirmButton} onPress={confirmDeleteTarget} activeOpacity={0.85}>
                           <Text style={styles.todayMeDeleteConfirmButtonText}>삭제</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.todayMeDeleteConfirmButton} onPress={confirmDeleteTargetCompletely} activeOpacity={0.85}>
+                          <Text style={styles.todayMeDeleteConfirmButtonText}>완전 삭제</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.todayMeCancelConfirmButton} onPress={() => setDeleteTarget(null)} activeOpacity={0.85}>
                           <Text style={styles.todayMeCancelConfirmButtonText}>취소</Text>

@@ -1,4 +1,4 @@
-import type { DailyTraceItem } from "../../noie/types";
+import type { DailyTraceItem, DreamRoutine } from "../../noie/types";
 import { normalizeMemoryInput, type NoieSaveRoutingResult } from "../../noie/memoryLogic";
 import { getLocalDateString } from "../../noie/dateUtils";
 import {
@@ -287,6 +287,145 @@ export type PendingRoutineAdjustment = {
   applyMode?: "today" | "default" | null;
 };
 
+export type PreferredRoutineMatch = {
+  routine: DreamRoutine;
+  candidateCount: number;
+  matchedBy: "id" | "exact_title" | "semantic_title" | "fallback";
+} | null;
+
+export type SelectPreferredRoutineCandidateInput = {
+  routines: DreamRoutine[];
+  requestedTitle?: string;
+  explicitRoutineId?: string | null;
+  includeArchivedFallback?: boolean;
+  allowSingleFallback?: boolean;
+  isActiveRoutine?: (routine: DreamRoutine) => boolean;
+};
+
+function getRoutineSemanticTitleKey(title: string) {
+  let key = normalizeRoutineTitleKey(title)
+    .replace(/하기/g, "")
+    .replace(/공부$/g, "")
+    .replace(/작업$/g, "")
+    .trim();
+
+  let previous = "";
+  while (key && key !== previous) {
+    previous = key;
+    key = key
+      .replace(/하기$/g, "")
+      .replace(/공부하기$/g, "공부")
+      .replace(/작업하기$/g, "작업")
+      .trim();
+  }
+
+  return key;
+}
+
+export function selectPreferredRoutineCandidate(
+  input: SelectPreferredRoutineCandidateInput
+): PreferredRoutineMatch {
+  const isActiveRoutine =
+    input.isActiveRoutine ??
+    ((routine: DreamRoutine) => routine.active !== false && isRoutineAvailableForTodayMe(routine));
+
+  if (input.explicitRoutineId) {
+    const explicitMatch = input.routines.find((routine) => routine.id === input.explicitRoutineId);
+    if (explicitMatch) {
+      return {
+        routine: explicitMatch,
+        candidateCount: 1,
+        matchedBy: "id",
+      };
+    }
+  }
+
+  const requestedTitle = input.requestedTitle?.trim() ?? "";
+  const requestedTitleKey = normalizeRoutineTitleKey(requestedTitle);
+  const requestedSemanticKey = getRoutineSemanticTitleKey(requestedTitle);
+  const activeRoutines = input.routines.filter(isActiveRoutine);
+  const inactiveRoutines = input.includeArchivedFallback
+    ? input.routines.filter((routine) => !isActiveRoutine(routine))
+    : [];
+
+  const findTitleMatch = (
+    routines: DreamRoutine[],
+    predicate: (routine: DreamRoutine) => boolean,
+    matchedBy: "exact_title" | "semantic_title"
+  ): PreferredRoutineMatch => {
+    const matches = routines.filter(predicate);
+    return matches[0]
+      ? {
+          routine: matches[0],
+          candidateCount: matches.length,
+          matchedBy,
+        }
+      : null;
+  };
+
+  if (requestedTitleKey) {
+    const activeExact = findTitleMatch(
+      activeRoutines,
+      (routine) => normalizeRoutineTitleKey(routine.title) === requestedTitleKey,
+      "exact_title"
+    );
+    if (activeExact) {
+      return activeExact;
+    }
+
+    const activeSemantic = findTitleMatch(
+      activeRoutines,
+      (routine) => {
+        const routineSemanticKey = getRoutineSemanticTitleKey(routine.title);
+        return Boolean(
+          routineSemanticKey &&
+            requestedSemanticKey &&
+            routineSemanticKey === requestedSemanticKey
+        );
+      },
+      "semantic_title"
+    );
+    if (activeSemantic) {
+      return activeSemantic;
+    }
+
+    const inactiveExact = findTitleMatch(
+      inactiveRoutines,
+      (routine) => normalizeRoutineTitleKey(routine.title) === requestedTitleKey,
+      "exact_title"
+    );
+    if (inactiveExact) {
+      return inactiveExact;
+    }
+
+    const inactiveSemantic = findTitleMatch(
+      inactiveRoutines,
+      (routine) => {
+        const routineSemanticKey = getRoutineSemanticTitleKey(routine.title);
+        return Boolean(
+          routineSemanticKey &&
+            requestedSemanticKey &&
+            routineSemanticKey === requestedSemanticKey
+        );
+      },
+      "semantic_title"
+    );
+    if (inactiveSemantic) {
+      return inactiveSemantic;
+    }
+  }
+
+  if (input.allowSingleFallback && activeRoutines.length === 1) {
+    return {
+      routine: activeRoutines[0],
+      candidateCount: 1,
+      matchedBy: "fallback",
+    };
+  }
+
+  return null;
+}
+
 
 export function convertRoutineRecordValueToRoutineUnit(
   value: number,
@@ -374,6 +513,84 @@ export function findRoutineRecordRoute(
   }
 }
 
+function cleanRoutineRemoveTitleCandidate(text: string) {
+  return stripTrailingKoreanParticles(text)
+    .replace(/["'“”‘’]/g, " ")
+    .replace(/하루의\s*흔적|기록|프로젝트/g, " ")
+    .replace(/오늘의\s*나에서|오늘의\s*나에|오늘의\s*나|반복\s*목표|목표/g, " ")
+    .replace(/매일|매주|오늘은|오늘/g, " ")
+    .replace(/\d+(?:\.\d+)?\s*(시간|분|회|개|페이지|세트)/g, " ")
+    .replace(/삭제해줘|삭제|빼줘|빼\s*줘|없애줘|없애|제거해줘|제거/g, " ")
+    .replace(/종료해줘|종료|그만할래|그만\s*할래|그만|안\s*할래|안\s*해/g, " ")
+    .replace(/을|를|이|가|은|는|으로|로/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isRoutineRemoveText(text: string) {
+  const isDailyTraceRecordDelete =
+    /하루의\s*흔적|기록/.test(text) && /삭제|지워|없애|제거/.test(text);
+  const isProjectDelete = /프로젝트/.test(text) && /삭제|지워|없애|제거|종료/.test(text);
+  const isDurationAdjustment =
+    /\d+(?:\.\d+)?\s*(시간|분|회|개|페이지|세트)/.test(text) &&
+    /줄여|늘려|바꿔|변경|수정|조절/.test(text);
+  const isNonCompletionOnly = /못\s*했|못했/.test(text);
+  if (isDailyTraceRecordDelete || isProjectDelete || isDurationAdjustment || isNonCompletionOnly) {
+    return false;
+  }
+
+  const hasRemoveIntent =
+    /삭제해줘|삭제|빼줘|빼\s*줘|없애줘|없애|제거해줘|제거|종료해줘|종료|그만할래|그만\s*할래|안\s*할래/.test(text);
+  const hasRoutineScope = /오늘의\s*나|반복\s*목표|목표|매일/.test(text);
+  const todayOptOut = /오늘은/.test(text) && /안\s*할래/.test(text);
+  return hasRemoveIntent && (hasRoutineScope || todayOptOut);
+}
+
+export function findRoutineRemoveRoute(
+  text: string,
+  items: DailyTraceItem[],
+  options: { preferredRoutineIds?: string[] } = {}
+): NoieSaveRoutingResult | null {
+  if (!isRoutineRemoveText(text)) {
+    return null;
+  }
+
+  const routines = getActiveRoutineEntries(items);
+  if (routines.length === 0) {
+    return null;
+  }
+
+  const titleCandidate = cleanRoutineRemoveTitleCandidate(text);
+  const selected = selectPreferredRoutineCandidate({
+    routines: routines.map(({ routine }) => routine),
+    requestedTitle: titleCandidate,
+    explicitRoutineId: options.preferredRoutineIds?.find((routineId) =>
+      routines.some(({ routine }) => routine.id === routineId && normalizeRoutineTitleKey(routine.title) === normalizeRoutineTitleKey(titleCandidate))
+    ),
+  });
+  if (!selected) {
+    return null;
+  }
+  const matched = routines.find(({ routine }) => routine.id === selected.routine.id);
+  if (!matched) {
+    return null;
+  }
+
+  const targetValue = getEffectiveRoutineTargetValue(matched.routine, getLocalDateString(new Date()));
+  return {
+    route: "routine_remove",
+    title: matched.routine.title,
+    originalText: text,
+    normalizedText: normalizeMemoryInput(matched.routine.title),
+    confidence: selected.matchedBy === "id" ? 0.98 : 0.94,
+    matchedDailyTraceId: matched.item.id,
+    matchedRoutineId: matched.routine.id,
+    targetValue,
+    unit: matched.routine.unit,
+    reason: "오늘의 나 반복 목표 제거 요청",
+  };
+}
+
 
 function findMatchingActiveRoutineForRecord(
   text: string,
@@ -386,6 +603,27 @@ function findMatchingActiveRoutineForRecord(
     return null;
   }
   const textKey = normalizeMemoryInput(`${text} ${parsed.activityText}`);
+  const titleMatchedRoutineIds = routines
+    .filter(({ routine }) => hasRoutineKeywordOverlap(textKey, normalizeMemoryInput(routine.title)))
+    .map(({ routine }) => routine.id);
+  const preferredRoutine = selectPreferredRoutineCandidate({
+    routines: routines.map(({ routine }) => routine),
+    requestedTitle: parsed.activityText || text,
+    explicitRoutineId: options.preferredRoutineIds?.find((routineId) => titleMatchedRoutineIds.includes(routineId)),
+    allowSingleFallback: true,
+  });
+  const preferredRoutineEntry = preferredRoutine
+    ? routines.find(({ routine }) => routine.id === preferredRoutine.routine.id)
+    : null;
+  if (preferredRoutine && preferredRoutineEntry) {
+    return {
+      item: preferredRoutineEntry.item,
+      routine: preferredRoutineEntry.routine,
+      confidence: preferredRoutine.matchedBy === "fallback" ? 0.62 : 0.96,
+      candidateCount: preferredRoutine.candidateCount,
+      selectedIsActive: preferredRoutineEntry.routine.active !== false && isRoutineAvailableForTodayMe(preferredRoutineEntry.routine),
+    };
+  }
   const todayKey = getLocalDateString(new Date());
   const requestedTargetValue = parsed.requestedValue ?? parsed.observedValue;
   const preferredRoutineIds = new Set(options.preferredRoutineIds ?? []);
@@ -487,37 +725,27 @@ function findMatchingActiveRoutineForRecord(
 
 
 function findRoutineForDurationAdjustment(titleText: string, items: DailyTraceItem[]) {
-  const targetKey = normalizeRoutineAdjustmentTitleText(titleText);
-  if (!targetKey) {
+  const routines = getActiveRoutineEntries(items);
+  const selected = selectPreferredRoutineCandidate({
+    routines: routines.map(({ routine }) => routine),
+    requestedTitle: titleText,
+  });
+  if (__DEV__) {
+    console.log("[ROUTINE SELECT RESULT]", {
+      requestedTitle: titleText,
+      explicitRoutineId: null,
+      selectedRoutineId: selected?.routine.id ?? null,
+      selectedRoutineTitle: selected?.routine.title ?? null,
+      candidateCount: selected?.candidateCount ?? 0,
+      matchedBy: selected?.matchedBy ?? null,
+      selectedIsActive: selected ? selected.routine.active !== false && isRoutineAvailableForTodayMe(selected.routine) : false,
+    });
+  }
+  if (!selected) {
     return null;
   }
-
-  const routines = getActiveRoutineEntries(items);
-  const exactMatch = routines.find(({ routine }) => normalizeRoutineAdjustmentTitleText(routine.title) === targetKey);
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  const compactMatch = routines.find(({ routine }) => {
-    const routineKey = normalizeRoutineAdjustmentTitleText(routine.title);
-    return routineKey.replace(/\s/g, "") === targetKey.replace(/\s/g, "");
-  });
-  if (compactMatch) {
-    return compactMatch;
-  }
-
-  const containsMatches = routines.filter(({ routine }) => {
-    const routineKey = normalizeRoutineAdjustmentTitleText(routine.title);
-    return (
-      routineKey.length >= 2 &&
-      targetKey.length >= 2 &&
-      (targetKey.includes(routineKey) || routineKey.includes(targetKey))
-    );
-  });
-
-  return containsMatches.length === 1 ? containsMatches[0] : null;
+  return routines.find(({ routine }) => routine.id === selected.routine.id) ?? null;
 }
-
 
 export function findRoutineDurationCreationRoute(
   text: string,
@@ -645,6 +873,23 @@ export function findRoutineAdjustmentIntent(
   const routines = getActiveRoutineEntries(items);
   if (routines.length === 0) {
     return null;
+  }
+
+  const preferredRoutine = selectPreferredRoutineCandidate({
+    routines: routines.map(({ routine }) => routine),
+    requestedTitle: normalizedText,
+    allowSingleFallback: true,
+  });
+  const preferredRoutineEntry = preferredRoutine
+    ? routines.find(({ routine }) => routine.id === preferredRoutine.routine.id)
+    : null;
+  if (preferredRoutineEntry) {
+    return {
+      routineId: preferredRoutineEntry.routine.id,
+      routineTitle: preferredRoutineEntry.routine.title,
+      currentTargetValue: preferredRoutineEntry.routine.targetValue ?? 0,
+      currentUnit: preferredRoutineEntry.routine.unit ?? "",
+    };
   }
 
   const textKey = normalizeMemoryInput(normalizedText);

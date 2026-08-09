@@ -39,6 +39,7 @@ type NoieSaveRoute =
   | "routine_create"
   | "routine_adjustment_intent"
   | "routine_adjustment_confirm"
+  | "routine_remove"
   | "routine_record"
   | "life_schedule_once"
   | "life_schedule_repeat"
@@ -670,6 +671,7 @@ function getNoieDestination(routingResult?: NoieSaveRoutingResult): NoieDestinat
     case "dream_fragment_next_action_update":
       return "dream_fragment";
     case "routine_create":
+    case "routine_remove":
       return "today_me_routine";
     case "project_create":
       return "today_me_project";
@@ -719,6 +721,8 @@ function getNoieSuggestionAction(routingResult?: NoieSaveRoutingResult): NoieSug
       return "complete_project";
     case "routine_create":
       return "create_routine";
+    case "routine_remove":
+      return "end_routine";
     case "project_create":
       return "create_project";
     case "routine_record":
@@ -795,6 +799,7 @@ function DailyTraceCandidateCard({
   );
   const isRoutineCandidate = routingResult?.route === "routine_create";
   const isProjectCandidate = routingResult?.route === "project_create";
+  const isRoutineRemove = routingResult?.route === "routine_remove";
   const isRoutineAdjustment = routingResult?.route === "routine_adjustment_intent" || routingResult?.route === "routine_adjustment_confirm";
   const isRoutineAdjustmentConfirm = routingResult?.route === "routine_adjustment_confirm";
   const routineAdjustmentTitle = isRoutineAdjustmentConfirm
@@ -828,6 +833,13 @@ function DailyTraceCandidateCard({
           ) : null}
         </>
       ) : isRoutineCandidate ? (
+        <>
+          <Text style={styles.traceCandidateTitle}>{candidate.title}</Text>
+          {candidate.memo ? (
+            <Text style={styles.traceCandidateMemo}>{candidate.memo}</Text>
+          ) : null}
+        </>
+      ) : isRoutineRemove ? (
         <>
           <Text style={styles.traceCandidateTitle}>{candidate.title}</Text>
           {candidate.memo ? (
@@ -904,6 +916,25 @@ function DailyTraceCandidateCard({
                 {isSaving ? "저장 중..." : "오늘의 나에 담기"}
               </Text>
             </TouchableOpacity>
+          ) : isRoutineRemove ? (
+            <>
+              <TouchableOpacity
+                style={[styles.traceConfirmButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id, undefined, "archive")}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceConfirmButtonText}>{isSaving ? "???以?.." : "없애기"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.traceCancelButton, isSaving && styles.traceConfirmButtonDisabled]}
+                onPress={() => onConfirm(message.id, undefined, "continue")}
+                disabled={isSaving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.traceCancelButtonText}>안 할래</Text>
+              </TouchableOpacity>
+            </>
           ) : isRoutineAdjustment ? (
             <>
               {routingResult.route === "routine_adjustment_confirm" ? (
@@ -1020,7 +1051,7 @@ function DailyTraceCandidateCard({
               </Text>
             </TouchableOpacity>
           )}
-          {routingResult?.route !== "dream_fragment_complete" && routingResult?.route !== "life_schedule_cancel" ? (
+          {routingResult?.route !== "dream_fragment_complete" && routingResult?.route !== "life_schedule_cancel" && routingResult?.route !== "routine_remove" ? (
             <TouchableOpacity
               style={[styles.traceCancelButton, isSaving && styles.traceConfirmButtonDisabled]}
               onPress={() => onDismiss(message.id)}

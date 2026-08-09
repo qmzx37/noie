@@ -13,6 +13,7 @@ import { getLocalDateString } from "./dateUtils";
 
 export type NoieSaveRoute =
   | "routine_record"
+  | "routine_remove"
   | "routine_create"
   | "routine_adjustment_intent"
   | "routine_adjustment_confirm"
@@ -149,6 +150,17 @@ export function getMemoryPolicyForRoute(
       importance: 72,
       label: "반복 목표 수행",
       saveTargets: ["daily_trace"],
+    };
+  }
+
+  if (routingResult.route === "routine_remove") {
+    return {
+      type: "none",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: 0,
+      label: "오늘의 나 반복 목표 제거",
+      saveTargets: [],
     };
   }
 
