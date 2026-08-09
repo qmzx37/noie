@@ -118,7 +118,6 @@ import {
 } from "./src/features/traces/lifeScheduleRoutingLogic";
 import {
   DreamFeature,
-  type DreamTorchDisplayItem,
 } from "./src/features/dreams/DreamFeature";
 import {
   cleanDreamFragmentCommandText,
@@ -145,19 +144,16 @@ import {
   sortDreamItemsByImportance,
 } from "./src/features/dreams/dreamRoutingLogic";
 import {
-  buildActiveDreamFragmentDisplayItems,
-  buildCompletedDreamFragmentDisplayItems,
-  formatRoutineMeta,
-  getActiveDreamFragments,
-  getCompletedProjectForFragment,
+  buildDreamFeatureViewModel,
+  selectTodayMeRecommendation,
+} from "./src/features/dreams/dreamViewModelLogic";
+import {
   getDreamTorchCandidates,
   isProjectActionDone,
   selectDreamTorchPiece,
 } from "./src/features/dreams/dreamDisplayLogic";
 import {
   TodayMeSection,
-  type TodayMeCard,
-  type TodayMeRecommendation,
 } from "./src/features/dreams/TodayMeSection";
 import {
   areRoutineTitlesSemanticallyDuplicate,
@@ -165,7 +161,6 @@ import {
   getTodayRoutineRecord,
   getVisibleTodayMeCards,
   isActiveTodayMeRoutine,
-  selectTodayMeRecommendation as selectTodayMeRecommendationFromLogic,
 } from "./src/features/dreams/todayMeLogic";
 import {
   buildDreamSaveMemories,
@@ -246,7 +241,6 @@ import {
   getGoalDurationMessage,
   getLocalDateString,
   getMonthStart,
-  getSelectedGoalDuration,
   isValidDateKey,
   parseDateOnly,
 } from "./src/noie/dateUtils";
@@ -257,8 +251,6 @@ import {
   findRoutineRecord,
   getConsistencyStatusSymbol,
   getConsistencyWeekdayLabel,
-  getDreamDdayLabel,
-  getDreamProjectSummary,
   getEmptyDreamProgressBreakdown,
   getEffectiveRoutineMinimumValue,
   getEffectiveRoutineTargetValue,
@@ -3327,117 +3319,28 @@ export default function App() {
   };
 
   const renderDreamFeature = () => {
-    const dreamTorchCandidates = getDreamTorchCandidates(dailyTraces);
-    const torchPiece = selectDreamTorchPiece(dreamTorchCandidates, dreamTorchId);
-    const dreamFragments = getDreamFragments(dailyTraces).filter(
-      (piece) => piece.id !== torchPiece?.id
-    );
-    const activeDreamFragments = getActiveDreamFragments(dreamFragments, projects);
-    const completedDreamFragments = buildCompletedDreamFragmentDisplayItems(dreamFragments, projects);
-    const activeDreamFragmentCards = buildActiveDreamFragmentDisplayItems(activeDreamFragments, projects);
-    const todayKey = getLocalDateString(new Date());
-    const todayMeProjects = getTodayMeProjects(torchPiece, dreamFragments, projects);
-    const todayMeCards = getVisibleTodayMeCards(torchPiece, dreamFragments, projects, todayKey);
-    const fireRoutines = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "routine" }> => card.cardType === "routine");
-    const fireProjects = todayMeCards.filter((card): card is Extract<TodayMeCard, { cardType: "project" }> => card.cardType === "project");
-    const dreamProjectSummary = getDreamProjectSummary(todayMeProjects, torchPiece, projects, {
-      todayConsistencyRoutineGroups: buildTodayConsistencyRoutineGroups(
-        torchPiece,
-        fireRoutines.map(({ routine }) => routine)
-      ),
+    const dreamView = buildDreamFeatureViewModel({
+      dailyTraces,
+      projects,
+      dreamTorchId,
+      todayKey: getLocalDateString(new Date()),
+      isSavingGoalDuration,
     });
-    const selectedMonths = torchPiece ? getSelectedGoalDuration(torchPiece) : undefined;
-    const completedRoutineCount = torchPiece
-      ? fireRoutines.filter(({ routine }) => isRoutineActionDoneToday(getTodayRoutineRecord(torchPiece, routine))).length
-      : 0;
-    const completedProjectCount = fireProjects.filter(({ project }) => isProjectActionDone(project, todayKey)).length;
-    const totalFireCount = todayMeCards.length;
-    const completedFireCount = completedRoutineCount + completedProjectCount;
-    const isAllDoneToday = totalFireCount > 0 && completedFireCount === totalFireCount;
-    const selectTodayMeRecommendation = (
-      recommendationTorchPiece: DailyTraceItem | undefined,
-      recommendationDreamFragments: DailyTraceItem[],
-      recommendationProjects: NoieProject[],
-      activeCards: TodayMeCard[],
-      dismissedKeys: string[]
-    ): TodayMeRecommendation | undefined =>
-      selectTodayMeRecommendationFromLogic(
-        recommendationTorchPiece,
-        recommendationDreamFragments,
-        recommendationProjects,
-        activeCards,
-        dismissedKeys,
-        {
-          normalizeMemoryInput,
-          getCompletedProjectForFragment,
-          getMemoryInputText,
-          makeMemoryTitle,
-        }
-      );
-    const torch: DreamTorchDisplayItem | null = torchPiece
-      ? {
-          id: torchPiece.id,
-          title: getMemoryInputText(torchPiece) || torchPiece.title,
-          ddayLabel: getDreamDdayLabel(torchPiece),
-          isSavingGoalDuration,
-          durationOptions: ([3, 6, 12] as GoalDurationMonths[]).map((months) => ({
-            months,
-            label: `${months}개월`,
-            isSelected: selectedMonths === months,
-          })),
-          fireTitle: isAllDoneToday ? "오늘의 불씨를 모두 켰어요 🔥" : "오늘의 불씨",
-          completedFireCount,
-          totalFireCount,
-          fireItems: [
-            ...fireRoutines.map(({ routine }, index) => {
-              const record = getTodayRoutineRecord(torchPiece, routine);
-              const isDone = isRoutineActionDoneToday(record);
-              const targetValue = getEffectiveRoutineTargetValue(routine, todayKey);
-              const routineTargetText =
-                targetValue > 0 ? `오늘 목표 · ${formatRoutineTarget(targetValue, routine.unit)}` : formatRoutineMeta(routine);
 
-              return {
-                id: routine.id,
-                title: isDone ? `🔥 ${routine.title}` : routine.title,
-                meta: isDone ? "오늘 해냈어요." : routineTargetText,
-                isDone,
-                showDivider: index < totalFireCount - 1,
-                kind: "routine" as const,
-                itemId: torchPiece.id,
-                routineId: routine.id,
-              };
-            }),
-            ...fireProjects.map(({ project }, index) => {
-              const isDone = isProjectActionDone(project, todayKey);
-              const actionText = project.nextAction?.trim() || "다음 행동";
-
-              return {
-                id: `project-fire-${project.id}`,
-                title: isDone ? `🔥 ${actionText}` : actionText,
-                meta: isDone ? "오늘 해냈어요." : `프로젝트 · ${project.title}`,
-                isDone,
-                showDivider: fireRoutines.length + index < totalFireCount - 1,
-                kind: "project" as const,
-                projectId: project.id,
-              };
-            }),
-          ],
-        }
-      : null;
 
     return (
       <DreamFeature
-        summaryNode={<DreamProjectSummaryCard summary={dreamProjectSummary} />}
-        torch={torch}
-        activeDreamFragments={activeDreamFragmentCards}
-        completedDreamFragments={completedDreamFragments}
-        dreamFragmentsCount={dreamFragments.length}
+        summaryNode={<DreamProjectSummaryCard summary={dreamView.dreamProjectSummary} />}
+        torch={dreamView.torch}
+        activeDreamFragments={dreamView.activeDreamFragmentCards}
+        completedDreamFragments={dreamView.completedDreamFragments}
+        dreamFragmentsCount={dreamView.dreamFragments.length}
         todayMeNode={
           <TodayMeSection
-            torchPiece={torchPiece}
-            projects={todayMeProjects}
-            dreamFragments={dreamFragments}
-            todayKey={todayKey}
+            torchPiece={dreamView.torchPiece}
+            projects={dreamView.todayMeProjects}
+            dreamFragments={dreamView.dreamFragments}
+            todayKey={dreamView.todayKey}
             getActiveDreamSeason={getActiveDreamSeason}
             getActiveDreamRoutines={getActiveDreamRoutines}
             getVisibleTodayMeCards={getVisibleTodayMeCards}
@@ -3734,25 +3637,6 @@ function isCompletedActionTrace(item: DailyTraceItem) {
 
 function getCompletedActionDisplayText(item: DailyTraceItem) {
   return getMeaningfulDailyPieceText(item) || item.title;
-}
-
-function buildTodayConsistencyRoutineGroups(
-  torchPiece: DailyTraceItem | undefined,
-  visibleRoutines: DreamRoutine[]
-) {
-  const allRoutines = torchPiece?.routines ?? [];
-
-  return visibleRoutines.map((visibleRoutine) => {
-    const routines = allRoutines.filter((routine) =>
-      routine.id === visibleRoutine.id ||
-      areRoutineTitlesSemanticallyDuplicate(routine.title, visibleRoutine.title)
-    );
-
-    return {
-      primaryRoutineId: visibleRoutine.id,
-      routines: routines.length > 0 ? routines : [visibleRoutine],
-    };
-  });
 }
 
 function DreamProjectSummaryCard({ summary }: { summary: DreamProjectSummary }) {
