@@ -1,6 +1,5 @@
 import { formatDateDot } from "../../noie/dateUtils";
 import {
-  dedupeMemories,
   getMemoryInputText,
   getMemoryPolicy,
   normalizeMemoryInput,
@@ -126,7 +125,7 @@ export function getCompletedDreamFragmentMeta(project: NoieProject) {
 }
 
 export function getDreamTorchCandidates(items: DailyTraceItem[]) {
-  return dedupeMemories(items)
+  return items
     .filter((item) => {
       if (isHiddenFromDream(item) || item.dreamRole === "fragment") {
         return false;
@@ -147,8 +146,15 @@ export function selectDreamTorchPiece(
   dreamPieces: DailyTraceItem[],
   dreamTorchId: string | null
 ) {
-  const pinnedPiece = dreamPieces.find((piece) => piece.pinnedAsDreamTorch) ??
-    (dreamTorchId ? dreamPieces.find((piece) => piece.id === dreamTorchId) : undefined);
+  const selectedById = dreamTorchId
+    ? dreamPieces.find((piece) => piece.id === dreamTorchId)
+    : undefined;
+
+  if (selectedById) {
+    return selectedById;
+  }
+
+  const pinnedPiece = dreamPieces.find((piece) => piece.pinnedAsDreamTorch);
 
   if (pinnedPiece) {
     return pinnedPiece;
