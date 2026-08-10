@@ -8,6 +8,7 @@ import type {
   MemorySavePolicyType,
   NoieMemory,
   SaveDecision,
+  SaveNoieMemoryResult,
 } from "./types";
 import { getLocalDateString } from "./dateUtils";
 
@@ -531,6 +532,90 @@ export function dedupeMemories(memories: NoieMemory[]): NoieMemory[] {
   console.log("중복 제거 후:", dedupedMemories.length);
 
   return dedupedMemories;
+}
+
+function isTodoLikeText(text: string) {
+  const normalizedText = text.trim().toLowerCase();
+
+  return /해야\s*겠|해야겠다|해야겠어|해야\s*함|해야함|해야\s*해|정리해야|운동해야|훈련.*해야|준비해야/.test(
+    normalizedText
+  );
+}
+
+export function adjustMemoryPolicyForText(
+  memoryPolicy: MemorySavePolicy,
+  text: string
+): MemorySavePolicy {
+  if (
+    memoryPolicy.type !== "sensitive_event" &&
+    isTodoLikeText(text) &&
+    !/되고\s*싶|되는\s*게\s*목표|내\s*꿈|목표야|목표는/.test(text)
+  ) {
+    return {
+      type: "todo",
+      shouldSave: true,
+      requiresConfirmation: true,
+      importance: calculateMemoryImportance("todo"),
+      label: "할 일",
+      saveTargets: ["daily_trace"],
+    };
+  }
+
+  return memoryPolicy;
+}
+
+export function isDuplicateMemoryOnSameDate(
+  items: DailyTraceItem[],
+  newMemory: DailyTraceItem
+) {
+  const newMemoryKey = getMemorySemanticKey(newMemory);
+  if (!newMemoryKey) {
+    return false;
+  }
+
+  return items.some((item) => getMemorySemanticKey(item) === newMemoryKey);
+}
+
+export function saveNoieMemory(
+  currentItems: DailyTraceItem[],
+  newItem: DailyTraceItem,
+  input: string,
+  options: { shouldLog?: boolean } = {}
+): SaveNoieMemoryResult {
+  const memoryPolicy = getMemoryPolicy(newItem);
+  const shouldLog = options.shouldLog ?? true;
+
+  if (shouldLog) {
+    console.log("저장 후보:", input, memoryPolicy.type, memoryPolicy.importance);
+  }
+
+  if (isDuplicateMemoryOnSameDate(currentItems, newItem)) {
+    if (shouldLog) {
+      console.log("중복이라 저장하지 않음:", input);
+    }
+    return {
+      items: currentItems,
+      saved: false,
+      duplicate: true,
+    };
+  }
+
+  return {
+    items: dedupeMemories(
+      newItem.pinnedAsDreamTorch
+        ? [
+            ...currentItems.map((item) =>
+              item.pinnedAsDreamTorch
+                ? { ...item, pinnedAsDreamTorch: false, updatedAt: new Date().toISOString() }
+                : item
+            ),
+            newItem,
+          ]
+        : [...currentItems, newItem]
+    ),
+    saved: true,
+    duplicate: false,
+  };
 }
 
 export function classifyMemorySavePolicy(
