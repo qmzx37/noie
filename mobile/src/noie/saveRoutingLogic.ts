@@ -12,8 +12,8 @@ import { normalizeDreamFragmentKey } from "../features/traces/dailyPieceLogic";
 import {
   findLifeScheduleMutationRoute,
   findLifeScheduleRoute,
-  makeMemoryTitle,
 } from "../features/traces/lifeScheduleRoutingLogic";
+import { makeSmartTitle } from "./titleLogic";
 import {
   findExplicitRoutineDurationAdjustmentRoute,
   findRoutineAdjustmentIntent,
@@ -246,7 +246,7 @@ export function resolvePrimarySaveRoute({
   if (isPlainDailyTraceText(userText)) {
     return {
       route: "daily_trace",
-      title: makeMemoryTitle(userText),
+      title: makeSmartTitle(userText, "daily_trace"),
       originalText: userText,
       normalizedText,
       confidence: 0.84,
@@ -281,7 +281,7 @@ export function resolvePrimarySaveRoute({
   if (memoryPolicy.type === "achievement") {
     return {
       route: "achievement",
-      title: makeMemoryTitle(userText),
+      title: makeSmartTitle(userText, "completed_action"),
       originalText: userText,
       normalizedText,
       confidence: 0.84,
@@ -291,7 +291,7 @@ export function resolvePrimarySaveRoute({
   if (isDailyIdeaText(userText)) {
     return {
       route: "daily_idea",
-      title: makeMemoryTitle(userText),
+      title: makeSmartTitle(userText, "daily_piece"),
       originalText: userText,
       normalizedText,
       confidence: 0.82,
@@ -303,7 +303,7 @@ export function resolvePrimarySaveRoute({
     const referencedDream = findReferencedDreamForTorchRequest(userText, recentDreamReference, existingItems);
     return {
       route: "dream_torch",
-      title: referencedDream?.title ?? makeMemoryTitle(userText),
+      title: referencedDream?.title ?? makeSmartTitle(userText, "dream"),
       originalText: userText,
       normalizedText: referencedDream ? normalizeMemoryInput(referencedDream.title) : normalizedText,
       confidence: 0.9,
@@ -316,7 +316,7 @@ export function resolvePrimarySaveRoute({
     const duplicateFragment = findDuplicateDreamFragment(existingItems, userText);
     return {
       route: "dream_torch",
-      title: makeMemoryTitle(userText),
+      title: makeSmartTitle(userText, "dream"),
       originalText: userText,
       normalizedText,
       confidence: duplicateFragment ? 0.99 : 0.88,
@@ -327,7 +327,7 @@ export function resolvePrimarySaveRoute({
   if (memoryPolicy.type === "sensitive_event") {
     return {
       route: "sensitive_event",
-      title: makeMemoryTitle(userText),
+      title: makeSmartTitle(userText, "daily_trace"),
       originalText: userText,
       normalizedText,
       confidence: 0.86,
@@ -378,7 +378,7 @@ export function makeImportantDayEventTitle(text: string) {
   if (/방학/.test(text) && /시작/.test(text)) {
     return "방학 시작";
   }
-  return makeMemoryTitle(text);
+  return makeSmartTitle(text, "daily_piece");
 }
 
 export function isCompletedActionText(text: string) {
@@ -392,7 +392,7 @@ export function makeCompletedActionTitle(text: string) {
   const title = text
     .replace(/오늘|끝냈어|완료했어|완성했어|다\s*했어|마쳤어|성공적으로\s*끝냈어|통과했어|해냈어/g, "")
     .trim();
-  return title || makeMemoryTitle(text);
+  return makeSmartTitle(title || text, "completed_action");
 }
 
 export function findDuplicateDreamFragment(items: DailyTraceItem[], text: string) {

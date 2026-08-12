@@ -16,7 +16,8 @@ import type {
   SaveDecision,
 } from "../../noie/types";
 import { parseRoutineGoalCandidate } from "../routines/routineRoutingLogic";
-import { makeMemoryTitle, stripTrailingKoreanParticles } from "../traces/lifeScheduleRoutingLogic";
+import { stripTrailingKoreanParticles } from "../traces/lifeScheduleRoutingLogic";
+import { makeSmartTitle } from "../../noie/titleLogic";
 
 type RoutedChatMessage = ChatMessage & {
   saveRoutingResult?: NoieSaveRoutingResult;
@@ -47,7 +48,7 @@ export function findRecentDreamReference(messages: ChatMessage[], items: DailyTr
         id: "",
         type: "goal" as DailyTraceItemType,
         date: message.dailyTraceCandidate.date || getLocalDateString(new Date()),
-        title: makeMemoryTitle(candidateText),
+        title: makeSmartTitle(candidateText, "dream_fragment"),
         memo: candidateText,
         text: candidateText,
         sourceText: candidateText,

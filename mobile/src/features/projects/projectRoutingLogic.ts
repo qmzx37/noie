@@ -4,7 +4,7 @@ import {
 } from "../../noie/memoryLogic";
 import type { NoieProject } from "../../noie/types";
 import { isActiveTodayMeProject } from "../../noie/selectors";
-import { makeMemoryTitle } from "../traces/lifeScheduleRoutingLogic";
+import { makeSmartTitle } from "../../noie/titleLogic";
 
 export function extractProjectTitle(...values: unknown[]): string {
   for (const value of values) {
@@ -39,12 +39,13 @@ export function isProjectStartText(text: string) {
 }
 
 export function makeProjectTitle(text: string) {
-  return makeMemoryTitle(
+  return makeSmartTitle(
     text
       .replace(/프로젝트를\s*시작할래|프로젝트\s*시작할래|프로젝트를\s*시작|시작할래|실제로\s*개발할래|실제로\s*만들래/g, "")
       .replace(/만들래/g, "만들기")
       .replace(/완성할래/g, "완성하기")
-      .trim() || text
+      .trim() || text,
+    "project"
   );
 }
 

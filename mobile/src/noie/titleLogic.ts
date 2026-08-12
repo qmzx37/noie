@@ -32,9 +32,23 @@ function buildContextTitle(text: string, context: NoieTitleContext) {
     case "daily_piece":
       return makeDailyTraceTitle(text);
     case "chat":
+      return makeChatTitle(text);
     default:
       return removeConversationTail(text);
   }
+}
+
+function makeChatTitle(text: string) {
+  if (/(?:수정하고\s*테스트까지\s*끝냈어|수정했어|완료했어|완료했어요|끝냈어|끝냈어요|통과했어|해냈어)/.test(text)) {
+    return makeCompletedActionTitle(text);
+  }
+  if (/프로젝트.*시작|프로젝트를\s*시작|프로젝트\s*시작|실제로\s*(?:개발|만들)/.test(text)) {
+    return makeProjectTitle(text);
+  }
+  if (/꿈|되고\s*싶어|되고\s*싶어요|되는\s*게/.test(text)) {
+    return makeDreamTitle(text);
+  }
+  return removeConversationTail(text);
 }
 
 function normalizeTitleText(text: string) {
@@ -88,6 +102,7 @@ function makeCompletedActionTitle(text: string) {
   return removeAmountExpressions(
     text
       .replace(/^(?:오늘|방금|아까)\s*/g, "")
+      .replace(/\s*(?:를|을)?\s*수정하고\s*테스트까지$/g, " 수정")
       .replace(/(?:를|을)?\s*(?:수정하고\s*테스트까지\s*끝냈어|수정했어|완료했어|완료했어요|끝냈어|끝냈어요|했어|했어요)$/g, " 수정")
       .replace(/\s*까지\s*/g, " ")
   ).trim();

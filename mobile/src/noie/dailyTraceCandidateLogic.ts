@@ -7,7 +7,7 @@ import type {
 import type { NoieSaveRoutingResult } from "./memoryLogic";
 import { formatRoutineTarget, formatRoutineTargetForDisplay } from "../features/traces/dailyTraceRoutingLogic";
 import { getDailyLongRecordTitle } from "../features/traces/traceFeature";
-import { makeMemoryTitle } from "../features/traces/lifeScheduleRoutingLogic";
+import { makeSmartTitle } from "./titleLogic";
 
 type BuildRoutedDailyTraceCandidateInput = {
   userText: string;
@@ -223,7 +223,7 @@ export function resolveDailyTraceCandidate(
   return {
     type: getDailyTraceTypeForMemory(memoryPolicy.type),
     date: todayKey,
-    title: makeMemoryTitle(text),
+    title: makeSmartTitle(text, memoryPolicy.type === "achievement" ? "completed_action" : "daily_trace"),
     memo: text,
   };
 }

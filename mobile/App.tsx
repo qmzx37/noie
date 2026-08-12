@@ -300,6 +300,7 @@ import {
   applyRoutingFieldsToDailyTrace,
   buildDailyTraceItem,
 } from "./src/noie/dailyTraceItemLogic";
+import { makeSmartTitle } from "./src/noie/titleLogic";
 import {
   isLegacyRoutineExecutionTrace,
   normalizeDailyLongRecords,
@@ -1258,7 +1259,7 @@ export default function App() {
     };
     const newItem: DailyTraceItem = {
       ...buildDailyTraceItem(candidate, messageText, message.id, now, memoryPolicy, () => createId("trace")),
-      title: routingResult?.title ?? makeMemoryTitle(messageText),
+      title: routingResult?.title ?? makeSmartTitle(messageText, "dream"),
       memo: routingResult?.title ?? messageText,
       text: routingResult?.title ?? messageText,
       sourceText: routingResult?.title ?? messageText,
@@ -1293,7 +1294,7 @@ export default function App() {
     };
     const newItem: DailyTraceItem = {
       ...buildDailyTraceItem(candidate, messageText, message.id, now, memoryPolicy, () => createId("trace")),
-      title: makeMemoryTitle(messageText),
+      title: makeSmartTitle(messageText, "dream_fragment"),
       memo: messageText,
       text: messageText,
       originalText: messageText,
@@ -3822,11 +3823,11 @@ function createId(prefix: string) {
 }
 
 function makeFallbackTitle(text: string) {
-  return cleanTitle(text) || "새 채팅";
+  return makeSmartTitle(text, "chat") || "새 채팅";
 }
 
 function cleanTitle(text: string) {
-  return text.replace(/["'“”‘’.,!?]/g, "").trim().slice(0, 15);
+  return makeSmartTitle(text, "chat");
 }
 
 
