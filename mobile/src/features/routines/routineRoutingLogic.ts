@@ -55,7 +55,11 @@ export function parseRoutineGoalCandidate(text: string): Pick<NoieSaveRoutingRes
 export function isRoutineRecordText(text: string) {
   const hasRecordEditIntent = /기록해줘|기록해|기록을|수정해줘|수정해|바꿔줘|바꿔|변경해줘|변경해/.test(text);
   const hasValue = /(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/.test(text);
+  const hasCompletionIntent = /했어|했어요|했다|끝냈어|끝냈어요|끝냈다|완료했어|완료했어요|완료했다|수행했어|수행했어요|수행했다/.test(text);
   if (isActualRoutineExecutionText(text)) {
+    return true;
+  }
+  if (hasCompletionIntent) {
     return true;
   }
   if (hasRecordEditIntent && hasValue) {
@@ -74,7 +78,7 @@ export function isActualRoutineExecutionText(text: string) {
   }
   return (
     /오늘|어제|방금|아까/.test(text) &&
-    /했어|했다|끝냈어|끝냈다|완료했어|완료했다/.test(text) &&
+    /했어|했어요|했다|끝냈어|끝냈어요|끝냈다|완료했어|완료했어요|완료했다|수행했어|수행했어요|수행했다/.test(text) &&
     /(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/.test(text)
   );
 }
@@ -105,7 +109,7 @@ export function parseRoutineRecordRequest(text: string) {
   return {
     activityText: text
       .replace(/(\d+(?:\.\d+)?)\s*(시간|분|회|개|페이지|세트)/g, " ")
-      .replace(/오늘|어제|방금|했어|했다|했는데|했지만|완료했어|끝냈어|기록해줘|기록하기|남겨줘|바꿔줘|수정해줘|변경해줘|으로|로/g, " ")
+      .replace(/오늘|어제|방금|했어|했어요|했다|했는데|했지만|완료했어|완료했어요|끝냈어|끝냈어요|수행했어|수행했어요|기록해줘|기록하기|남겨줘|바꿔줘|수정해줘|변경해줘|으로|로/g, " ")
       .replace(/\s+/g, " ")
       .trim(),
     observedValue: observedMatch?.value,
@@ -468,7 +472,7 @@ export function findRoutineRecordRoute(
     const sourceValue =
       parsed.requestedValue ??
       parsed.observedValue ??
-      (effectiveTargetValue > 0 ? effectiveTargetValue : /완료|끝냈|했어|했다/.test(text) ? 1 : 0);
+      (effectiveTargetValue > 0 ? effectiveTargetValue : /완료|끝냈|수행|했어|했다/.test(text) ? 1 : 0);
     const sourceUnit = parsed.requestedUnit ?? parsed.observedUnit ?? targetUnit;
     const convertedValue = convertRoutineRecordValueToRoutineUnit(sourceValue, sourceUnit, targetUnit);
     const existingRecord = findRoutineRecord(matched.item.routineRecords ?? [], matched.routine.id, getLocalDateString(new Date()));
@@ -606,11 +610,15 @@ function findMatchingActiveRoutineForRecord(
   const titleMatchedRoutineIds = routines
     .filter(({ routine }) => hasRoutineKeywordOverlap(textKey, normalizeMemoryInput(routine.title)))
     .map(({ routine }) => routine.id);
+  const allowSingleFallback =
+    isActualRoutineExecutionText(text) ||
+    parsed.isExplicitOverride ||
+    parsed.isAdditiveRecord;
   const preferredRoutine = selectPreferredRoutineCandidate({
     routines: routines.map(({ routine }) => routine),
     requestedTitle: parsed.activityText || text,
     explicitRoutineId: options.preferredRoutineIds?.find((routineId) => titleMatchedRoutineIds.includes(routineId)),
-    allowSingleFallback: true,
+    allowSingleFallback,
   });
   const preferredRoutineEntry = preferredRoutine
     ? routines.find(({ routine }) => routine.id === preferredRoutine.routine.id)
@@ -711,7 +719,7 @@ function findMatchingActiveRoutineForRecord(
       selectedIsActive: scored[0].routine.active !== false && isRoutineAvailableForTodayMe(scored[0].routine),
     };
   }
-  if (routines.length === 1) {
+  if (allowSingleFallback && routines.length === 1) {
     return {
       item: routines[0].item,
       routine: routines[0].routine,
