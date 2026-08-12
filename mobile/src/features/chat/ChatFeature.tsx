@@ -913,7 +913,7 @@ function DailyTraceCandidateCard({
               activeOpacity={0.85}
             >
               <Text style={styles.traceConfirmButtonText}>
-                {isSaving ? "저장 중..." : "오늘의 나에 담기"}
+                {isSaving ? "저장 중..." : "프로젝트 시작하기"}
               </Text>
             </TouchableOpacity>
           ) : isRoutineRemove ? (
