@@ -1,6 +1,7 @@
 import type { DailyTraceItem, DreamRoutine } from "../../noie/types";
 import { normalizeMemoryInput, type NoieSaveRoutingResult } from "../../noie/memoryLogic";
 import { getLocalDateString } from "../../noie/dateUtils";
+import { makeSmartTitle } from "../../noie/titleLogic";
 import {
   findRoutineRecord,
   getEffectiveRoutineTargetValue,
@@ -44,7 +45,7 @@ export function parseRoutineGoalCandidate(text: string): Pick<NoieSaveRoutingRes
   const unit = durationTarget?.unit ?? targetMatch?.[2];
   const repeatType = /주\s*\d+\s*회|매주/.test(normalizedText) ? "weekly" : "daily";
   return {
-    title: normalizeRoutineTitle(normalizedText),
+    title: makeSmartTitle(normalizedText, "routine"),
     repeatType,
     targetValue,
     unit,
@@ -778,7 +779,7 @@ export function findRoutineDurationCreationRoute(
     return null;
   }
 
-  const title = extractRoutineDurationTitleCandidate(text);
+  const title = makeSmartTitle(extractRoutineDurationTitleCandidate(text), "routine");
   if (!title) {
     return null;
   }
