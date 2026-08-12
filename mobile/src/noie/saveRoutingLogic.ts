@@ -344,7 +344,17 @@ export function resolvePrimarySaveRoute({
   };
 }
 
+function isSelfDreamDirectionText(text: string) {
+  return (
+    /되고\s*싶|되는\s*게\s*(?:내\s*)?꿈|되는게\s*(?:내\s*)?꿈|내\s*꿈|내꿈|장래희망/.test(text) &&
+    !/싶대|싶다고|싶다더|싶어\s*한|싶어한|꿈이래|꿈이라고/.test(text)
+  );
+}
+
 export function isOtherPersonOnlyText(text: string, decision?: SaveDecision) {
+  if (isSelfDreamDirectionText(text)) {
+    return false;
+  }
   if (decision?.subjectScope === "other_person" && decision.selfRelevance === "none") {
     return true;
   }
@@ -509,4 +519,3 @@ export function isDuplicateLifeScheduleRoute(routingResult: NoieSaveRoutingResul
     );
   });
 }
-

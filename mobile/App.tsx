@@ -796,13 +796,20 @@ export default function App() {
         extractDailyTraceCandidate(trimmedText),
       ]);
       const saveDecision = chatData.analysis.save_decision;
-      const baseMemoryPolicy = saveDecision
+      const localMemoryPolicy = classifyMemorySavePolicy(
+        trimmedText,
+        chatData.analysis.user_view.emotion_axis,
+        traceCandidate ?? undefined
+      );
+      const decisionMemoryPolicy = saveDecision
         ? buildMemorySavePolicyFromDecision(saveDecision)
-        : classifyMemorySavePolicy(
-            trimmedText,
-            chatData.analysis.user_view.emotion_axis,
-            traceCandidate ?? undefined
-          );
+        : localMemoryPolicy;
+      const baseMemoryPolicy =
+        saveDecision &&
+        decisionMemoryPolicy.type === "none" &&
+        isDreamOrGoalType(localMemoryPolicy.type)
+          ? localMemoryPolicy
+          : decisionMemoryPolicy;
       const memoryPolicy = adjustMemoryPolicyForText(
         baseMemoryPolicy,
         trimmedText
