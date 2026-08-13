@@ -257,7 +257,9 @@ export function calculateConsistencyScore(
               : isRoutineActiveOnDate(routine, dateKey) ||
                 Boolean(findRoutineRecord(routineRecords, routine.id, dateKey)))
         );
-    const denominator = todayRoutineGroups ? todayRoutineGroups.length : scheduledRoutines.length;
+    const consistencyRoutineGroups =
+      todayRoutineGroups ?? buildConsistencyRoutineGroups(scheduledRoutines);
+    const denominator = consistencyRoutineGroups.length;
     if (denominator === 0) {
       if (__DEV__) {
         console.log("[CONSISTENCY DAY]", {
@@ -284,52 +286,25 @@ export function calculateConsistencyScore(
       }
       return { dateKey, ratio: 0, status: "neutral" };
     }
-    const routineRatios = todayRoutineGroups
-      ? todayRoutineGroups.map((group) =>
-          Math.max(
-            ...group.routines.map((routine) =>
-              getDailyRoutineCompletionRatio(routine, dateKey, routineRecords)
-            )
-          )
-        )
-      : scheduledRoutines.map((routine) =>
-          getDailyRoutineCompletionRatio(routine, dateKey, routineRecords)
-        );
+    const routineRatios = consistencyRoutineGroups.map((group) =>
+      getConsistencyRoutineGroupRatio(group, dateKey, routineRecords)
+    );
     const ratio = routineRatios.reduce((sum, value) => sum + value, 0) / denominator;
     const status: ConsistencyDay["status"] = ratio >= 1 ? "complete" : ratio > 0 ? "partial" : "missed";
     if (__DEV__) {
-      const completedRoutineIds = todayRoutineGroups
-        ? todayRoutineGroups
-            .filter((_group, index) => routineRatios[index] >= 1)
-            .map((group) => group.primaryRoutineId)
-        : scheduledRoutines
-            .filter((routine) =>
-              getDailyRoutineCompletionRatio(routine, dateKey, routineRecords) >= 1
-            )
-            .map((routine) => routine.id);
+      const completedRoutineIds = consistencyRoutineGroups
+        .filter((_group, index) => routineRatios[index] >= 1)
+        .map((group) => group.primaryRoutineId);
       console.log("[CONSISTENCY DAY]", {
         dateKey,
-        scheduledRoutineIds: todayRoutineGroups
-          ? todayRoutineGroups.map((group) => group.primaryRoutineId)
-          : scheduledRoutines.map((routine) => routine.id),
+        scheduledRoutineIds: consistencyRoutineGroups.map((group) => group.primaryRoutineId),
         matchedRecordIds: recordsForDate.map((record) => record.id),
         completedRoutineIds,
-        ratios: todayRoutineGroups
-          ? todayRoutineGroups.map((group, index) => ({
-              routineId: group.primaryRoutineId,
-              groupedRoutineIds: group.routines.map((routine) => routine.id),
-              ratio: routineRatios[index],
-            }))
-          : scheduledRoutines.map((routine, index) => ({
-              routineId: routine.id,
-              recordId: findRoutineRecord(routineRecords, routine.id, dateKey)?.id,
-              explicitCompleted: isRoutineRecordExplicitlyCompleted(
-                findRoutineRecord(routineRecords, routine.id, dateKey)
-              ),
-              actualValue: getRoutineRecordMeasuredValue(findRoutineRecord(routineRecords, routine.id, dateKey)),
-              targetValue: getEffectiveRoutineTargetValue(routine, dateKey),
-              ratio: routineRatios[index],
-            })),
+        ratios: consistencyRoutineGroups.map((group, index) => ({
+          routineId: group.primaryRoutineId,
+          groupedRoutineIds: group.routines.map((routine) => routine.id),
+          ratio: routineRatios[index],
+        })),
         finalRatio: ratio,
         status,
       });
@@ -339,9 +314,7 @@ export function calculateConsistencyScore(
           visibleRoutineIds: routines
             .filter((routine) => isRoutineAvailableForTodayMe(routine))
             .map((routine) => routine.id),
-          consistencyRoutineIds: todayRoutineGroups
-            ? todayRoutineGroups.map((group) => group.primaryRoutineId)
-            : scheduledRoutines.map((routine) => routine.id),
+          consistencyRoutineIds: consistencyRoutineGroups.map((group) => group.primaryRoutineId),
           completedRoutineIds,
           ratio,
           status,
@@ -361,6 +334,102 @@ export function calculateConsistencyScore(
       : 0;
 
   return { score: clampPercent(score), days };
+}
+
+
+function buildConsistencyRoutineGroups(routines: DreamRoutine[]): TodayConsistencyRoutineGroup[] {
+  const groups: TodayConsistencyRoutineGroup[] = [];
+
+  routines.forEach((routine) => {
+    const semanticKey = getRoutineConsistencySemanticKey(routine.title);
+    const existingGroup = semanticKey
+      ? groups.find((group) =>
+          group.routines.some(
+            (groupRoutine) => getRoutineConsistencySemanticKey(groupRoutine.title) === semanticKey
+          )
+        )
+      : undefined;
+
+    if (existingGroup) {
+      existingGroup.routines = [...existingGroup.routines, routine];
+      return;
+    }
+
+    groups.push({
+      primaryRoutineId: routine.id,
+      routines: [routine],
+    });
+  });
+
+  return groups;
+}
+
+
+
+function getConsistencyRoutineGroupRatio(
+  group: TodayConsistencyRoutineGroup,
+  dateKey: string,
+  routineRecords: DreamRoutineRecord[]
+) {
+  const exactMatchedRoutines = group.routines.filter((routine) =>
+    Boolean(findRoutineRecord(routineRecords, routine.id, dateKey))
+  );
+  const targetRoutines = exactMatchedRoutines.length > 0
+    ? exactMatchedRoutines
+    : group.routines;
+
+  return Math.max(
+    0,
+    ...targetRoutines.map((routine) =>
+      getDailyRoutineCompletionRatio(routine, dateKey, routineRecords)
+    )
+  );
+}
+
+
+
+function getRoutineConsistencySemanticKey(title: string) {
+  let key = normalizeRoutineConsistencyText(title);
+  let previous = "";
+
+  while (key && key !== previous) {
+    previous = key;
+    key = stripRoutineConsistencySuffix(key);
+  }
+
+  return key;
+}
+
+
+
+function normalizeRoutineConsistencyText(title: string) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/^(?:\uB9E4\uC77C|\uB9E4\uC8FC|\uC624\uB298|\uD558\uB8E8\uC5D0)+/g, "")
+    .replace(/\d+(?:\.\d+)?(?:\uC2DC\uAC04|\uBD84|\uD68C|\uAC1C|\uD398\uC774\uC9C0|\uC138\uD2B8)/g, "")
+    .replace(/\uBC18\uBCF5\uBAA9\uD45C/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .replace(/(?:\uC744|\uB97C|\uC774|\uAC00|\uC740|\uB294)$/g, "");
+}
+
+
+
+function stripRoutineConsistencySuffix(value: string) {
+  const suffixes = [
+    "\uD558\uAE30",
+    "\uACF5\uBD80",
+    "\uC791\uC5C5",
+  ];
+
+  for (const suffix of suffixes) {
+    if (value.endsWith(suffix) && value.length > suffix.length) {
+      return value.slice(0, -suffix.length);
+    }
+  }
+
+  return value;
 }
 
 
