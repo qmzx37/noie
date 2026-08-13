@@ -3388,7 +3388,8 @@ export default function App() {
 
   const emotionRecentRecords = emotionRecords.slice(-10);
   const emotionWeeklyAverages = calculateWeeklyAverages(emotionRecords);
-  const emotionDailyPieces = getRecentDailyPieces(dailyTraces);
+  const dailyPieceChatMessages = sessions.flatMap((session) => session.messages);
+  const emotionDailyPieces = getRecentDailyPieces(dailyTraces, dailyPieceChatMessages);
   const emotionInterpretation = buildEmotionFlowInterpretation(
     emotionRecentRecords,
     emotionWeeklyAverages

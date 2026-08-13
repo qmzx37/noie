@@ -1,11 +1,26 @@
 import { getLocalDateString } from "../../noie/dateUtils";
 import {
+  buildDailyPieceChatCandidates,
+  groupDailyPieceCandidates,
+  scoreDailyPieceCandidateGroups,
+} from "../../noie/dailyPieceCandidateLogic";
+import {
   dedupeMemories,
   getMemoryPolicy,
   normalizeMemoryInput,
   shouldSaveToDailyPieces,
 } from "../../noie/memoryLogic";
-import type { DailyPiece, DailyPieceGroup, DailyTraceItem } from "../../noie/types";
+import type {
+  ChatMessage,
+  DailyPiece,
+  DailyPieceGroup,
+  DailyTraceItem,
+  MemorySavePolicy,
+} from "../../noie/types";
+import type {
+  DailyPieceCandidate,
+  ScoredDailyPieceCandidateGroup,
+} from "../../noie/dailyPieceCandidateLogic";
 
 export function normalizeDreamFragmentKey(text: string) {
   return normalizeMemoryInput(text)
@@ -21,7 +36,10 @@ export function normalizeDreamFragmentKey(text: string) {
     .trim();
 }
 
-export function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[] {
+export function getRecentDailyPieces(
+  items: DailyTraceItem[],
+  chatMessages: ChatMessage[] = []
+): DailyPieceGroup[] {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dayGroups = ["오늘", "어제", "그제"].map((label, index) => {
@@ -64,7 +82,8 @@ export function getRecentDailyPieces(items: DailyTraceItem[]): DailyPieceGroup[]
 
   return dayGroups.map((group) => {
     const uniquePieces = removeDuplicateDailyPieces(group.pieces);
-    const topPieces = selectDailyPieceTop3(uniquePieces);
+    const chatCandidates = buildDailyPieceChatCandidates(chatMessages, group.date);
+    const topPieces = selectDailyPiecesForDisplay(uniquePieces, chatCandidates);
 
     console.log("하루의 조각 TOP3:", group.label, topPieces);
 
@@ -137,6 +156,205 @@ export function isImportantDayEventPiece(item: DailyPiece | DailyTraceItem) {
 
 export function selectDailyPieceTop3(pieces: DailyPiece[]) {
   return selectTopDayPiecesForDate(dedupeDayPiecesForDisplay(pieces));
+}
+
+const DAILY_PIECE_DISPLAY_LIMIT = 3;
+const DAILY_PIECE_MINIMUM_MEANING_SCORE = 6;
+
+type DailyPieceDisplayCandidate = {
+  candidate: DailyPieceCandidate;
+  piece: DailyPiece;
+};
+
+export function selectDailyPiecesForDisplay(
+  pieces: DailyPiece[],
+  chatCandidates: DailyPieceCandidate[] = []
+) {
+  const structuredCandidates = buildStructuredDailyPieceCandidates(pieces);
+  const displayCandidates = [...structuredCandidates];
+  const displayCandidateById = new Map(
+    displayCandidates.map((item) => [item.candidate.id, item])
+  );
+
+  chatCandidates.forEach((candidate) => {
+    const piece = buildChatDailyPieceDisplayItem(candidate);
+    const displayCandidate = { candidate, piece };
+    displayCandidates.push(displayCandidate);
+    displayCandidateById.set(candidate.id, displayCandidate);
+  });
+
+  const groups = groupDailyPieceCandidates(
+    displayCandidates.map((item) => item.candidate)
+  );
+  const scoredGroups = scoreDailyPieceCandidateGroups(groups, {
+    structuredRecords: pieces,
+  });
+
+  return selectDiverseDailyPieceGroups(scoredGroups, displayCandidateById);
+}
+
+function selectDiverseDailyPieceGroups(
+  scoredGroups: ScoredDailyPieceCandidateGroup[],
+  displayCandidateById: Map<string, DailyPieceDisplayCandidate>
+) {
+  const sortedGroups = [...scoredGroups].sort(compareScoredDailyPieceGroups);
+  const selectedPieces: DailyPiece[] = [];
+  const selectedKeys = new Set<string>();
+
+  for (const scoredGroup of sortedGroups) {
+    if (selectedPieces.length >= DAILY_PIECE_DISPLAY_LIMIT) {
+      break;
+    }
+    if (scoredGroup.score < DAILY_PIECE_MINIMUM_MEANING_SCORE) {
+      continue;
+    }
+
+    const candidate = getRepresentativeCandidate(scoredGroup);
+    if (!candidate) {
+      continue;
+    }
+
+    const duplicateKeys = getDailyPieceSelectionKeys(scoredGroup);
+    if (duplicateKeys.some((key) => selectedKeys.has(key))) {
+      continue;
+    }
+
+    const displayCandidate = displayCandidateById.get(candidate.id);
+    if (!displayCandidate) {
+      continue;
+    }
+
+    selectedPieces.push(
+      getPreferredDailyPieceDisplayCandidate(displayCandidate, displayCandidateById).piece
+    );
+    duplicateKeys.forEach((key) => selectedKeys.add(key));
+  }
+
+  return selectedPieces;
+}
+
+function getPreferredDailyPieceDisplayCandidate(
+  displayCandidate: DailyPieceDisplayCandidate,
+  displayCandidateById: Map<string, DailyPieceDisplayCandidate>
+) {
+  if (displayCandidate.candidate.sourceType === "structured") {
+    return displayCandidate;
+  }
+
+  const structuredCandidate = Array.from(displayCandidateById.values()).find(
+    (item) =>
+      item.candidate.sourceType === "structured" &&
+      item.candidate.sourceId === displayCandidate.candidate.sourceId
+  );
+
+  return structuredCandidate ?? displayCandidate;
+}
+
+function buildStructuredDailyPieceCandidates(pieces: DailyPiece[]): DailyPieceDisplayCandidate[] {
+  return pieces.map((piece) => {
+    const text = getDayPieceText(piece) || piece.title;
+    const candidate: DailyPieceCandidate = {
+      id: `structured:${piece.id}`,
+      sourceType: "structured",
+      sourceId: piece.sourceMessageId ?? piece.id,
+      text,
+      createdAt: piece.createdAt,
+      dateKey: piece.date,
+    };
+
+    return { candidate, piece };
+  });
+}
+
+function buildChatDailyPieceDisplayItem(candidate: DailyPieceCandidate): DailyPiece {
+  const memoryPolicy: MemorySavePolicy = {
+    type: "daily_context",
+    shouldSave: true,
+    requiresConfirmation: false,
+    importance: 0,
+    label: "chat",
+    saveTargets: ["daily_piece"],
+  };
+
+  return {
+    id: candidate.id,
+    type: "record",
+    date: candidate.dateKey,
+    title: candidate.text,
+    text: candidate.text,
+    originalText: candidate.text,
+    sourceText: candidate.text,
+    sourceMessageId: candidate.sourceId,
+    memoryType: memoryPolicy.type,
+    saveTargets: memoryPolicy.saveTargets,
+    importance: memoryPolicy.importance,
+    createdAt: candidate.createdAt,
+    memoryPolicy,
+  };
+}
+
+function compareScoredDailyPieceGroups(
+  left: ScoredDailyPieceCandidateGroup,
+  right: ScoredDailyPieceCandidateGroup
+) {
+  const scoreDiff = right.score - left.score;
+  if (scoreDiff !== 0) {
+    return scoreDiff;
+  }
+
+  const leftCandidate = getRepresentativeCandidate(left);
+  const rightCandidate = getRepresentativeCandidate(right);
+  const createdAtDiff =
+    (rightCandidate?.createdAt ?? "").localeCompare(leftCandidate?.createdAt ?? "");
+  if (createdAtDiff !== 0) {
+    return createdAtDiff;
+  }
+
+  return right.group.id.localeCompare(left.group.id);
+}
+
+function getRepresentativeCandidate(scoredGroup: ScoredDailyPieceCandidateGroup) {
+  return (
+    scoredGroup.group.candidates.find(
+      (candidate) => candidate.id === scoredGroup.group.representativeCandidateId
+    ) ?? scoredGroup.group.candidates[0]
+  );
+}
+
+function getDailyPieceSelectionKeys(scoredGroup: ScoredDailyPieceCandidateGroup) {
+  const keys = new Set<string>();
+
+  scoredGroup.group.candidates.forEach((candidate) => {
+    keys.add(`source:${candidate.sourceId}`);
+    const textKey = normalizeDailyPieceSelectionText(candidate.text);
+    if (textKey) {
+      keys.add(`text:${candidate.dateKey}:${textKey}`);
+      getDailyPieceBroadTopicKeys(candidate.dateKey, textKey).forEach((key) => {
+        keys.add(key);
+      });
+    }
+  });
+
+  return Array.from(keys);
+}
+
+function getDailyPieceBroadTopicKeys(dateKey: string, textKey: string) {
+  const keys: string[] = [];
+
+  if (textKey.includes("noie")) {
+    keys.push(`topic:${dateKey}:noie`);
+  }
+
+  return keys;
+}
+
+function normalizeDailyPieceSelectionText(text: string) {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\bnoie\b/g, "noie")
+    .replace(/\uB178\uC774\uC5D0/g, "noie")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 export function selectTopDayPiecesForDate(pieces: DailyPiece[]) {

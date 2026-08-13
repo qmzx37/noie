@@ -1,7 +1,7 @@
 import { getLocalDateString } from "./dateUtils";
 import type { ChatMessage, DailyTraceItem } from "./types";
 
-export type DailyPieceCandidateSourceType = "chat";
+export type DailyPieceCandidateSourceType = "chat" | "structured";
 
 export type DailyPieceCandidate = {
   id: string;
