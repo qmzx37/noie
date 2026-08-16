@@ -243,6 +243,20 @@ export function resolvePrimarySaveRoute({
     };
   }
 
+  if (
+    isTechnicalQuestionOrArtifactText(userText) &&
+    !isExplicitDreamSaveRequestText(userText)
+  ) {
+    return {
+      route: "none",
+      title: "",
+      originalText: userText,
+      normalizedText,
+      confidence: 0.96,
+      reason: "코드/오류/기술 자료라 꿈 또는 장기 목표 저장 후보로 만들지 않음",
+    };
+  }
+
   if (isPlainDailyTraceText(userText)) {
     return {
       route: "daily_trace",
@@ -342,6 +356,61 @@ export function resolvePrimarySaveRoute({
     normalizedText,
     confidence: 0,
   };
+}
+
+function isExplicitDreamSaveRequestText(text: string) {
+  const normalizedText = normalizeMemoryInput(text);
+  const hasDreamTarget =
+    /\uafc8\uc758?\s*(?:\ud30c\ud3b8|\ud6c3\ubd88)|\uc7a5\uae30\s*\ubaa9\ud45c|\uafc8|dream(?:_|\\s|-)?(?:fragment|torch)/i.test(
+      normalizedText
+    );
+  const hasSaveRequest =
+    /\uc800\uc7a5|\ub0a8\uaca8|\uae30\ub85d|\ub2f4\uc544|\ucd94\uac00|save/i.test(
+      normalizedText
+    );
+
+  return hasDreamTarget && hasSaveRequest;
+}
+
+function isTechnicalQuestionOrArtifactText(text: string) {
+  const trimmedText = text.trim();
+  const normalizedText = normalizeMemoryInput(trimmedText);
+  const lines = trimmedText.split(/\r?\n/).map((line) => line.trim());
+  const nonEmptyLines = lines.filter(Boolean);
+  const codeLikeLineCount = nonEmptyLines.filter((line) =>
+    /(?:^|\s)(?:const|let|var|function|class|type|interface|import|export|return|if|else|await|async|try|catch)\b|[{};]|=>|<\/?[a-z][\w-]*\b/i.test(
+      line
+    )
+  ).length;
+
+  const hasCodeBlock = /```/.test(trimmedText);
+  const hasCompilerOrRuntimeError =
+    /\b(?:typescript|type\s*error|runtime\s*error|build\s*error|compiler|compile|stack\s*trace|traceback|exception|error|typeerror|referenceerror|syntaxerror|ts\d{3,5}|property\s+['"`\w$.-]+\s+does\s+not\s+exist\s+on\s+type)\b/i.test(
+      normalizedText
+    );
+  const hasCommandOrPath =
+    /(?:^|\n|\s)(?:npm|pnpm|yarn|npx|git|cd|dir|ls|powershell|node|python|expo)\s+[\w:./\\-]|[A-Za-z]:\\|(?:\.\/|\.\.\/|src\/|backend\/|mobile\/)[\w./-]+/i.test(
+      trimmedText
+    );
+  const hasStackTraceLine = nonEmptyLines.some((line) =>
+    /^\s*at\s+[\w.$<>]+\s*\(|^\s*File\s+"[^"]+",\s+line\s+\d+/i.test(line)
+  );
+  const hasTechnicalQuestion =
+    /\b(?:code|typescript|javascript|react|tsx|jsx|api|backend|frontend|asyncstorage|props?|state|hook|component|function|class|npm|build|runtime|compiler)\b/i.test(
+      normalizedText
+    ) &&
+    /(?:\uC624\uB958|\uC65C|\uBB50\uAC00|\uBB38\uC81C|\uC548\s*\uB3FC|\uACE0\uCCD0|\uC218\uC815|\uBD84\uC11D|\uC124\uBA85|\uB73B|error|why|fix|debug|explain)/i.test(
+      normalizedText
+    );
+
+  return (
+    hasCodeBlock ||
+    hasCompilerOrRuntimeError ||
+    hasCommandOrPath ||
+    hasStackTraceLine ||
+    codeLikeLineCount >= 1 ||
+    hasTechnicalQuestion
+  );
 }
 
 function isSelfDreamDirectionText(text: string) {
