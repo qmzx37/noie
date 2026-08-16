@@ -380,6 +380,7 @@ type PendingProjectCheckpointDraft = {
 };
 
 const PROJECT_CHECKPOINT_REQUEST_TEXT = "오늘은 여기까지 하자";
+const PROJECT_CHECKPOINT_RESUME_TEXT = "지난 체크포인트에서 이어서 하자";
 
 function hasProjectCheckpointDraftContent(
   draft?: ProjectCheckpointDraft | null
@@ -779,6 +780,14 @@ export default function App() {
     }
 
     void sendProjectMessage(PROJECT_CHECKPOINT_REQUEST_TEXT);
+  };
+
+  const resumeFromLatestProjectCheckpoint = () => {
+    if (!activeProject || !getLatestProjectCheckpoint(activeProject) || isProjectSending) {
+      return;
+    }
+
+    void sendProjectMessage(PROJECT_CHECKPOINT_RESUME_TEXT);
   };
 
   const dismissPendingProjectCheckpoint = () => {
@@ -3745,8 +3754,10 @@ export default function App() {
                   ? pendingProjectCheckpointDraft.draft
                   : null
               }
+              latestCheckpoint={getLatestProjectCheckpoint(activeProject) ?? null}
               isSavingCheckpoint={isSavingProjectCheckpoint}
               onRequestCheckpoint={requestProjectCheckpointDraft}
+              onResumeFromCheckpoint={resumeFromLatestProjectCheckpoint}
               onSaveCheckpoint={savePendingProjectCheckpoint}
               onDismissCheckpoint={dismissPendingProjectCheckpoint}
               onBackToChat={returnToChat}

@@ -5,9 +5,35 @@ import type {
   DailyTraceItem,
   NoieProject,
   NoieProjectMessage,
+  ProjectCheckpoint,
   ProjectCheckpointDraft,
   ProjectFormState,
 } from "../../noie/types";
+
+type ProjectCheckpointSummary = {
+  completed: string[];
+  blocked: string[];
+  decisions: string[];
+  nextAction: string | null;
+};
+
+function getProjectCheckpointSections(
+  checkpoint: ProjectCheckpointSummary | null
+) {
+  if (!checkpoint) {
+    return [];
+  }
+
+  return [
+    { title: "완료한 것", items: checkpoint.completed },
+    { title: "막힌 것", items: checkpoint.blocked },
+    { title: "이번에 내린 결정", items: checkpoint.decisions },
+    {
+      title: "다음 시작점",
+      items: checkpoint.nextAction ? [checkpoint.nextAction] : [],
+    },
+  ].filter((section) => section.items.length > 0);
+}
 
 export function ProjectSidebarList({
   projects,
@@ -339,8 +365,10 @@ export function ProjectScreen({
   onAddToDreamFragment,
   isAddingToDreamFragment,
   checkpointDraft,
+  latestCheckpoint,
   isSavingCheckpoint,
   onRequestCheckpoint,
+  onResumeFromCheckpoint,
   onSaveCheckpoint,
   onDismissCheckpoint,
   onBackToChat,
@@ -363,8 +391,10 @@ export function ProjectScreen({
   onAddToDreamFragment: (projectId: string) => void;
   isAddingToDreamFragment: boolean;
   checkpointDraft: ProjectCheckpointDraft | null;
+  latestCheckpoint: ProjectCheckpoint | null;
   isSavingCheckpoint: boolean;
   onRequestCheckpoint: () => void;
+  onResumeFromCheckpoint: () => void;
   onSaveCheckpoint: () => void;
   onDismissCheckpoint: () => void;
   onBackToChat: () => void;
@@ -426,6 +456,9 @@ export function ProjectScreen({
     onUpdateProject(project.id, editForm);
     setIsEditing(false);
   };
+
+  const latestCheckpointSections =
+    getProjectCheckpointSections(latestCheckpoint);
 
   useEffect(() => {
     if (messages.length > previousMessageCountRef.current) {
@@ -490,6 +523,42 @@ export function ProjectScreen({
               : "\uAFC8\uC758 \uD30C\uD3B8\uC5D0 \uCD94\uAC00\uD558\uAE30"}
           </Text>
         </TouchableOpacity>
+
+        {latestCheckpoint && latestCheckpointSections.length > 0 ? (
+          <View style={styles.projectCheckpointCard}>
+            <Text style={styles.projectCheckpointTitle}>
+              지난번 여기까지 했어요
+            </Text>
+            {latestCheckpointSections.map((section) => (
+              <View key={section.title} style={styles.projectCheckpointSection}>
+                <Text style={styles.projectCheckpointSectionTitle}>
+                  {section.title}
+                </Text>
+                {section.items.map((item, index) => (
+                  <Text
+                    key={`latest-${section.title}-${index}-${item}`}
+                    style={styles.projectCheckpointItem}
+                  >
+                    • {item}
+                  </Text>
+                ))}
+              </View>
+            ))}
+            <TouchableOpacity
+              style={[
+                styles.projectPrimaryButton,
+                isSending && styles.sendButtonDisabled,
+              ]}
+              onPress={onResumeFromCheckpoint}
+              disabled={isSending}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.projectPrimaryButtonText}>
+                여기서 이어가기
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <View style={styles.projectPanel}>
           <View style={styles.projectPanelHeader}>

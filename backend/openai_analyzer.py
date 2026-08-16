@@ -761,6 +761,7 @@ def generate_project_chat_reply_with_checkpoint_openai(
                         "프로젝트 이름, 목표, 최근 대화 맥락을 반영하되 질문만 하고 끝내지 말고 가능한 산출물을 먼저 준다. "
                         "두 번째 임무는 사용자가 지금 이 프로젝트의 작업 상태를 남기고 나중에 다시 이어가려는 의도가 명확할 때만 checkpoint_draft를 만든다. "
                         "일반 프로젝트 질문, 코드 설명, 위치 변경 요청, 단순 감상에는 checkpoint_draft를 null로 둔다. "
+                        "사용자가 지난 체크포인트에서 이어가자고 요청하면 latestCheckpoint를 활용해 자연스럽게 이어갈 답변을 만들고 checkpoint_draft는 null로 둔다. "
                         "checkpoint 판단은 키워드가 아니라 프로젝트 대화 문맥과 사용자의 의도를 본다. "
                         "checkpoint는 현재 프로젝트 작업을 지금 멈추거나 일정 시간 뒤 다시 이어가기 위해 작업 맥락을 남기는 것이 유용할 때만 만든다. "
                         "애매하면 intent는 none을 우선한다. 오탐보다 미탐이 낫다. "
