@@ -547,6 +547,13 @@ export function adjustMemoryPolicyForText(
   text: string
 ): MemorySavePolicy {
   if (
+    isTechnicalQuestionOrArtifactText(text) &&
+    !isExplicitSaveRequestText(text)
+  ) {
+    return buildMemorySavePolicy("none");
+  }
+
+  if (
     memoryPolicy.type !== "sensitive_event" &&
     isTodoLikeText(text) &&
     !/되고\s*싶|되는\s*게\s*목표|내\s*꿈|목표야|목표는/.test(text)
@@ -562,6 +569,78 @@ export function adjustMemoryPolicyForText(
   }
 
   return memoryPolicy;
+}
+
+export function isExplicitSaveRequestText(text: string) {
+  const normalizedText = normalizeMemoryInput(text);
+  const hasSaveTarget =
+    /\uafc8\uc758?\s*(?:\ud30c\ud3b8|\ud6c3\ubd88)|\uc7a5\uae30\s*\ubaa9\ud45c|\uafc8|dream(?:_|\s|-)?(?:fragment|torch)/i.test(
+      normalizedText
+    ) ||
+    /\uc624\ub298\uc758?\s*\uae30\ub85d|\ud558\ub8e8\uc758?\s*\ud754\uc801|\ucd5c\uadfc\s*\uc0ac\uac74|\uae30\ub85d|daily\s*(?:trace|record)/i.test(
+      normalizedText
+    );
+  const hasExplicitObject =
+    /\uc774\s*(?:\ub0b4\uc6a9|\uc624\ub958|\ucf54\ub4dc)|\uc774\uac70|\ubc29\uae08|\uc704\s*(?:\ub0b4\uc6a9|\uc624\ub958|\ucf54\ub4dc)/.test(
+      normalizedText
+    );
+  const hasSaveRequest =
+    /\uc800\uc7a5|\ub0a8\uaca8|\uae30\ub85d|\ub2f4\uc544|\ucd94\uac00|save/i.test(
+      normalizedText
+    );
+
+  return hasSaveRequest && (hasSaveTarget || hasExplicitObject);
+}
+
+export function isTechnicalQuestionOrArtifactText(text: string) {
+  const trimmedText = text.trim();
+  const normalizedText = normalizeMemoryInput(trimmedText);
+  const lines = trimmedText.split(/\r?\n/).map((line) => line.trim());
+  const nonEmptyLines = lines.filter(Boolean);
+  const codeLikeLineCount = nonEmptyLines.filter((line) =>
+    /(?:^|\s)(?:const|let|var|function|class|type|interface|import|export|return|if|else|await|async|try|catch)\b|[{};]|=>|<\/?[a-z][\w-]*\b/i.test(
+      line
+    )
+  ).length;
+
+  const hasCodeBlock = /```/.test(trimmedText);
+  const hasCompilerOrRuntimeError =
+    /\b(?:typescript|type\s*error|runtime\s*error|build\s*error|compiler|compile|stack\s*trace|traceback|exception|error|typeerror|referenceerror|syntaxerror|ts\d{3,5}|property\s+['"`\w$.-]+\s+does\s+not\s+exist\s+on\s+type)\b/i.test(
+      normalizedText
+    );
+  const hasCommandOrPath =
+    /(?:^|\n|\s)(?:npm|pnpm|yarn|npx|git|cd|dir|ls|powershell|node|python|expo)\s+[\w:./\\-]|[A-Za-z]:\\|(?:\.\/|\.\.\/|src\/|backend\/|mobile\/)[\w./-]+/i.test(
+      trimmedText
+    );
+  const hasStackTraceLine = nonEmptyLines.some((line) =>
+    /^\s*at\s+[\w.$<>]+\s*\(|^\s*File\s+"[^"]+",\s+line\s+\d+/i.test(line)
+  );
+  const hasTechnicalQuestion =
+    /\b(?:code|typescript|javascript|react|tsx|jsx|api|backend|frontend|asyncstorage|props?|state|hook|component|function|class|npm|build|runtime|compiler)\b/i.test(
+      normalizedText
+    ) &&
+    /(?:\uC624\uB958|\uC65C|\uBB50\uAC00|\uBB38\uC81C|\uC548\s*\uB3FC|\uACE0\uCCD0|\uC218\uC815|\uBD84\uC11D|\uC124\uBA85|\uB73B|error|why|fix|debug|explain)/i.test(
+      normalizedText
+    );
+  const hasPersonalCompletionSignal =
+    /\ud574\uacb0(?:\ud588|\ud568|\ud588\ub2e4|\ud588\uc5b4|\ud588\uc5b4\uc694)|\uace0\ucce4|\uc218\uc815(?:\ud588|\ud568|\ud588\ub2e4|\ud588\uc5b4|\ud588\uc5b4\uc694)|\ub05d\ub0c8|\uc644\ub8cc(?:\ud588|\ud568|\ud588\ub2e4|\ud588\uc5b4|\ud588\uc5b4\uc694)|\uc131\uacf5(?:\ud588|\ud568|\ud588\ub2e4|\ud588\uc5b4|\ud588\uc5b4\uc694)|\ud1b5\uacfc(?:\ud588|\ud568|\ud588\ub2e4|\ud588\uc5b4|\ud588\uc5b4\uc694)|\ucc98\ub9ac(?:\ud588|\ud568|\ud588\ub2e4|\ud588\uc5b4|\ud588\uc5b4\uc694)/.test(
+      normalizedText
+    );
+  const hasArtifactShape =
+    hasCodeBlock ||
+    hasCommandOrPath ||
+    hasStackTraceLine ||
+    codeLikeLineCount >= 1;
+
+  if (hasPersonalCompletionSignal && !hasArtifactShape) {
+    return false;
+  }
+
+  return (
+    hasArtifactShape ||
+    hasCompilerOrRuntimeError ||
+    hasTechnicalQuestion
+  );
 }
 
 export function isDuplicateMemoryOnSameDate(
