@@ -615,7 +615,7 @@ export function ProjectScreen({
           activeOpacity={0.85}
         >
           <Text style={styles.projectCheckpointButtonText}>
-            오늘은 여기까지
+            {"\uC5EC\uAE30\uAE4C\uC9C0 \uC815\uB9AC\uD558\uAE30"}
           </Text>
         </TouchableOpacity>
 

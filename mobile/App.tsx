@@ -1106,7 +1106,8 @@ export default function App() {
   };
 
   const sendProjectMessage = async (textOverride?: string) => {
-    const trimmedText = (textOverride ?? projectInputText).trim();
+    const hasTextOverride = typeof textOverride === "string";
+    const trimmedText = (hasTextOverride ? textOverride : projectInputText).trim();
     if (!trimmedText || isProjectSending || !activeProject) {
       return;
     }
@@ -1144,7 +1145,7 @@ export default function App() {
         project.id === projectId ? { ...project, updatedAt: now } : project
       )
     );
-    if (textOverride === undefined) {
+    if (!hasTextOverride) {
       setProjectInputText("");
     }
     setIsProjectSending(true);
@@ -1211,9 +1212,14 @@ export default function App() {
     messages: NoieProjectMessage[],
     project: NoieProject
   ) => {
+    const todayKey = getLocalDateString(new Date());
+    const todayMessages = messages.filter((message) =>
+      isProjectMessageFromDate(message, todayKey)
+    );
+
     return requestNoieProjectChatReply({
       text,
-      messages: toProjectChatHistory(messages),
+      messages: toProjectChatHistory(todayMessages),
       projectId: project.id,
       projectName: project.title,
       projectGoal: project.goal,
@@ -4001,6 +4007,18 @@ function toProjectChatHistory(messages: NoieProjectMessage[]) {
     role: message.role,
     content: message.content,
   }));
+}
+
+function isProjectMessageFromDate(
+  message: NoieProjectMessage,
+  dateKey: string
+) {
+  const createdAt = new Date(message.createdAt);
+  if (Number.isNaN(createdAt.getTime())) {
+    return false;
+  }
+
+  return getLocalDateString(createdAt) === dateKey;
 }
 
 function flattenEmotionAdminView(
