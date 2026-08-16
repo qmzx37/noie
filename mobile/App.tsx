@@ -646,6 +646,11 @@ export default function App() {
   };
 
   const openDailyTrace = () => {
+    if (screenMode !== "dailyTrace") {
+      const today = getLocalDateString(new Date());
+      setSelectedTraceDate(today);
+      setCalendarMonth(getMonthStart(new Date()));
+    }
     setScreenMode("dailyTrace");
     setIsDrawerOpen(false);
   };
