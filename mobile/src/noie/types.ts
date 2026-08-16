@@ -184,6 +184,7 @@ export type ChatApiResponse = {
   state_summary: string;
   analysis: AnalyzeEmotionResponse;
   source: AnalysisSource;
+  checkpoint_draft?: ProjectCheckpointDraft | null;
 };
 
 export type GenerateTitleResponse = {
@@ -367,6 +368,16 @@ export type ProjectCheckpoint = {
   decisions: string[];
   nextAction: string | null;
   createdAt: string;
+};
+
+export type ProjectCheckpointDraft = {
+  intent: "checkpoint" | "none";
+  confidence: number;
+  completed: string[];
+  blocked: string[];
+  decisions: string[];
+  nextAction: string | null;
+  sourceMessageIds: string[];
 };
 
 export type NoieProject = {

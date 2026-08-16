@@ -12,6 +12,7 @@ from emotion_analyzer import analyze_with_rules
 from openai_analyzer import (
     fallback_chat_reply,
     generate_chat_reply_with_openai,
+    generate_project_chat_reply_with_checkpoint_openai,
     generate_save_decision_with_openai,
     generate_title_with_openai,
     analyze_with_openai,
@@ -27,6 +28,7 @@ from schemas import (
     ExtractDailyTraceResponse,
     GenerateTitleRequest,
     GenerateTitleResponse,
+    ProjectCheckpointDraft,
 )
 
 
@@ -1301,28 +1303,82 @@ def chat(request: ChatRequest) -> dict:
     state_summary = analysis_response["user_view"]["state_summary"]
 
     history = [
-        {"role": message.role, "content": message.content}
+        {"id": message.id, "role": message.role, "content": message.content}
         for message in request.messages
     ]
 
-    try:
-        reply = generate_chat_reply_with_openai(
-            text=text,
-            state_summary=state_summary,
-            user_view=analysis_response["user_view"],
-            messages=history,
-            is_project=request.is_project,
-            project_name=request.project_name,
-            project_goal=request.project_goal,
-        )
-    except Exception:
-        reply = fallback_chat_reply(state_summary)
+    checkpoint_draft = None
+    if request.is_project:
+        valid_message_ids = {
+            message.id
+            for message in request.messages
+            if isinstance(message.id, str) and message.id.strip()
+        }
+        try:
+            project_chat_result = generate_project_chat_reply_with_checkpoint_openai(
+                text=text,
+                state_summary=state_summary,
+                user_view=analysis_response["user_view"],
+                project_context={
+                    "id": request.project_id,
+                    "title": request.project_name,
+                    "goal": request.project_goal,
+                    "nextAction": request.project_next_action,
+                    "status": request.project_status,
+                },
+                messages=history,
+                latest_checkpoint=request.latest_checkpoint.dict()
+                if request.latest_checkpoint
+                else None,
+            )
+            reply = str(project_chat_result.get("reply") or "").strip()
+            if not reply:
+                raise ValueError("Project chat response did not include reply.")
+
+            raw_checkpoint_draft = project_chat_result.get("checkpoint_draft")
+            if raw_checkpoint_draft is not None:
+                checkpoint_draft_model = ProjectCheckpointDraft(**raw_checkpoint_draft)
+                checkpoint_draft_model.sourceMessageIds = [
+                    message_id
+                    for message_id in checkpoint_draft_model.sourceMessageIds
+                    if message_id in valid_message_ids
+                ]
+                checkpoint_draft = checkpoint_draft_model.dict()
+        except Exception as error:
+            print(f"[noie] project combined reply failed: {error}")
+            checkpoint_draft = None
+            try:
+                reply = generate_chat_reply_with_openai(
+                    text=text,
+                    state_summary=state_summary,
+                    user_view=analysis_response["user_view"],
+                    messages=history,
+                    is_project=True,
+                    project_name=request.project_name,
+                    project_goal=request.project_goal,
+                )
+            except Exception:
+                reply = fallback_chat_reply(state_summary)
+    else:
+        try:
+            reply = generate_chat_reply_with_openai(
+                text=text,
+                state_summary=state_summary,
+                user_view=analysis_response["user_view"],
+                messages=history,
+                is_project=False,
+                project_name=request.project_name,
+                project_goal=request.project_goal,
+            )
+        except Exception:
+            reply = fallback_chat_reply(state_summary)
 
     return {
         "reply": reply,
         "state_summary": state_summary,
         "analysis": analysis_response,
         "source": source,
+        "checkpoint_draft": checkpoint_draft,
     }
 
 

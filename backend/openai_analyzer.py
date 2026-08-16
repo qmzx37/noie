@@ -683,6 +683,130 @@ def generate_chat_reply_with_openai(
         raise
 
 
+PROJECT_CHECKPOINT_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "intent": {"type": "string", "enum": ["checkpoint", "none"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "completed": {"type": "array", "items": {"type": "string"}},
+        "blocked": {"type": "array", "items": {"type": "string"}},
+        "decisions": {"type": "array", "items": {"type": "string"}},
+        "nextAction": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "sourceMessageIds": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "intent",
+        "confidence",
+        "completed",
+        "blocked",
+        "decisions",
+        "nextAction",
+        "sourceMessageIds",
+    ],
+}
+
+
+PROJECT_CHAT_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "reply": {"type": "string"},
+        "checkpoint_draft": {
+            "anyOf": [
+                PROJECT_CHECKPOINT_DRAFT_SCHEMA,
+                {"type": "null"},
+            ]
+        },
+    },
+    "required": ["reply", "checkpoint_draft"],
+}
+
+
+def generate_project_chat_reply_with_checkpoint_openai(
+    text: str,
+    state_summary: str,
+    user_view: dict,
+    project_context: dict[str, Any],
+    messages: list[dict[str, str]] | None = None,
+    latest_checkpoint: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """프로젝트 답변과 optional 체크포인트 초안을 한 번의 구조화 호출로 생성합니다."""
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    recent_messages = (messages or [])[-20:]
+    history_text = "\n".join(
+        f"{item.get('role', '')}: {item.get('content', '')}"
+        for item in recent_messages
+    )
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "너는 noie의 프로젝트 작업 공간에서 사용자와 함께 작업하는 한국어 도우미다. "
+                        "가장 중요한 첫 번째 임무는 사용자의 현재 프로젝트 질문/요청에 자연스럽고 유용하게 답하는 것이다. "
+                        "reply는 기존 프로젝트 채팅처럼 2~5문장 정도로 자연스럽게 답하고, 코드 요청이면 필요한 코드를 먼저 제공한다. "
+                        "감정 분석 점수, 축 이름, JSON은 reply에 직접 말하지 않는다. "
+                        "프로젝트 이름, 목표, 최근 대화 맥락을 반영하되 질문만 하고 끝내지 말고 가능한 산출물을 먼저 준다. "
+                        "두 번째 임무는 사용자가 지금 이 프로젝트의 작업 상태를 남기고 나중에 다시 이어가려는 의도가 명확할 때만 checkpoint_draft를 만든다. "
+                        "일반 프로젝트 질문, 코드 설명, 위치 변경 요청, 단순 감상에는 checkpoint_draft를 null로 둔다. "
+                        "checkpoint 판단은 키워드가 아니라 프로젝트 대화 문맥과 사용자의 의도를 본다. "
+                        "checkpoint는 현재 프로젝트 작업을 지금 멈추거나 일정 시간 뒤 다시 이어가기 위해 작업 맥락을 남기는 것이 유용할 때만 만든다. "
+                        "애매하면 intent는 none을 우선한다. 오탐보다 미탐이 낫다. "
+                        "'여기까지만 고치고 계속하자', '날짜 문제는 나중에 하고 지금 로그인부터 계속하자', 단순 감상, 프로젝트 완료 선언은 checkpoint로 강제 분류하지 않는다. "
+                        "completed는 대화에서 실제 끝났다고 확인되는 내용만 쓴다. "
+                        "blocked는 실제 막혀 있거나 해결되지 않았다고 확인되는 내용만 쓴다. "
+                        "decisions는 이번 작업 중 사용자가 명확히 결정한 것만 쓴다. "
+                        "nextAction은 사용자가 다음에 하겠다고 명시했거나 현재 프로젝트 nextAction과 대화 문맥에서 매우 명확할 때만 쓴다. "
+                        "정보가 없으면 빈 배열과 null을 사용한다. 빈칸을 채우려고 추론하지 않는다. "
+                        "sourceMessageIds에는 제공된 최근 메시지 id 중 판단 근거가 된 id만 넣는다. "
+                        "응답은 JSON schema를 엄격히 따른다."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "project": project_context,
+                            "recentMessages": recent_messages,
+                            "latestCheckpoint": latest_checkpoint,
+                            "currentUserMessage": text,
+                            "historyTextForReply": history_text,
+                            "stateSummary": state_summary,
+                            "emotionUserView": user_view,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "project_chat_response",
+                    "description": "Project chat reply with optional noie checkpoint draft.",
+                    "schema": PROJECT_CHAT_RESPONSE_SCHEMA,
+                    "strict": True,
+                }
+            },
+        )
+
+        return json.loads(extract_output_text(response))
+    except Exception as error:
+        print_openai_error(error)
+        raise
+
+
 def fallback_chat_reply(state_summary: str) -> str:
     """일반 답변 생성 실패 시 사용할 짧은 fallback 문장입니다."""
 

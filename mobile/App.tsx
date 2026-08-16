@@ -192,6 +192,7 @@ import {
   completeProjectInList,
   completeProjectNextActionInList,
   deleteProjectInList,
+  getLatestProjectCheckpoint,
   reactivateTodayMeProjectInList,
   removeProjectFromTodayMeInList,
   updateProjectInList,
@@ -1112,8 +1113,12 @@ export default function App() {
     return requestNoieProjectChatReply({
       text,
       messages: toProjectChatHistory(messages),
+      projectId: project.id,
       projectName: project.title,
       projectGoal: project.goal,
+      projectNextAction: project.nextAction ?? null,
+      projectStatus: project.status ?? null,
+      latestCheckpoint: getLatestProjectCheckpoint(project) ?? null,
     });
   };
 
@@ -3882,6 +3887,7 @@ function toChatHistory(messages: ChatMessage[]) {
 
 function toProjectChatHistory(messages: NoieProjectMessage[]) {
   return messages.slice(-20).map((message) => ({
+    id: message.id,
     role: message.role,
     content: message.content,
   }));

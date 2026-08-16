@@ -226,16 +226,41 @@ class GenerateTitleResponse(BaseModel):
 
 
 class ChatHistoryMessage(BaseModel):
+    id: Optional[str] = None
     role: Literal["user", "assistant"]
     content: str
+
+
+class ProjectCheckpointDraft(BaseModel):
+    intent: Literal["checkpoint", "none"]
+    confidence: float = Field(ge=0, le=1)
+    completed: list[str] = Field(default_factory=list)
+    blocked: list[str] = Field(default_factory=list)
+    decisions: list[str] = Field(default_factory=list)
+    nextAction: Optional[str] = None
+    sourceMessageIds: list[str] = Field(default_factory=list)
+
+
+class ProjectCheckpointContext(BaseModel):
+    id: str
+    projectId: str
+    completed: list[str] = Field(default_factory=list)
+    blocked: list[str] = Field(default_factory=list)
+    decisions: list[str] = Field(default_factory=list)
+    nextAction: Optional[str] = None
+    createdAt: str
 
 
 class ChatRequest(BaseModel):
     text: str = Field(min_length=1, examples=["나 오늘 친구랑 싸워서 힘들어"])
     messages: list[ChatHistoryMessage] = Field(default_factory=list)
     is_project: bool = False
+    project_id: Optional[str] = None
     project_name: Optional[str] = None
     project_goal: Optional[str] = None
+    project_next_action: Optional[str] = None
+    project_status: Optional[str] = None
+    latest_checkpoint: Optional[ProjectCheckpointContext] = None
 
 
 class ChatResponse(BaseModel):
@@ -243,6 +268,7 @@ class ChatResponse(BaseModel):
     state_summary: str
     analysis: AnalyzeEmotionResponse
     source: Literal["openai", "rule_based"]
+    checkpoint_draft: Optional[ProjectCheckpointDraft] = None
 
 
 DailyTraceItemType = Literal[

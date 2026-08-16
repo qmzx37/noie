@@ -3,9 +3,11 @@ import type {
   ChatApiResponse,
   ExtractDailyTraceResponse,
   GenerateTitleResponse,
+  ProjectCheckpoint,
 } from "./types";
 
 export type NoieChatHistoryMessage = {
+  id?: string;
   role: "user" | "assistant";
   content: string;
 };
@@ -35,11 +37,19 @@ export async function requestProjectChatReply({
   messages,
   projectName,
   projectGoal,
+  projectId,
+  projectNextAction,
+  projectStatus,
+  latestCheckpoint,
 }: {
   text: string;
   messages: NoieChatHistoryMessage[];
+  projectId: string;
   projectName: string;
   projectGoal: string;
+  projectNextAction?: string | null;
+  projectStatus?: string | null;
+  latestCheckpoint?: ProjectCheckpoint | null;
 }) {
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
@@ -48,8 +58,12 @@ export async function requestProjectChatReply({
       text,
       messages,
       is_project: true,
+      project_id: projectId,
       project_name: projectName,
       project_goal: projectGoal,
+      project_next_action: projectNextAction ?? null,
+      project_status: projectStatus ?? null,
+      latest_checkpoint: latestCheckpoint ?? null,
     }),
   });
 
