@@ -118,12 +118,9 @@ export function ProjectCreateScreen({
         />
 
         <Text style={styles.projectFieldLabel}>마감일</Text>
-        <TextInput
-          style={styles.projectInput}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor="#7d7d7d"
+        <ProjectDeadlinePicker
           value={form.deadline}
-          onChangeText={(deadline) => onChangeForm({ ...form, deadline })}
+          onChange={(deadline) => onChangeForm({ ...form, deadline })}
         />
 
         <TouchableOpacity
@@ -142,6 +139,186 @@ export function ProjectCreateScreen({
   );
 }
 
+function ProjectDeadlinePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (deadline: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => getInitialCalendarMonth(value));
+  const todayKey = getTodayDateKey();
+  const selectedDateKey = normalizeDateKey(value);
+  const calendarDays = buildCalendarDays(visibleMonth);
+  const monthLabel = `${visibleMonth.getFullYear()}. ${visibleMonth.getMonth() + 1}.`;
+  const previousMonth = addCalendarMonths(visibleMonth, -1);
+  const canMoveToPreviousMonth = getMonthKey(previousMonth) >= getMonthKey(new Date());
+
+  const selectDate = (dateKey: string) => {
+    if (dateKey < todayKey) {
+      return;
+    }
+    onChange(dateKey);
+    setVisibleMonth(getInitialCalendarMonth(dateKey));
+    setIsOpen(false);
+  };
+
+  return (
+    <View>
+      <TouchableOpacity
+        style={styles.projectDateButton}
+        onPress={() => {
+          setVisibleMonth(getInitialCalendarMonth(value));
+          setIsOpen((currentValue) => !currentValue);
+        }}
+        activeOpacity={0.85}
+      >
+        <Text
+          style={[
+            styles.projectDateButtonText,
+            !selectedDateKey && styles.projectDateButtonPlaceholder,
+          ]}
+        >
+          {selectedDateKey ? formatDeadlineDisplay(selectedDateKey) : "날짜를 선택하세요"}
+        </Text>
+      </TouchableOpacity>
+
+      {isOpen ? (
+        <View style={styles.projectCalendarBox}>
+          <View style={styles.projectCalendarHeader}>
+            <TouchableOpacity
+              style={[
+                styles.projectCalendarNavButton,
+                !canMoveToPreviousMonth && styles.sendButtonDisabled,
+              ]}
+              onPress={() => {
+                if (canMoveToPreviousMonth) {
+                  setVisibleMonth(previousMonth);
+                }
+              }}
+              disabled={!canMoveToPreviousMonth}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.projectCalendarNavText}>이전</Text>
+            </TouchableOpacity>
+            <Text style={styles.projectCalendarMonthText}>{monthLabel}</Text>
+            <TouchableOpacity
+              style={styles.projectCalendarNavButton}
+              onPress={() => setVisibleMonth(addCalendarMonths(visibleMonth, 1))}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.projectCalendarNavText}>다음</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.projectCalendarGrid}>
+            {["일", "월", "화", "수", "목", "금", "토"].map((weekday) => (
+              <Text key={weekday} style={styles.projectCalendarWeekday}>{weekday}</Text>
+            ))}
+            {calendarDays.map((dateKey, index) => {
+              if (!dateKey) {
+                return <View key={`empty-${index}`} style={styles.projectCalendarDay} />;
+              }
+              const dayNumber = Number(dateKey.slice(-2));
+              const isPast = dateKey < todayKey;
+              const isSelected = dateKey === selectedDateKey;
+
+              return (
+                <TouchableOpacity
+                  key={dateKey}
+                  style={[
+                    styles.projectCalendarDay,
+                    isSelected && styles.projectCalendarDaySelected,
+                    isPast && styles.sendButtonDisabled,
+                  ]}
+                  onPress={() => selectDate(dateKey)}
+                  disabled={isPast}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.projectCalendarDayText,
+                      isSelected && styles.projectCalendarDayTextSelected,
+                      isPast && styles.projectCalendarDayTextDisabled,
+                    ]}
+                  >
+                    {dayNumber}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {selectedDateKey ? (
+            <TouchableOpacity
+              style={styles.projectDateClearButton}
+              onPress={() => {
+                onChange("");
+                setIsOpen(false);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.projectDateClearButtonText}>마감일 없음</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function normalizeDateKey(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : "";
+}
+
+function getTodayDateKey() {
+  return formatDateKey(new Date());
+}
+
+function getInitialCalendarMonth(value: string) {
+  const normalizedValue = normalizeDateKey(value);
+  const baseDate = normalizedValue ? new Date(`${normalizedValue}T00:00:00`) : new Date();
+  return new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+}
+
+function getMonthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function addCalendarMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function formatDateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function formatDeadlineDisplay(dateKey: string) {
+  const [year, month, day] = dateKey.split("-");
+  return `${year}. ${Number(month)}. ${Number(day)}.`;
+}
+
+function buildCalendarDays(monthDate: Date) {
+  const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  const days: Array<string | null> = Array.from({ length: firstDay.getDay() }, () => null);
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    days.push(formatDateKey(new Date(monthDate.getFullYear(), monthDate.getMonth(), day)));
+  }
+
+  while (days.length % 7 !== 0) {
+    days.push(null);
+  }
+
+  return days;
+}
+
 export function ProjectScreen({
   project,
   dailyTraces,
@@ -152,6 +329,9 @@ export function ProjectScreen({
   onSendMessage,
   onUpdateProject,
   onArchiveProject,
+  onDeleteProject,
+  onAddToDreamFragment,
+  isAddingToDreamFragment,
   onBackToChat,
   getDdayLabel,
   getTraceTitle,
@@ -168,13 +348,18 @@ export function ProjectScreen({
     values: Pick<NoieProject, "title" | "goal"> & { deadline?: string }
   ) => void;
   onArchiveProject: (projectId: string) => void;
+  onDeleteProject: (projectId: string) => Promise<void>;
+  onAddToDreamFragment: (projectId: string) => void;
+  isAddingToDreamFragment: boolean;
   onBackToChat: () => void;
   getDdayLabel: (deadline?: string) => string;
   getTraceTitle: (item: DailyTraceItem) => string;
 }) {
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const previousMessageCountRef = useRef(messages.length);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingArchive, setIsConfirmingArchive] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [editForm, setEditForm] = useState<ProjectFormState>({
     title: project.title,
     goal: project.goal,
@@ -189,6 +374,15 @@ export function ProjectScreen({
   const relatedDream = project.relatedDreamTorchId
     ? dailyTraces.find((item) => item.id === project.relatedDreamTorchId)
     : undefined;
+  const linkedDreamFragment = dailyTraces.find((item) => {
+    const isFragment =
+      item.dreamRole === "fragment" ||
+      item.saveTargets?.includes("dream_fragment");
+    const isVisible = item.hiddenFromDream !== true;
+
+    return isFragment && isVisible && item.linkedProjectId === project.id;
+  });
+  const isAddedToDreamFragment = Boolean(linkedDreamFragment);
 
   useEffect(() => {
     setEditForm({
@@ -198,12 +392,20 @@ export function ProjectScreen({
     });
     setIsEditing(false);
     setIsConfirmingArchive(false);
+    setIsConfirmingDelete(false);
   }, [project.id, project.title, project.goal, project.deadline]);
 
   const saveEdit = () => {
     onUpdateProject(project.id, editForm);
     setIsEditing(false);
   };
+
+  useEffect(() => {
+    if (messages.length > previousMessageCountRef.current) {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }
+    previousMessageCountRef.current = messages.length;
+  }, [messages.length]);
 
   return (
     <View style={styles.projectShell}>
@@ -212,9 +414,6 @@ export function ProjectScreen({
         style={styles.projectScroll}
         contentContainerStyle={styles.projectContent}
         keyboardShouldPersistTaps="handled"
-        onContentSizeChange={() =>
-          scrollViewRef.current?.scrollToEnd({ animated: true })
-        }
       >
         <View style={styles.projectHeaderRow}>
           <View style={styles.projectHeaderTextBlock}>
@@ -248,6 +447,23 @@ export function ProjectScreen({
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity
+          style={[
+            styles.projectSecondaryButton,
+            styles.projectDreamFragmentButton,
+            (isAddedToDreamFragment || isAddingToDreamFragment) && styles.sendButtonDisabled,
+          ]}
+          onPress={() => onAddToDreamFragment(project.id)}
+          disabled={isAddedToDreamFragment || isAddingToDreamFragment}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.projectDreamFragmentButtonText}>
+            {isAddedToDreamFragment
+              ? "\uAFC8\uC758 \uD30C\uD3B8\uC5D0 \uCD94\uAC00\uB428"
+              : "\uAFC8\uC758 \uD30C\uD3B8\uC5D0 \uCD94\uAC00\uD558\uAE30"}
+          </Text>
+        </TouchableOpacity>
+
         <View style={styles.projectPanel}>
           <View style={styles.projectPanelHeader}>
             <Text style={styles.projectPanelTitle}>목표</Text>
@@ -280,14 +496,11 @@ export function ProjectScreen({
                 placeholderTextColor="#7d7d7d"
               />
               <Text style={styles.projectFieldLabel}>마감일</Text>
-              <TextInput
-                style={styles.projectInput}
+              <ProjectDeadlinePicker
                 value={editForm.deadline}
-                onChangeText={(deadline) =>
+                onChange={(deadline) =>
                   setEditForm({ ...editForm, deadline })
                 }
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor="#7d7d7d"
               />
               <TouchableOpacity
                 style={styles.projectPrimaryButton}
@@ -316,7 +529,27 @@ export function ProjectScreen({
         </View>
 
         <View style={styles.projectArchiveRow}>
-          {isConfirmingArchive ? (
+          {isConfirmingDelete ? (
+            <>
+              <Text style={styles.projectArchiveText}>프로젝트를 삭제할까요? 프로젝트와 프로젝트 대화가 모두 삭제됩니다.</Text>
+              <TouchableOpacity
+                style={styles.projectDangerButton}
+                onPress={() => {
+                  void onDeleteProject(project.id);
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.projectDangerButtonText}>삭제</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.projectSecondaryButton}
+                onPress={() => setIsConfirmingDelete(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.projectSecondaryButtonText}>취소</Text>
+              </TouchableOpacity>
+            </>
+          ) : isConfirmingArchive ? (
             <>
               <Text style={styles.projectArchiveText}>이 프로젝트를 보관할까요?</Text>
               <TouchableOpacity
@@ -343,6 +576,18 @@ export function ProjectScreen({
               <Text style={styles.projectSecondaryButtonText}>프로젝트 보관</Text>
             </TouchableOpacity>
           )}
+          {!isConfirmingArchive && !isConfirmingDelete ? (
+            <TouchableOpacity
+              style={styles.projectDangerButton}
+              onPress={() => {
+                setIsConfirmingArchive(false);
+                setIsConfirmingDelete(true);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.projectDangerButtonText}>프로젝트 삭제</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -492,6 +737,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
   },
+  projectDreamFragmentButton: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    backgroundColor: "#f2f4f8",
+    borderColor: "#facc15",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    width: "100%",
+  },
+  projectDreamFragmentButtonText: {
+    color: "#050505",
+    fontSize: 14,
+    fontWeight: "900",
+  },
   projectPanel: {
     backgroundColor: "#111111",
     borderColor: "#262626",
@@ -521,6 +783,101 @@ const styles = StyleSheet.create({
   projectTextArea: {
     minHeight: 88,
     textAlignVertical: "top",
+  },
+  projectDateButton: {
+    alignItems: "center",
+    backgroundColor: "#0a0a0a",
+    borderColor: "#333333",
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  projectDateButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  projectDateButtonPlaceholder: {
+    color: "#7d7d7d",
+  },
+  projectCalendarBox: {
+    backgroundColor: "#0a0a0a",
+    borderColor: "#333333",
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 8,
+    padding: 10,
+  },
+  projectCalendarHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  projectCalendarMonthText: {
+    color: "#f2f4f8",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  projectCalendarNavButton: {
+    borderColor: "#333333",
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  projectCalendarNavText: {
+    color: "#d1d5db",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  projectCalendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  projectCalendarWeekday: {
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: "900",
+    paddingVertical: 6,
+    textAlign: "center",
+    width: "14.2857%",
+  },
+  projectCalendarDay: {
+    alignItems: "center",
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 36,
+    width: "14.2857%",
+  },
+  projectCalendarDaySelected: {
+    backgroundColor: "#f2f4f8",
+  },
+  projectCalendarDayText: {
+    color: "#f2f4f8",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  projectCalendarDayTextSelected: {
+    color: "#050505",
+  },
+  projectCalendarDayTextDisabled: {
+    color: "#4b5563",
+  },
+  projectDateClearButton: {
+    alignItems: "center",
+    borderColor: "#333333",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 10,
+    paddingVertical: 9,
+  },
+  projectDateClearButtonText: {
+    color: "#d1d5db",
+    fontSize: 13,
+    fontWeight: "900",
   },
   projectPrimaryButton: {
     alignItems: "center",

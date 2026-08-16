@@ -3,6 +3,7 @@ import type {
   DailyTraceItemType,
   DreamProjectStatus,
   MemorySavePolicyType,
+  NoieProject,
   SaveDecision,
 } from "../../noie/types";
 
@@ -21,6 +22,14 @@ export type CompleteDreamFragmentResult = {
   completedFragment?: DailyTraceItem;
   completionTraceCreated: boolean;
   completionSourceId?: string;
+};
+
+export type AddProjectDreamFragmentResult = {
+  nextItems: DailyTraceItem[];
+  fragment?: DailyTraceItem;
+  createdFragment?: DailyTraceItem;
+  existingFragment?: DailyTraceItem;
+  created: boolean;
 };
 
 export function mergeDreamTorchMemory(
@@ -90,6 +99,78 @@ export function buildDreamSaveMemories(
     : currentItems;
 
   return helpers.dedupeMemories([...sourceMemories, itemToSave]);
+}
+
+export function addProjectDreamFragment(
+  currentItems: DailyTraceItem[],
+  project: NoieProject,
+  input: {
+    now: string;
+    dateKey: string;
+    relatedDreamTorchId?: string;
+    createId: (prefix: string) => string;
+  }
+): AddProjectDreamFragmentResult {
+  const existingFragment = currentItems.find((item) =>
+    isProjectDreamFragment(item, project)
+  );
+
+  if (existingFragment) {
+    return {
+      nextItems: currentItems,
+      fragment: existingFragment,
+      existingFragment,
+      created: false,
+    };
+  }
+
+  const sourceText = project.originalText?.trim() || project.goal.trim() || project.title;
+  const fragment = {
+    id: input.createId("trace"),
+    type: "record" as DailyTraceItemType,
+    date: input.dateKey,
+    title: project.title,
+    memo: project.goal,
+    text: sourceText,
+    originalText: sourceText,
+    sourceText,
+    memoryType: "project" as MemorySavePolicyType,
+    saveTargets: ["dream_fragment"] as SaveDecision["saveTargets"],
+    importance: 96,
+    displayCategory: "꿈의 파편",
+    dreamRole: "fragment" as const,
+    pinnedAsDreamTorch: false,
+    hiddenFromDream: false,
+    relatedDreamTorchId: input.relatedDreamTorchId ?? project.relatedDreamTorchId,
+    linkedProjectId: project.id,
+    projectStatus: project.status ?? "planning",
+    nextAction: project.nextAction ?? "",
+    progressPercent: 0,
+    sourceType: "project_to_dream_fragment",
+    sourceId: `project_to_dream_fragment:${project.id}`,
+    createdAt: input.now,
+    updatedAt: input.now,
+  } as DailyTraceItem;
+
+  return {
+    nextItems: [fragment, ...currentItems],
+    fragment,
+    createdFragment: fragment,
+    created: true,
+  };
+}
+
+function isProjectDreamFragment(item: DailyTraceItem, project: NoieProject) {
+  const isFragment =
+    item.dreamRole === "fragment" ||
+    item.saveTargets?.includes("dream_fragment");
+  const isVisible = item.hiddenFromDream !== true;
+
+  return (
+    isFragment &&
+    isVisible &&
+    item.linkedProjectId === project.id
+  );
 }
 
 export function promoteExistingDreamItemToTorch(

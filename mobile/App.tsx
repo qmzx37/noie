@@ -163,6 +163,7 @@ import {
   isActiveTodayMeRoutine,
 } from "./src/features/dreams/todayMeLogic";
 import {
+  addProjectDreamFragment,
   buildDreamSaveMemories,
   completeDreamFragment,
   promoteExistingDreamItemToTorch,
@@ -190,6 +191,7 @@ import {
   cancelProjectNextActionInList,
   completeProjectInList,
   completeProjectNextActionInList,
+  deleteProjectInList,
   reactivateTodayMeProjectInList,
   removeProjectFromTodayMeInList,
   updateProjectInList,
@@ -424,8 +426,11 @@ export default function App() {
   const [todayMeFeedback, setTodayMeFeedback] = useState("");
   const [isStartingProject, setIsStartingProject] = useState(false);
   const [isSavingGoalDuration, setIsSavingGoalDuration] = useState(false);
+  const [addingProjectDreamFragmentIds, setAddingProjectDreamFragmentIds] = useState<string[]>([]);
   const [pendingRoutineAdjustment, setPendingRoutineAdjustment] =
     useState<PendingRoutineAdjustment | null>(null);
+  const dailyTracesRef = useRef<DailyTraceItem[]>([]);
+  const addingProjectDreamFragmentIdsRef = useRef<Set<string>>(new Set());
 
   const activeSession =
     sessions.find((session) => session.id === activeSessionId) ?? sessions[0];
@@ -444,6 +449,10 @@ export default function App() {
   useEffect(() => {
     loadSavedData();
   }, []);
+
+  useEffect(() => {
+    dailyTracesRef.current = dailyTraces;
+  }, [dailyTraces]);
 
   useEffect(() => {
     if (!isHydrated || repairedDreamFragmentLinksRef.current) {
@@ -722,6 +731,24 @@ export default function App() {
     if (activeProjectId === projectId) {
       setActiveProjectId(null);
       setScreenMode("chat");
+    }
+  };
+
+  const deleteProject = async (projectId: string) => {
+    const nextProjects = deleteProjectInList(projects, projectId);
+    const nextProjectMessages = projectMessages.filter((message) => message.projectId !== projectId);
+
+    setProjects(nextProjects);
+    setProjectMessages(nextProjectMessages);
+    await Promise.all([
+      saveJsonValue(STORAGE_KEYS.projects, nextProjects),
+      saveJsonValue(STORAGE_KEYS.projectMessages, nextProjectMessages),
+    ]);
+
+    if (activeProjectId === projectId) {
+      setActiveProjectId(null);
+      setScreenMode("chat");
+      setIsDrawerOpen(false);
     }
   };
 
@@ -3197,6 +3224,49 @@ export default function App() {
       )
     );
   };
+
+  const addProjectToDreamFragment = async (projectId: string) => {
+    if (addingProjectDreamFragmentIdsRef.current.has(projectId)) {
+      return;
+    }
+
+    const project = projects.find((item) => item.id === projectId);
+    if (!project || !project.id) {
+      return;
+    }
+
+    addingProjectDreamFragmentIdsRef.current.add(projectId);
+    setAddingProjectDreamFragmentIds(Array.from(addingProjectDreamFragmentIdsRef.current));
+
+    const previousItems = dailyTracesRef.current;
+    try {
+      const now = new Date().toISOString();
+      const latestDailyTraces = dailyTracesRef.current;
+      const torchPiece = selectDreamTorchPiece(getDreamTorchCandidates(latestDailyTraces), dreamTorchId);
+      const result = addProjectDreamFragment(latestDailyTraces, project, {
+        now,
+        dateKey: getLocalDateString(new Date()),
+        relatedDreamTorchId: torchPiece?.id,
+        createId,
+      });
+
+      if (!result.created) {
+        return;
+      }
+
+      dailyTracesRef.current = result.nextItems;
+      setDailyTraces(result.nextItems);
+      await saveJsonValue(STORAGE_KEYS.dailyTraces, result.nextItems);
+    } catch (error) {
+      dailyTracesRef.current = previousItems;
+      setDailyTraces(previousItems);
+      console.log("[project-dream-fragment-save-error]", error);
+    } finally {
+      addingProjectDreamFragmentIdsRef.current.delete(projectId);
+      setAddingProjectDreamFragmentIds(Array.from(addingProjectDreamFragmentIdsRef.current));
+    }
+  };
+
   const deleteDailyTraceGoal = (itemId: string) => {
     setDailyTraces((currentItems) =>
       removeDailyTraceGoalItem(currentItems, itemId)
@@ -3555,6 +3625,9 @@ export default function App() {
               onSendMessage={sendProjectMessage}
               onUpdateProject={updateProject}
               onArchiveProject={archiveProject}
+              onDeleteProject={deleteProject}
+              onAddToDreamFragment={addProjectToDreamFragment}
+              isAddingToDreamFragment={addingProjectDreamFragmentIds.includes(activeProject.id)}
               onBackToChat={returnToChat}
               getDdayLabel={formatDDay}
               getTraceTitle={(item: DailyTraceItem) => getMemoryInputText(item) || item.title}

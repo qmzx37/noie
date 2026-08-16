@@ -93,6 +93,13 @@ export function archiveProjectInList(
   );
 }
 
+export function deleteProjectInList(
+  projects: NoieProject[],
+  projectId: string
+) {
+  return projects.filter((project) => project.id !== projectId);
+}
+
 export function completeProjectInList(
   projects: NoieProject[],
   projectId: string,

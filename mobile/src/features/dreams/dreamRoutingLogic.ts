@@ -1,6 +1,5 @@
 import { getLocalDateString } from "../../noie/dateUtils";
 import {
-  dedupeMemories,
   getMemoryInputText,
   getMemoryPolicy,
   normalizeMemoryInput,
@@ -355,5 +354,5 @@ export function getDreamFragments(items: DailyTraceItem[]) {
     return memoryPolicy.type === "project" || isFragmentTarget || isFragmentRole;
   });
 
-  return dedupeMemories(fragmentItems).sort(sortDreamItemsByImportance);
+  return fragmentItems.sort(sortDreamItemsByImportance);
 }
