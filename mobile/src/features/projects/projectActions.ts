@@ -4,6 +4,7 @@ import type {
   DreamProjectStatus,
   MemorySavePolicyType,
   NoieProject,
+  ProjectCheckpoint,
   ProjectDailyActionRecord,
   SaveDecision,
   SaveNoieMemoryResult,
@@ -50,6 +51,38 @@ export type CompletedProjectTraceResult = {
   traceCreated: boolean;
   sourceId: string;
 };
+
+export type BuildProjectCheckpointInput = {
+  id: string;
+  projectId: string;
+  completed: string[];
+  blocked: string[];
+  decisions: string[];
+  nextAction: string | null;
+  createdAt: string;
+};
+
+export function buildProjectCheckpoint(
+  input: BuildProjectCheckpointInput
+): ProjectCheckpoint {
+  return {
+    id: input.id,
+    projectId: input.projectId,
+    completed: [...input.completed],
+    blocked: [...input.blocked],
+    decisions: [...input.decisions],
+    nextAction: input.nextAction,
+    createdAt: input.createdAt,
+  };
+}
+
+export function getLatestProjectCheckpoint(
+  project: NoieProject
+): ProjectCheckpoint | undefined {
+  return [...(project.checkpoints ?? [])].sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt)
+  )[0];
+}
 
 export function buildProject(input: BuildProjectInput): NoieProject {
   return {

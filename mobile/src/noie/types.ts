@@ -359,6 +359,16 @@ export type ProjectDailyActionRecord = {
   updatedAt?: string;
 };
 
+export type ProjectCheckpoint = {
+  id: string;
+  projectId: string;
+  completed: string[];
+  blocked: string[];
+  decisions: string[];
+  nextAction: string | null;
+  createdAt: string;
+};
+
 export type NoieProject = {
   id: string;
   title: string;
@@ -372,6 +382,7 @@ export type NoieProject = {
   relatedDreamFragmentId?: string;
   fromDreamFragment?: boolean;
   nextAction?: string;
+  checkpoints?: ProjectCheckpoint[];
   dailyActionRecords?: Record<string, ProjectDailyActionRecord>;
   archivedFromTodayMe?: boolean;
   completedAt?: string | null;
