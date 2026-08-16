@@ -1194,14 +1194,16 @@ const styles = StyleSheet.create({
   },
   projectCheckpointButton: {
     alignItems: "center",
+    alignSelf: "flex-end",
     backgroundColor: "#B7E36B",
     borderColor: "#3a3a3a",
     borderRadius: 9,
     borderWidth: 1,
     justifyContent: "center",
     marginBottom: 14,
-    minHeight: 40,
-    paddingHorizontal: 12,
+    minHeight: 38,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   projectCheckpointButtonText: {
     color: "#050505",
