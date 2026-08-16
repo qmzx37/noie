@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
-import type { DailyTraceItem, NoieProject, NoieProjectMessage, ProjectFormState } from "../../noie/types";
+import type {
+  DailyTraceItem,
+  NoieProject,
+  NoieProjectMessage,
+  ProjectCheckpointDraft,
+  ProjectFormState,
+} from "../../noie/types";
 
 export function ProjectSidebarList({
   projects,
@@ -332,6 +338,11 @@ export function ProjectScreen({
   onDeleteProject,
   onAddToDreamFragment,
   isAddingToDreamFragment,
+  checkpointDraft,
+  isSavingCheckpoint,
+  onRequestCheckpoint,
+  onSaveCheckpoint,
+  onDismissCheckpoint,
   onBackToChat,
   getDdayLabel,
   getTraceTitle,
@@ -351,6 +362,11 @@ export function ProjectScreen({
   onDeleteProject: (projectId: string) => Promise<void>;
   onAddToDreamFragment: (projectId: string) => void;
   isAddingToDreamFragment: boolean;
+  checkpointDraft: ProjectCheckpointDraft | null;
+  isSavingCheckpoint: boolean;
+  onRequestCheckpoint: () => void;
+  onSaveCheckpoint: () => void;
+  onDismissCheckpoint: () => void;
   onBackToChat: () => void;
   getDdayLabel: (deadline?: string) => string;
   getTraceTitle: (item: DailyTraceItem) => string;
@@ -383,6 +399,17 @@ export function ProjectScreen({
     return isFragment && isVisible && item.linkedProjectId === project.id;
   });
   const isAddedToDreamFragment = Boolean(linkedDreamFragment);
+  const checkpointSections = checkpointDraft
+    ? [
+        { title: "완료한 것", items: checkpointDraft.completed },
+        { title: "막힌 것", items: checkpointDraft.blocked },
+        { title: "이번에 내린 결정", items: checkpointDraft.decisions },
+        {
+          title: "다음 시작점",
+          items: checkpointDraft.nextAction ? [checkpointDraft.nextAction] : [],
+        },
+      ].filter((section) => section.items.length > 0)
+    : [];
 
   useEffect(() => {
     setEditForm({
@@ -527,6 +554,70 @@ export function ProjectScreen({
             ))
           )}
         </View>
+
+        {checkpointDraft && checkpointSections.length > 0 ? (
+          <View style={styles.projectCheckpointCard}>
+            <Text style={styles.projectCheckpointTitle}>
+              오늘 작업을 이렇게 정리했어요.
+            </Text>
+            {checkpointSections.map((section) => (
+              <View key={section.title} style={styles.projectCheckpointSection}>
+                <Text style={styles.projectCheckpointSectionTitle}>
+                  {section.title}
+                </Text>
+                {section.items.map((item, index) => (
+                  <Text
+                    key={`${section.title}-${index}-${item}`}
+                    style={styles.projectCheckpointItem}
+                  >
+                    • {item}
+                  </Text>
+                ))}
+              </View>
+            ))}
+            <View style={styles.projectCheckpointActionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.projectPrimaryButton,
+                  styles.projectCheckpointActionButton,
+                  isSavingCheckpoint && styles.sendButtonDisabled,
+                ]}
+                onPress={onSaveCheckpoint}
+                disabled={isSavingCheckpoint}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.projectPrimaryButtonText}>저장하기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.projectSecondaryButton,
+                  styles.projectCheckpointActionButton,
+                ]}
+                onPress={onDismissCheckpoint}
+                disabled={isSavingCheckpoint}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.projectSecondaryButtonText}>
+                  계속 작업하기
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={[
+            styles.projectCheckpointButton,
+            isSending && styles.sendButtonDisabled,
+          ]}
+          onPress={onRequestCheckpoint}
+          disabled={isSending}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.projectCheckpointButtonText}>
+            오늘은 여기까지
+          </Text>
+        </TouchableOpacity>
 
         <View style={styles.projectArchiveRow}>
           {isConfirmingDelete ? (
@@ -974,6 +1065,60 @@ const styles = StyleSheet.create({
     color: "#d1d5db",
     fontSize: 13,
     fontWeight: "800",
+  },
+  projectCheckpointCard: {
+    backgroundColor: "#111111",
+    borderColor: "#334155",
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 14,
+  },
+  projectCheckpointTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 22,
+    marginBottom: 10,
+  },
+  projectCheckpointSection: {
+    marginTop: 8,
+  },
+  projectCheckpointSectionTitle: {
+    color: "#cbd5e1",
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 5,
+  },
+  projectCheckpointItem: {
+    color: "#f2f4f8",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  projectCheckpointActionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 12,
+  },
+  projectCheckpointActionButton: {
+    flexGrow: 1,
+    marginTop: 0,
+  },
+  projectCheckpointButton: {
+    alignItems: "center",
+    borderColor: "#3a3a3a",
+    borderRadius: 9,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginBottom: 14,
+    minHeight: 40,
+    paddingHorizontal: 12,
+  },
+  projectCheckpointButtonText: {
+    color: "#d1d5db",
+    fontSize: 13,
+    fontWeight: "900",
   },
   projectDangerButton: {
     alignItems: "center",

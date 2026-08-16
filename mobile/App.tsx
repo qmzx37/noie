@@ -39,6 +39,7 @@ import type {
   NoieProject,
   NoieProjectMessage,
   PrimaryAxis,
+  ProjectCheckpointDraft,
   ProjectEmotionAdminView,
   ProjectFormState,
   SaveDecision,
@@ -187,6 +188,7 @@ import {
 import {
   archiveProjectInList,
   buildCompletedProjectTrace,
+  buildProjectCheckpoint,
   buildProject,
   cancelProjectNextActionInList,
   completeProjectInList,
@@ -371,6 +373,29 @@ type RecordRoutineExecutionInput = {
   completedOnly?: boolean;
 };
 
+type PendingProjectCheckpointDraft = {
+  draftId: string;
+  projectId: string;
+  draft: ProjectCheckpointDraft;
+};
+
+const PROJECT_CHECKPOINT_REQUEST_TEXT = "오늘은 여기까지 하자";
+
+function hasProjectCheckpointDraftContent(
+  draft?: ProjectCheckpointDraft | null
+): draft is ProjectCheckpointDraft {
+  if (!draft || draft.intent !== "checkpoint") {
+    return false;
+  }
+
+  return (
+    draft.completed.length > 0 ||
+    draft.blocked.length > 0 ||
+    draft.decisions.length > 0 ||
+    Boolean(draft.nextAction?.trim())
+  );
+}
+
 type RoutedChatMessage = ChatMessage & {
   saveRoutingResult?: NoieSaveRoutingResult;
 };
@@ -428,10 +453,15 @@ export default function App() {
   const [isStartingProject, setIsStartingProject] = useState(false);
   const [isSavingGoalDuration, setIsSavingGoalDuration] = useState(false);
   const [addingProjectDreamFragmentIds, setAddingProjectDreamFragmentIds] = useState<string[]>([]);
+  const [pendingProjectCheckpointDraft, setPendingProjectCheckpointDraft] =
+    useState<PendingProjectCheckpointDraft | null>(null);
+  const [isSavingProjectCheckpoint, setIsSavingProjectCheckpoint] =
+    useState(false);
   const [pendingRoutineAdjustment, setPendingRoutineAdjustment] =
     useState<PendingRoutineAdjustment | null>(null);
   const dailyTracesRef = useRef<DailyTraceItem[]>([]);
   const addingProjectDreamFragmentIdsRef = useRef<Set<string>>(new Set());
+  const savedProjectCheckpointDraftIdsRef = useRef<Set<string>>(new Set());
 
   const activeSession =
     sessions.find((session) => session.id === activeSessionId) ?? sessions[0];
@@ -446,6 +476,14 @@ export default function App() {
   );
 
   const emotionRecords = useMemo(() => collectEmotionRecords(sessions), [sessions]);
+
+  useEffect(() => {
+    setPendingProjectCheckpointDraft((currentDraft) =>
+      currentDraft && currentDraft.projectId !== activeProjectId
+        ? null
+        : currentDraft
+    );
+  }, [activeProjectId]);
 
   useEffect(() => {
     loadSavedData();
@@ -735,6 +773,60 @@ export default function App() {
     }
   };
 
+  const requestProjectCheckpointDraft = () => {
+    if (!activeProject || isProjectSending) {
+      return;
+    }
+
+    void sendProjectMessage(PROJECT_CHECKPOINT_REQUEST_TEXT);
+  };
+
+  const dismissPendingProjectCheckpoint = () => {
+    setPendingProjectCheckpointDraft(null);
+  };
+
+  const savePendingProjectCheckpoint = () => {
+    const pendingDraft = pendingProjectCheckpointDraft;
+    if (
+      !pendingDraft ||
+      isSavingProjectCheckpoint ||
+      savedProjectCheckpointDraftIdsRef.current.has(pendingDraft.draftId) ||
+      !hasProjectCheckpointDraftContent(pendingDraft.draft)
+    ) {
+      return;
+    }
+
+    savedProjectCheckpointDraftIdsRef.current.add(pendingDraft.draftId);
+    setIsSavingProjectCheckpoint(true);
+
+    const now = new Date().toISOString();
+    const checkpoint = buildProjectCheckpoint({
+      id: createId("project-checkpoint"),
+      projectId: pendingDraft.projectId,
+      completed: pendingDraft.draft.completed,
+      blocked: pendingDraft.draft.blocked,
+      decisions: pendingDraft.draft.decisions,
+      nextAction: pendingDraft.draft.nextAction?.trim() || null,
+      createdAt: now,
+    });
+
+    setProjects((currentProjects) =>
+      currentProjects.map((project) =>
+        project.id === pendingDraft.projectId
+          ? {
+              ...project,
+              checkpoints: [...(project.checkpoints ?? []), checkpoint],
+              updatedAt: now,
+            }
+          : project
+      )
+    );
+    setPendingProjectCheckpointDraft((currentDraft) =>
+      currentDraft?.draftId === pendingDraft.draftId ? null : currentDraft
+    );
+    setIsSavingProjectCheckpoint(false);
+  };
+
   const deleteProject = async (projectId: string) => {
     const nextProjects = deleteProjectInList(projects, projectId);
     const nextProjectMessages = projectMessages.filter((message) => message.projectId !== projectId);
@@ -1013,8 +1105,8 @@ export default function App() {
     }
   };
 
-  const sendProjectMessage = async () => {
-    const trimmedText = projectInputText.trim();
+  const sendProjectMessage = async (textOverride?: string) => {
+    const trimmedText = (textOverride ?? projectInputText).trim();
     if (!trimmedText || isProjectSending || !activeProject) {
       return;
     }
@@ -1052,7 +1144,9 @@ export default function App() {
         project.id === projectId ? { ...project, updatedAt: now } : project
       )
     );
-    setProjectInputText("");
+    if (textOverride === undefined) {
+      setProjectInputText("");
+    }
     setIsProjectSending(true);
 
     try {
@@ -1085,6 +1179,13 @@ export default function App() {
             : project
         )
       );
+      if (hasProjectCheckpointDraftContent(data.checkpoint_draft)) {
+        setPendingProjectCheckpointDraft({
+          draftId: createId("project-checkpoint-draft"),
+          projectId,
+          draft: data.checkpoint_draft,
+        });
+      }
     } catch (error) {
       setProjectMessages((currentMessages) =>
         currentMessages.map((message) =>
@@ -3633,6 +3734,15 @@ export default function App() {
               onDeleteProject={deleteProject}
               onAddToDreamFragment={addProjectToDreamFragment}
               isAddingToDreamFragment={addingProjectDreamFragmentIds.includes(activeProject.id)}
+              checkpointDraft={
+                pendingProjectCheckpointDraft?.projectId === activeProject.id
+                  ? pendingProjectCheckpointDraft.draft
+                  : null
+              }
+              isSavingCheckpoint={isSavingProjectCheckpoint}
+              onRequestCheckpoint={requestProjectCheckpointDraft}
+              onSaveCheckpoint={savePendingProjectCheckpoint}
+              onDismissCheckpoint={dismissPendingProjectCheckpoint}
               onBackToChat={returnToChat}
               getDdayLabel={formatDDay}
               getTraceTitle={(item: DailyTraceItem) => getMemoryInputText(item) || item.title}
