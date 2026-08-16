@@ -507,59 +507,6 @@ export function ProjectScreen({
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={[
-            styles.projectSecondaryButton,
-            styles.projectDreamFragmentButton,
-            (isAddedToDreamFragment || isAddingToDreamFragment) && styles.sendButtonDisabled,
-          ]}
-          onPress={() => onAddToDreamFragment(project.id)}
-          disabled={isAddedToDreamFragment || isAddingToDreamFragment}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.projectDreamFragmentButtonText}>
-            {isAddedToDreamFragment
-              ? "\uAFC8\uC758 \uD30C\uD3B8\uC5D0 \uCD94\uAC00\uB428"
-              : "\uAFC8\uC758 \uD30C\uD3B8\uC5D0 \uCD94\uAC00\uD558\uAE30"}
-          </Text>
-        </TouchableOpacity>
-
-        {latestCheckpoint && latestCheckpointSections.length > 0 ? (
-          <View style={styles.projectCheckpointCard}>
-            <Text style={styles.projectCheckpointTitle}>
-              지난번 여기까지 했어요
-            </Text>
-            {latestCheckpointSections.map((section) => (
-              <View key={section.title} style={styles.projectCheckpointSection}>
-                <Text style={styles.projectCheckpointSectionTitle}>
-                  {section.title}
-                </Text>
-                {section.items.map((item, index) => (
-                  <Text
-                    key={`latest-${section.title}-${index}-${item}`}
-                    style={styles.projectCheckpointItem}
-                  >
-                    • {item}
-                  </Text>
-                ))}
-              </View>
-            ))}
-            <TouchableOpacity
-              style={[
-                styles.projectPrimaryButton,
-                isSending && styles.sendButtonDisabled,
-              ]}
-              onPress={onResumeFromCheckpoint}
-              disabled={isSending}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.projectPrimaryButtonText}>
-                여기서 이어가기
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
         <View style={styles.projectPanel}>
           <View style={styles.projectPanelHeader}>
             <Text style={styles.projectPanelTitle}>목표</Text>
@@ -610,6 +557,65 @@ export function ProjectScreen({
             <Text style={styles.projectGoalText}>{project.goal}</Text>
           )}
         </View>
+
+        <View style={styles.projectDreamFragmentActionRow}>
+          <TouchableOpacity
+            style={[
+              styles.projectSecondaryButton,
+              styles.projectDreamFragmentButton,
+              (isAddedToDreamFragment || isAddingToDreamFragment) &&
+                styles.sendButtonDisabled,
+            ]}
+            onPress={() => onAddToDreamFragment(project.id)}
+            disabled={isAddedToDreamFragment || isAddingToDreamFragment}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.projectDreamFragmentButtonText}>
+              {isAddedToDreamFragment
+                ? "\u2713 \uAFC8\uC758 \uD30C\uD3B8\uC5D0 \uCD94\uAC00\uB428"
+                : "\uAFC8\uC758 \uD30C\uD3B8\uC5D0 \uCD94\uAC00\uD558\uAE30"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {latestCheckpoint && latestCheckpointSections.length > 0 ? (
+          <View style={styles.projectCheckpointCard}>
+            <Text style={styles.projectCheckpointTitle}>
+              {"\uC9C0\uB09C\uBC88 \uC5EC\uAE30\uAE4C\uC9C0 \uD588\uC5B4\uC694"}
+            </Text>
+            {latestCheckpointSections.map((section) => (
+              <View key={section.title} style={styles.projectCheckpointSection}>
+                <Text style={styles.projectCheckpointSectionTitle}>
+                  {section.title}
+                </Text>
+                {section.items.map((item, index) => (
+                  <Text
+                    key={`latest-${section.title}-${index}-${item}`}
+                    style={styles.projectCheckpointItem}
+                  >
+                    • {item}
+                  </Text>
+                ))}
+              </View>
+            ))}
+            <View style={styles.projectCheckpointResumeRow}>
+              <TouchableOpacity
+                style={[
+                  styles.projectSecondaryButton,
+                  styles.projectCheckpointResumeButton,
+                  isSending && styles.sendButtonDisabled,
+                ]}
+                onPress={onResumeFromCheckpoint}
+                disabled={isSending}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.projectSecondaryButtonText}>
+                  {"\uC5EC\uAE30\uC11C \uC774\uC5B4\uAC00\uAE30"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.projectPanel}>
           <Text style={styles.projectPanelTitle}>프로젝트 대화</Text>
@@ -899,20 +905,24 @@ const styles = StyleSheet.create({
   },
   projectDreamFragmentButton: {
     alignItems: "center",
-    alignSelf: "stretch",
+    alignSelf: "flex-end",
     backgroundColor: "#f2f4f8",
-    borderColor: "#facc15",
-    borderRadius: 12,
+    borderColor: "#3a3a3a",
+    borderRadius: 999,
     borderWidth: 1,
-    marginBottom: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    width: "100%",
+    marginBottom: 12,
+    minHeight: 38,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   projectDreamFragmentButtonText: {
     color: "#050505",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "900",
+  },
+  projectDreamFragmentActionRow: {
+    alignItems: "flex-end",
+    marginBottom: 2,
   },
   projectPanel: {
     backgroundColor: "#111111",
@@ -1174,8 +1184,17 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     marginTop: 0,
   },
+  projectCheckpointResumeRow: {
+    alignItems: "flex-end",
+    marginTop: 12,
+  },
+  projectCheckpointResumeButton: {
+    minHeight: 38,
+    paddingHorizontal: 12,
+  },
   projectCheckpointButton: {
     alignItems: "center",
+    backgroundColor: "#B7E36B",
     borderColor: "#3a3a3a",
     borderRadius: 9,
     borderWidth: 1,
@@ -1185,7 +1204,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   projectCheckpointButtonText: {
-    color: "#d1d5db",
+    color: "#050505",
     fontSize: 13,
     fontWeight: "900",
   },
