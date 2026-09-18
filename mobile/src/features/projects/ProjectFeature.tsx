@@ -35,6 +35,22 @@ function getProjectCheckpointSections(
   ].filter((section) => section.items.length > 0);
 }
 
+function getProjectCheckpointPreview(
+  checkpoint: ProjectCheckpointSummary | null
+) {
+  if (!checkpoint) {
+    return null;
+  }
+
+  return [
+    ...checkpoint.decisions,
+    ...checkpoint.completed,
+    ...checkpoint.blocked,
+  ].find(
+    (item) => item.trim().length > 0
+  ) ?? null;
+}
+
 export function ProjectSidebarList({
   projects,
   activeProjectId,
@@ -406,6 +422,7 @@ export function ProjectScreen({
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingArchive, setIsConfirmingArchive] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isCheckpointDetailOpen, setIsCheckpointDetailOpen] = useState(false);
   const [editForm, setEditForm] = useState<ProjectFormState>({
     title: project.title,
     goal: project.goal,
@@ -450,6 +467,7 @@ export function ProjectScreen({
     setIsEditing(false);
     setIsConfirmingArchive(false);
     setIsConfirmingDelete(false);
+    setIsCheckpointDetailOpen(false);
   }, [project.id, project.title, project.goal, project.deadline]);
 
   const saveEdit = () => {
@@ -459,6 +477,8 @@ export function ProjectScreen({
 
   const latestCheckpointSections =
     getProjectCheckpointSections(latestCheckpoint);
+  const latestCheckpointPreview = getProjectCheckpointPreview(latestCheckpoint);
+  const latestCheckpointNextAction = latestCheckpoint?.nextAction?.trim();
 
   useEffect(() => {
     if (messages.length > previousMessageCountRef.current) {
@@ -578,42 +598,72 @@ export function ProjectScreen({
           </TouchableOpacity>
         </View>
 
-        {latestCheckpoint && latestCheckpointSections.length > 0 ? (
-          <View style={styles.projectCheckpointCard}>
-            <Text style={styles.projectCheckpointTitle}>
-              {"\uC9C0\uB09C\uBC88 \uC5EC\uAE30\uAE4C\uC9C0 \uD588\uC5B4\uC694"}
-            </Text>
-            {latestCheckpointSections.map((section) => (
-              <View key={section.title} style={styles.projectCheckpointSection}>
-                <Text style={styles.projectCheckpointSectionTitle}>
-                  {section.title}
+        {latestCheckpoint &&
+        (latestCheckpointPreview || latestCheckpointNextAction) ? (
+          <View style={styles.projectCheckpointSummary}>
+            <View style={styles.projectCheckpointSummaryRow}>
+              <View style={styles.projectCheckpointSummaryTextBlock}>
+                <Text style={styles.projectCheckpointSummaryTitle}>
+                  {"\uC9C0\uB09C\uBC88 \uC791\uC5C5"}
                 </Text>
-                {section.items.map((item, index) => (
-                  <Text
-                    key={`latest-${section.title}-${index}-${item}`}
-                    style={styles.projectCheckpointItem}
-                  >
-                    • {item}
+              </View>
+              {latestCheckpointSections.length > 0 ? (
+                <TouchableOpacity
+                  style={styles.projectCheckpointDetailButton}
+                  onPress={() =>
+                    setIsCheckpointDetailOpen((currentValue) => !currentValue)
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.projectCheckpointDetailButtonText}>
+                    {isCheckpointDetailOpen
+                      ? "\uC811\uAE30"
+                      : "\uC790\uC138\uD788 >"}
                   </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {isCheckpointDetailOpen ? (
+              <View style={styles.projectCheckpointDetailBox}>
+                {latestCheckpointSections.map((section) => (
+                  <View key={section.title} style={styles.projectCheckpointSection}>
+                    <Text style={styles.projectCheckpointSectionTitle}>
+                      {section.title}
+                    </Text>
+                    {section.items.map((item, index) => (
+                      <Text
+                        key={`latest-${section.title}-${index}-${item}`}
+                        style={styles.projectCheckpointItem}
+                      >
+                        {"\u2022 "}
+                        {item}
+                      </Text>
+                    ))}
+                  </View>
                 ))}
               </View>
-            ))}
-            <View style={styles.projectCheckpointResumeRow}>
-              <TouchableOpacity
-                style={[
-                  styles.projectSecondaryButton,
-                  styles.projectCheckpointResumeButton,
-                  isSending && styles.sendButtonDisabled,
-                ]}
-                onPress={onResumeFromCheckpoint}
-                disabled={isSending}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.projectSecondaryButtonText}>
-                  {"\uC5EC\uAE30\uC11C \uC774\uC5B4\uAC00\uAE30"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            ) : (
+              <View style={styles.projectCheckpointPreviewBox}>
+                {latestCheckpointPreview ? (
+                  <Text
+                    style={styles.projectCheckpointSummaryText}
+                    numberOfLines={2}
+                  >
+                    {latestCheckpointPreview}
+                  </Text>
+                ) : null}
+                {latestCheckpointNextAction ? (
+                  <View style={styles.projectCheckpointNextActionBox}>
+                    <Text style={styles.projectCheckpointNextActionLabel}>
+                      {"\uB2E4\uC74C \uC2DC\uC791\uC810"}
+                    </Text>
+                    <Text style={styles.projectCheckpointNextActionText}>
+                      {latestCheckpointNextAction}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
           </View>
         ) : null}
 
@@ -628,71 +678,61 @@ export function ProjectScreen({
               <ProjectMessageBubble key={message.id} message={message} />
             ))
           )}
-        </View>
-
-        {checkpointDraft && checkpointSections.length > 0 ? (
-          <View style={styles.projectCheckpointCard}>
-            <Text style={styles.projectCheckpointTitle}>
-              오늘 작업을 이렇게 정리했어요.
-            </Text>
-            {checkpointSections.map((section) => (
-              <View key={section.title} style={styles.projectCheckpointSection}>
-                <Text style={styles.projectCheckpointSectionTitle}>
-                  {section.title}
-                </Text>
-                {section.items.map((item, index) => (
-                  <Text
-                    key={`${section.title}-${index}-${item}`}
-                    style={styles.projectCheckpointItem}
-                  >
-                    • {item}
+          {checkpointDraft && checkpointSections.length > 0 ? (
+            <View style={styles.projectCheckpointDraftCard}>
+              <Text style={styles.projectCheckpointDraftTitle}>
+                {"\uC774 \uB0B4\uC6A9\uC744 \uCCB4\uD06C\uD3EC\uC778\uD2B8\uC5D0 \uC800\uC7A5\uD560\uAE4C\uC694?"}
+              </Text>
+              {checkpointSections.map((section) => (
+                <View key={section.title} style={styles.projectCheckpointSection}>
+                  <Text style={styles.projectCheckpointSectionTitle}>
+                    {section.title}
                   </Text>
-                ))}
+                  {section.items.map((item, index) => (
+                    <Text
+                      key={`${section.title}-${index}-${item}`}
+                      style={styles.projectCheckpointItem}
+                    >
+                      {"\u2022 "}
+                      {item}
+                    </Text>
+                  ))}
+                </View>
+              ))}
+              <View style={styles.projectCheckpointActionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.projectPrimaryButton,
+                    styles.projectCheckpointActionButton,
+                    styles.projectCheckpointSaveButton,
+                    isSavingCheckpoint && styles.sendButtonDisabled,
+                  ]}
+                  onPress={onSaveCheckpoint}
+                  disabled={isSavingCheckpoint}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.projectPrimaryButtonText}>
+                    {"\uC5EC\uAE30\uC11C \uC800\uC7A5\uD558\uAE30"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.projectSecondaryButton,
+                    styles.projectCheckpointActionButton,
+                    styles.projectCheckpointDismissButton,
+                  ]}
+                  onPress={onDismissCheckpoint}
+                  disabled={isSavingCheckpoint}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.projectSecondaryButtonText}>
+                    {"\uACC4\uC18D \uC791\uC5C5\uD558\uAE30"}
+                  </Text>
+                </TouchableOpacity>
               </View>
-            ))}
-            <View style={styles.projectCheckpointActionRow}>
-              <TouchableOpacity
-                style={[
-                  styles.projectPrimaryButton,
-                  styles.projectCheckpointActionButton,
-                  isSavingCheckpoint && styles.sendButtonDisabled,
-                ]}
-                onPress={onSaveCheckpoint}
-                disabled={isSavingCheckpoint}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.projectPrimaryButtonText}>저장하기</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.projectSecondaryButton,
-                  styles.projectCheckpointActionButton,
-                ]}
-                onPress={onDismissCheckpoint}
-                disabled={isSavingCheckpoint}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.projectSecondaryButtonText}>
-                  계속 작업하기
-                </Text>
-              </TouchableOpacity>
             </View>
-          </View>
-        ) : null}
-
-        <TouchableOpacity
-          style={[
-            styles.projectCheckpointButton,
-            isSending && styles.sendButtonDisabled,
-          ]}
-          onPress={onRequestCheckpoint}
-          disabled={isSending}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.projectCheckpointButtonText}>
-            {"\uC5EC\uAE30\uAE4C\uC9C0 \uC815\uB9AC\uD558\uAE30"}
-          </Text>
-        </TouchableOpacity>
+          ) : null}
+        </View>
 
         <View style={styles.projectArchiveRow}>
           {isConfirmingDelete ? (
@@ -823,7 +863,7 @@ function ProjectMessageBubble({ message }: { message: NoieProjectMessage }) {
 const styles = StyleSheet.create({
   sidebarSectionLabel: {
     color: "#8f8f8f",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
     marginBottom: 8,
     marginTop: 18,
@@ -831,7 +871,7 @@ const styles = StyleSheet.create({
   projectCreateButton: {
     alignItems: "center",
     borderColor: "#3a3a3a",
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     justifyContent: "center",
     marginBottom: 8,
@@ -844,12 +884,14 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   projectItem: {
+    borderColor: "transparent",
     borderRadius: 10,
+    borderWidth: 1,
     marginBottom: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  projectItemActive: { backgroundColor: "#2a2b32" },
+  projectItemActive: { backgroundColor: "#1a1a1a", borderColor: "#3a3a3a" },
   projectItemTitle: {
     color: "#c9d1d9",
     fontSize: 14,
@@ -864,9 +906,9 @@ const styles = StyleSheet.create({
   },
   projectScroll: { flex: 1 },
   projectContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    paddingBottom: 34,
+    paddingHorizontal: 22,
+    paddingVertical: 20,
+    paddingBottom: 36,
   },
   projectHeaderRow: {
     alignItems: "flex-start",
@@ -874,25 +916,25 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 12,
     justifyContent: "space-between",
-    marginBottom: 14,
+    marginBottom: 18,
   },
   projectHeaderTextBlock: { flex: 1, minWidth: 220 },
   projectTitle: {
     color: "#ffffff",
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "900",
-    lineHeight: 30,
+    lineHeight: 32,
   },
   projectSubtitle: {
     color: "#9ca3af",
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
     marginTop: 6,
   },
   projectSecondaryButton: {
     alignItems: "center",
     borderColor: "#3a3a3a",
-    borderRadius: 9,
+    borderRadius: 12,
     borderWidth: 1,
     justifyContent: "center",
     minHeight: 40,
@@ -908,7 +950,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
     backgroundColor: "#f2f4f8",
     borderColor: "#3a3a3a",
-    borderRadius: 999,
+    borderRadius: 12,
     borderWidth: 1,
     marginBottom: 12,
     minHeight: 38,
@@ -925,12 +967,12 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   projectPanel: {
-    backgroundColor: "#111111",
-    borderColor: "#262626",
-    borderRadius: 10,
+    backgroundColor: "#101010",
+    borderColor: "#272727",
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 14,
-    padding: 14,
+    marginBottom: 16,
+    padding: 18,
   },
   projectFieldLabel: {
     color: "#9ca3af",
@@ -940,9 +982,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   projectInput: {
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#0d0d0d",
     borderColor: "#333333",
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     color: "#ffffff",
     fontSize: 15,
@@ -956,9 +998,9 @@ const styles = StyleSheet.create({
   },
   projectDateButton: {
     alignItems: "center",
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#0d0d0d",
     borderColor: "#333333",
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     minHeight: 44,
     paddingHorizontal: 12,
@@ -973,9 +1015,9 @@ const styles = StyleSheet.create({
     color: "#7d7d7d",
   },
   projectCalendarBox: {
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#0d0d0d",
     borderColor: "#333333",
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     marginTop: 8,
     padding: 10,
@@ -993,7 +1035,7 @@ const styles = StyleSheet.create({
   },
   projectCalendarNavButton: {
     borderColor: "#333333",
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 7,
@@ -1017,7 +1059,7 @@ const styles = StyleSheet.create({
   },
   projectCalendarDay: {
     alignItems: "center",
-    borderRadius: 8,
+    borderRadius: 10,
     justifyContent: "center",
     minHeight: 36,
     width: "14.2857%",
@@ -1052,7 +1094,7 @@ const styles = StyleSheet.create({
   projectPrimaryButton: {
     alignItems: "center",
     backgroundColor: "#f2f4f8",
-    borderRadius: 9,
+    borderRadius: 12,
     justifyContent: "center",
     marginTop: 14,
     minHeight: 42,
@@ -1086,7 +1128,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     backgroundColor: "#151515",
     borderColor: "#303030",
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     gap: 3,
     marginTop: 8,
@@ -1106,13 +1148,13 @@ const styles = StyleSheet.create({
   },
   projectPanelTitle: {
     color: "#ffffff",
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "900",
     marginBottom: 8,
   },
   projectTinyButton: {
     borderColor: "#3a3a3a",
-    borderRadius: 7,
+    borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -1145,20 +1187,82 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
-  projectCheckpointCard: {
-    backgroundColor: "#111111",
-    borderColor: "#334155",
-    borderRadius: 10,
+  projectCheckpointSummary: {
+    backgroundColor: "#101010",
+    borderColor: "#272727",
+    borderRadius: 12,
     borderWidth: 1,
     marginBottom: 14,
-    padding: 14,
+    padding: 16,
   },
-  projectCheckpointTitle: {
-    color: "#ffffff",
-    fontSize: 16,
+  projectCheckpointSummaryRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  projectCheckpointSummaryTextBlock: {
+    flex: 1,
+  },
+  projectCheckpointSummaryTitle: {
+    color: "#f2f4f8",
+    fontSize: 14,
     fontWeight: "900",
-    lineHeight: 22,
-    marginBottom: 10,
+  },
+  projectCheckpointSummaryText: {
+    color: "#f2f4f8",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  projectCheckpointPreviewBox: {
+    marginTop: 10,
+  },
+  projectCheckpointNextActionBox: {
+    marginTop: 12,
+  },
+  projectCheckpointNextActionLabel: {
+    color: "#9ca3af",
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  projectCheckpointNextActionText: {
+    color: "#e5e7eb",
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  projectCheckpointDetailButton: {
+    alignItems: "center",
+    borderColor: "#343434",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: 10,
+  },
+  projectCheckpointDetailButtonText: {
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  projectCheckpointDetailBox: {
+    marginTop: 8,
+  },
+  projectCheckpointDraftCard: {
+    backgroundColor: "#101010",
+    borderColor: "#272727",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
+  },
+  projectCheckpointDraftTitle: {
+    color: "#f2f4f8",
+    fontSize: 13,
+    fontWeight: "900",
+    lineHeight: 19,
   },
   projectCheckpointSection: {
     marginTop: 8,
@@ -1184,31 +1288,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     marginTop: 0,
   },
-  projectCheckpointResumeRow: {
-    alignItems: "flex-end",
-    marginTop: 12,
-  },
-  projectCheckpointResumeButton: {
-    minHeight: 38,
+  projectCheckpointSaveButton: {
+    minHeight: 36,
     paddingHorizontal: 12,
   },
-  projectCheckpointButton: {
-    alignItems: "center",
-    alignSelf: "flex-end",
-    backgroundColor: "#B7E36B",
-    borderColor: "#3a3a3a",
-    borderRadius: 9,
-    borderWidth: 1,
-    justifyContent: "center",
-    marginBottom: 14,
-    minHeight: 38,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  projectCheckpointButtonText: {
-    color: "#050505",
-    fontSize: 13,
-    fontWeight: "900",
+  projectCheckpointDismissButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
   },
   projectDangerButton: {
     alignItems: "center",

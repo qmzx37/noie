@@ -3690,10 +3690,16 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
-          {screenMode === "dreamVault" ? (
-            renderDreamFeature()
-          ) : screenMode === "flow" ? (
-            <EmotionFlowFeature
+          <View
+            style={[
+              styles.mainContent,
+              isWideScreen && styles.mainContentDesktop,
+            ]}
+          >
+            {screenMode === "dreamVault" ? (
+              renderDreamFeature()
+            ) : screenMode === "flow" ? (
+              <EmotionFlowFeature
               recentRecords={emotionRecentRecords}
               dailyPieces={emotionDailyPieces}
               weeklyAverages={emotionWeeklyAverages}
@@ -3706,9 +3712,9 @@ export default function App() {
               }
               onBackToChat={returnToChat}
               getDayPieceText={getDayPieceText}
-            />
-          ) : screenMode === "dailyTrace" ? (
-            <DailyTraceScreen
+              />
+            ) : screenMode === "dailyTrace" ? (
+              <DailyTraceScreen
               styles={styles}
               dailyTraces={dailyTraces}
               dailyLongRecords={dailyLongRecords}
@@ -3727,16 +3733,16 @@ export default function App() {
               onCleanupDuplicateMemories={cleanupDuplicateMemories}
               cleanupMessage={dailyTraceCleanupMessage}
               onBackToChat={returnToChat}
-            />
-          ) : screenMode === "projectCreate" ? (
-            <ProjectCreateScreen
+              />
+            ) : screenMode === "projectCreate" ? (
+              <ProjectCreateScreen
               form={projectForm}
               onChangeForm={setProjectForm}
               onCreateProject={createProject}
               onBackToChat={returnToChat}
-            />
-          ) : screenMode === "project" && activeProject ? (
-            <ProjectScreen
+              />
+            ) : screenMode === "project" && activeProject ? (
+              <ProjectScreen
               project={activeProject}
               dailyTraces={dailyTraces}
               messages={activeProjectMessages}
@@ -3763,9 +3769,9 @@ export default function App() {
               onBackToChat={returnToChat}
               getDdayLabel={formatDDay}
               getTraceTitle={(item: DailyTraceItem) => getMemoryInputText(item) || item.title}
-            />
-          ) : (
-            <ChatScreen
+              />
+            ) : (
+              <ChatScreen
               activeSession={activeSession}
               inputText={inputText}
               isHydrated={isHydrated}
@@ -3789,8 +3795,9 @@ export default function App() {
                 getConfirmButtonLabel,
               }}
               onContentSizeChange={scrollToBottom}
-            />
-          )}
+              />
+            )}
+          </View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

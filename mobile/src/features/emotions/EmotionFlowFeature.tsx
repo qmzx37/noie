@@ -378,25 +378,25 @@ function clampScore(value: number) {
 
 const styles = StyleSheet.create({
   flowScroll: { flex: 1 },  flowContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    paddingBottom: 34,
+    paddingHorizontal: 22,
+    paddingVertical: 20,
+    paddingBottom: 36,
   },  flowHeaderRow: {
     alignItems: "flex-start",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
     justifyContent: "space-between",
-    marginBottom: 14,
+    marginBottom: 18,
   },  flowHeaderTextBlock: { flex: 1, minWidth: 210 },  flowTitle: {
     color: "#ffffff",
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "900",
     marginBottom: 6,
-  },  flowSubtitle: { color: "#9ca3af", fontSize: 14, lineHeight: 20 },  backToChatButton: {
+  },  flowSubtitle: { color: "#9ca3af", fontSize: 14, lineHeight: 21 },  backToChatButton: {
     alignItems: "center",
     backgroundColor: "#f2f4f8",
-    borderRadius: 10,
+    borderRadius: 12,
     justifyContent: "center",
     minHeight: 40,
     paddingHorizontal: 12,
@@ -420,14 +420,14 @@ const styles = StyleSheet.create({
   },  dailyPiecesCarousel: {
     paddingRight: 18,
   },  dailyPieceCard: {
-    backgroundColor: "#181818",
-    borderColor: "#303030",
-    borderRadius: 18,
+    backgroundColor: "#101010",
+    borderColor: "#272727",
+    borderRadius: 12,
     borderWidth: 1,
     marginRight: 12,
-    minHeight: 178,
+    minHeight: 168,
     paddingHorizontal: 18,
-    paddingVertical: 18,
+    paddingVertical: 16,
   },  dailyPieceDateTitle: {
     color: "#ffffff",
     fontSize: 22,
@@ -447,9 +447,9 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },  dailyPiecesEmptyBox: {
     alignItems: "center",
-    backgroundColor: "#111111",
-    borderColor: "#262626",
-    borderRadius: 10,
+    backgroundColor: "#101010",
+    borderColor: "#272727",
+    borderRadius: 12,
     borderWidth: 1,
     justifyContent: "center",
     minHeight: 86,
@@ -460,12 +460,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
   },  flowCard: {
-    backgroundColor: "#111111",
-    borderColor: "#262626",
-    borderRadius: 10,
+    backgroundColor: "#101010",
+    borderColor: "#272727",
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 14,
-    padding: 14,
+    marginBottom: 16,
+    padding: 18,
   },  flowCardHeader: {
     alignItems: "flex-start",
     flexDirection: "row",
@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },  flowCardTitle: {
     color: "#ffffff",
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "900",
     marginBottom: 4,
   },  flowCardHint: { color: "#8f8f8f", fontSize: 12, lineHeight: 18 },  axisSelector: {
@@ -482,8 +482,8 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },  axisChip: {
-    backgroundColor: "#1c1c1c",
-    borderColor: "#303030",
+    backgroundColor: "#151515",
+    borderColor: "#2d2d2d",
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,
@@ -495,9 +495,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },  flowEmptyBox: {
     alignItems: "center",
-    backgroundColor: "#0b0b0b",
-    borderColor: "#242424",
-    borderRadius: 8,
+    backgroundColor: "#101010",
+    borderColor: "#272727",
+    borderRadius: 12,
     borderWidth: 1,
     justifyContent: "center",
     minHeight: 120,
@@ -509,9 +509,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },  chartWrap: {
     alignItems: "center",
-    backgroundColor: "#0a0a0a",
-    borderColor: "#242424",
-    borderRadius: 8,
+    backgroundColor: "#0d0d0d",
+    borderColor: "#272727",
+    borderRadius: 12,
     borderWidth: 1,
     paddingTop: 8,
   },  chartLegend: {
@@ -533,7 +533,7 @@ const styles = StyleSheet.create({
   },  weeklyFill: { borderRadius: 999, height: 10 },  moreButton: {
     alignItems: "center",
     borderColor: "#3a3a3a",
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     justifyContent: "center",
     marginTop: 14,
