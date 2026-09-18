@@ -1,4 +1,4 @@
-export const API_BASE_URL = "http://127.0.0.1:8000";
+export const API_BASE_URL = "https://noie-backend.onrender.com";
 
 export const TRACE_REMINDER_OPTIONS = [
   { value: "none", label: "\uc5c6\uc74c" },
