@@ -6,6 +6,9 @@
     "orientation": "portrait",
     "platforms": ["ios", "android", "web"],
     "sdkVersion": "48.0.0",
-    "assetBundlePatterns": ["**/*"]
+    "assetBundlePatterns": ["**/*"],
+    "web": {
+      "bundler": "metro"
+    }
   }
 }
