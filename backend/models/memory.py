@@ -49,6 +49,13 @@ class Memory(SoftDeleteMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    # 새 Memory가 직접 대체한 이전 Memory를 가리킵니다. NULL UNIQUE는 여러 행에 허용됩니다.
+    supersedes_memory_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("memories.id", ondelete="RESTRICT"),
+        nullable=True,
+        unique=True,
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     # PostgreSQL ENUM 대신 문자열을 사용해 새 기억 종류를 migration 없이 확장할 수 있습니다.
     kind: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -69,6 +76,10 @@ class Memory(SoftDeleteMixin, TimestampMixin, Base):
     )
 
     user: Mapped["User"] = relationship()
+    supersedes: Mapped["Memory | None"] = relationship(
+        remote_side="Memory.id",
+        foreign_keys=[supersedes_memory_id],
+    )
     evidence: Mapped[list["MemoryEvidence"]] = relationship(
         back_populates="memory",
         order_by="MemoryEvidence.created_at",

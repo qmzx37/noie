@@ -32,6 +32,10 @@ class MemoryExtraction(TimestampMixin, Base):
             "status IN ('processing', 'completed', 'failed')",
             name="ck_memory_extractions_status",
         ),
+        CheckConstraint(
+            "reconciliation_action IS NULL OR reconciliation_action IN ('new', 'reinforce', 'supersede')",
+            name="ck_memory_extractions_reconciliation_action",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -61,6 +65,18 @@ class MemoryExtraction(TimestampMixin, Base):
     )
     should_remember: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reconciliation_action: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+    matched_memory_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("memories.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    reconciliation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reconciler_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # 외부 API의 세부 정보나 키를 넣지 않고 안전한 오류 종류만 저장합니다.
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(
@@ -69,4 +85,7 @@ class MemoryExtraction(TimestampMixin, Base):
     )
 
     message: Mapped["Message"] = relationship()
-    memory: Mapped["Memory | None"] = relationship()
+    memory: Mapped["Memory | None"] = relationship(foreign_keys=[memory_id])
+    matched_memory: Mapped["Memory | None"] = relationship(
+        foreign_keys=[matched_memory_id]
+    )

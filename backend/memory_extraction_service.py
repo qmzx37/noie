@@ -10,8 +10,11 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from database import SessionLocal
 from memory_extractor import EXTRACTOR_VERSION, extract_memory_with_openai
-from memory_schemas import MemoryCreate
-from memory_service import create_memory
+from memory_reconciler import reconcile_memory_candidate
+from memory_reconciliation_service import (
+    apply_reconciliation,
+    find_reconciliation_candidates,
+)
 from models.conversation import Conversation
 from models.memory_extraction import MemoryExtraction
 from models.message import Message
@@ -162,21 +165,17 @@ def extract_memory_for_message(
 
     try:
         decision = extract_memory_with_openai(original_content)
-        memory_id = None
         if decision.should_remember:
-            with SessionLocal() as db:
-                memory = create_memory(
-                    db,
-                    MemoryCreate(
-                        user_id=user_id,
-                        content=decision.content,
-                        kind=decision.kind,
-                        importance=decision.importance,
-                        confidence=decision.confidence,
-                        evidence_message_ids=[message_id],
-                    ),
-                )
-                memory_id = memory.id
+            candidates = find_reconciliation_candidates(user_id, decision.kind)
+            reconciliation = reconcile_memory_candidate(decision, candidates)
+            return apply_reconciliation(
+                extraction_id=extraction_id,
+                user_id=user_id,
+                message_id=message_id,
+                candidate=decision,
+                decision=reconciliation,
+                candidates=candidates,
+            )
 
         with SessionLocal() as db:
             extraction = db.get(MemoryExtraction, extraction_id)
@@ -185,7 +184,7 @@ def extract_memory_for_message(
             extraction.status = "completed"
             extraction.should_remember = decision.should_remember
             extraction.reason = decision.reason
-            extraction.memory_id = memory_id
+            extraction.memory_id = None
             extraction.error_message = None
             extraction.completed_at = datetime.now(timezone.utc)
             db.commit()

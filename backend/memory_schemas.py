@@ -83,6 +83,7 @@ class MemoryResponse(BaseModel):
 
     id: UUID
     user_id: UUID
+    supersedes_memory_id: UUID | None
     content: str
     kind: str
     importance: int | None
@@ -120,7 +121,20 @@ class MemoryExtractionResponse(BaseModel):
     status: Literal["processing", "completed", "failed"]
     should_remember: bool | None
     reason: str | None
+    reconciliation_action: Literal["new", "reinforce", "supersede"] | None
+    matched_memory_id: UUID | None
+    reconciliation_reason: str | None
+    reconciler_version: str | None
     error_message: str | None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+
+
+class MemoryReconciliationDecision(BaseModel):
+    """OpenAI의 조정 판단을 service 계층에서 다시 검증하기 위한 타입입니다."""
+
+    action: Literal["new", "reinforce", "supersede"]
+    matched_memory_id: UUID | None
+    reason: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)

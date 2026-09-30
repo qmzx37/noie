@@ -42,51 +42,63 @@ def _memory_with_evidence_statement(memory_id: UUID):
     )
 
 
+def create_memory_in_transaction(
+    db: Session,
+    data: MemoryCreate,
+    supersedes_memory_id: UUID | None = None,
+) -> Memory:
+    """검증과 INSERT만 수행하고 commit은 호출자가 결정하도록 둡니다."""
+
+    user = db.scalar(
+        select(User).where(User.id == data.user_id, User.deleted_at.is_(None))
+    )
+    if user is None:
+        raise MemoryNotFoundError("활성 사용자를 찾을 수 없습니다.")
+
+    # Message.user_id가 NULL인 assistant/system 원문도 있으므로 conversation 소유자를 봅니다.
+    evidence_rows = db.execute(
+        select(Message, Conversation)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(Message.id.in_(data.evidence_message_ids))
+    ).all()
+    if len(evidence_rows) != len(data.evidence_message_ids):
+        raise MemoryNotFoundError("일부 evidence 메시지를 찾을 수 없습니다.")
+
+    for _message, conversation in evidence_rows:
+        if conversation.deleted_at is not None:
+            raise MemoryEvidenceValidationError(
+                "삭제된 conversation의 메시지는 evidence로 사용할 수 없습니다."
+            )
+        if conversation.user_id != data.user_id:
+            raise MemoryEvidenceValidationError(
+                "다른 사용자의 메시지는 evidence로 연결할 수 없습니다."
+            )
+
+    memory = Memory(
+        user_id=data.user_id,
+        supersedes_memory_id=supersedes_memory_id,
+        content=data.content,
+        kind=data.kind,
+        importance=data.importance,
+        confidence=data.confidence,
+    )
+    db.add(memory)
+    db.flush()
+
+    # 입력 순서대로 evidence를 추가하되 DB UNIQUE constraint도 중복을 최종 방어합니다.
+    db.add_all(
+        MemoryEvidence(memory_id=memory.id, message_id=message_id)
+        for message_id in data.evidence_message_ids
+    )
+    db.flush()
+    return memory
+
+
 def create_memory(db: Session, data: MemoryCreate) -> Memory:
     """활성 사용자와 원문 소유권을 검증한 뒤 memory/evidence를 함께 저장합니다."""
 
     try:
-        user = db.scalar(
-            select(User).where(User.id == data.user_id, User.deleted_at.is_(None))
-        )
-        if user is None:
-            raise MemoryNotFoundError("활성 사용자를 찾을 수 없습니다.")
-
-        # Message.user_id가 NULL인 assistant/system 원문도 있으므로 conversation 소유자를 봅니다.
-        evidence_rows = db.execute(
-            select(Message, Conversation)
-            .join(Conversation, Message.conversation_id == Conversation.id)
-            .where(Message.id.in_(data.evidence_message_ids))
-        ).all()
-        if len(evidence_rows) != len(data.evidence_message_ids):
-            raise MemoryNotFoundError("일부 evidence 메시지를 찾을 수 없습니다.")
-
-        for _message, conversation in evidence_rows:
-            if conversation.deleted_at is not None:
-                raise MemoryEvidenceValidationError(
-                    "삭제된 conversation의 메시지는 evidence로 사용할 수 없습니다."
-                )
-            if conversation.user_id != data.user_id:
-                raise MemoryEvidenceValidationError(
-                    "다른 사용자의 메시지는 evidence로 연결할 수 없습니다."
-                )
-
-        memory = Memory(
-            user_id=data.user_id,
-            content=data.content,
-            kind=data.kind,
-            importance=data.importance,
-            confidence=data.confidence,
-        )
-        db.add(memory)
-        db.flush()
-
-        # 입력 순서대로 evidence를 추가하되 DB UNIQUE constraint도 중복을 최종 방어합니다.
-        db.add_all(
-            MemoryEvidence(memory_id=memory.id, message_id=message_id)
-            for message_id in data.evidence_message_ids
-        )
-        db.flush()
+        memory = create_memory_in_transaction(db, data)
 
         saved_memory = db.scalar(_memory_with_evidence_statement(memory.id))
         if saved_memory is None:
