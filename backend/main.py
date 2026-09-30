@@ -21,6 +21,7 @@ from chat_persistence_service import (
 from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
+from memory_router import router as memory_router
 from openai_analyzer import (
     fallback_chat_reply,
     generate_chat_reply_with_openai,
@@ -60,6 +61,7 @@ app.add_middleware(
 
 # 원본 채팅 CRUD는 main.py와 분리된 라우터에서 관리합니다.
 app.include_router(chat_storage_router)
+app.include_router(memory_router)
 
 
 def to_level(score: float) -> str:

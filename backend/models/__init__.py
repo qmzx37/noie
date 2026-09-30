@@ -2,7 +2,15 @@
 
 from models.chat_request import ChatRequestRecord
 from models.conversation import Conversation
+from models.memory import Memory, MemoryEvidence
 from models.message import Message
 from models.user import User
 
-__all__ = ["ChatRequestRecord", "Conversation", "Message", "User"]
+__all__ = [
+    "ChatRequestRecord",
+    "Conversation",
+    "Memory",
+    "MemoryEvidence",
+    "Message",
+    "User",
+]
