@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import re
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text as sql_text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from chat_storage_router import router as chat_storage_router
+from chat_persistence_service import (
+    persist_assistant_message,
+    persist_user_message,
+)
+from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
 from openai_analyzer import (
@@ -45,6 +54,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 원본 채팅 CRUD는 main.py와 분리된 라우터에서 관리합니다.
+app.include_router(chat_storage_router)
 
 
 def to_level(score: float) -> str:
@@ -1277,6 +1289,23 @@ def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "noie"}
 
 
+@app.get("/db-health")
+def db_health(db: Session = Depends(get_db)) -> dict[str, str]:
+    """PostgreSQL 연결이 실제 쿼리를 처리할 수 있는지 확인합니다."""
+
+    try:
+        db.execute(sql_text("SELECT 1"))
+    except SQLAlchemyError as error:
+        # 상세 연결 정보는 응답에 노출하지 않고 서버 로그에만 남깁니다.
+        print(f"[noie] DB health check failed: {error}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection failed.",
+        ) from error
+
+    return {"status": "ok", "database": "postgresql"}
+
+
 @app.post("/generate-title", response_model=GenerateTitleResponse)
 def generate_title(request: GenerateTitleRequest) -> dict[str, str]:
     text = request.text.strip()
@@ -1298,7 +1327,10 @@ def analyze_emotion(request: AnalyzeEmotionRequest) -> dict:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> dict:
-    text = request.text.strip()
+    # DB에는 사용자가 보낸 원문을 그대로 저장하고 기존 OpenAI 처리에는 trim 값을 씁니다.
+    original_text = request.text
+    text = original_text.strip()
+    persistence_context = persist_user_message(original_text)
     analysis_response, source = analyze_text(text)
     state_summary = analysis_response["user_view"]["state_summary"]
 
@@ -1308,6 +1340,7 @@ def chat(request: ChatRequest) -> dict:
     ]
 
     checkpoint_draft = None
+    reply_source = "fallback"
     if request.is_project:
         valid_message_ids = {
             message.id
@@ -1334,6 +1367,7 @@ def chat(request: ChatRequest) -> dict:
             reply = str(project_chat_result.get("reply") or "").strip()
             if not reply:
                 raise ValueError("Project chat response did not include reply.")
+            reply_source = "project"
 
             raw_checkpoint_draft = project_chat_result.get("checkpoint_draft")
             if raw_checkpoint_draft is not None:
@@ -1357,8 +1391,10 @@ def chat(request: ChatRequest) -> dict:
                     project_name=request.project_name,
                     project_goal=request.project_goal,
                 )
+                reply_source = "openai"
             except Exception:
                 reply = fallback_chat_reply(state_summary)
+                reply_source = "rule" if source == "rule_based" else "fallback"
     else:
         try:
             reply = generate_chat_reply_with_openai(
@@ -1370,8 +1406,13 @@ def chat(request: ChatRequest) -> dict:
                 project_name=request.project_name,
                 project_goal=request.project_goal,
             )
+            reply_source = "openai"
         except Exception:
             reply = fallback_chat_reply(state_summary)
+            reply_source = "rule" if source == "rule_based" else "fallback"
+
+    # 생성 방식과 관계없이 사용자에게 반환하는 최종 답변을 정확히 한 번 저장합니다.
+    persist_assistant_message(persistence_context, reply, reply_source)
 
     return {
         "reply": reply,
@@ -1379,6 +1420,9 @@ def chat(request: ChatRequest) -> dict:
         "analysis": analysis_response,
         "source": source,
         "checkpoint_draft": checkpoint_draft,
+        "conversation_id": persistence_context.conversation_id
+        if persistence_context
+        else None,
     }
 
 

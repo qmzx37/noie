@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Dict, Literal, Optional, TypedDict
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -269,6 +270,7 @@ class ChatResponse(BaseModel):
     analysis: AnalyzeEmotionResponse
     source: Literal["openai", "rule_based"]
     checkpoint_draft: Optional[ProjectCheckpointDraft] = None
+    conversation_id: Optional[UUID] = None
 
 
 DailyTraceItemType = Literal[
