@@ -33,6 +33,7 @@ class ChatPersistenceContext:
     user_id: UUID | None
     conversation_id: UUID
     request_id: UUID | None = None
+    user_message_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,7 @@ def _wait_for_existing_request(
                         user_id=None,
                         conversation_id=record.conversation_id,
                         request_id=record.request_id,
+                        user_message_id=record.user_message_id,
                     ),
                     cached_response=record.response,
                 )
@@ -190,12 +192,18 @@ def begin_chat_request(
 
             # request_id가 없는 구버전 클라이언트는 기존 저장 동작을 그대로 유지합니다.
             if request_id is None:
-                create_message(
+                user_message = create_message(
                     db,
                     context.conversation_id,
                     MessageCreate(role="user", content=content),
                 )
-                return ChatPersistenceStart(context=context)
+                return ChatPersistenceStart(
+                    context=ChatPersistenceContext(
+                        user_id=context.user_id,
+                        conversation_id=context.conversation_id,
+                        user_message_id=user_message.id,
+                    )
+                )
 
             record = ChatRequestRecord(
                 request_id=request_id,
@@ -228,6 +236,7 @@ def begin_chat_request(
                     user_id=context.user_id,
                     conversation_id=context.conversation_id,
                     request_id=request_id,
+                    user_message_id=user_message.id,
                 )
             )
     except (RequestIdConflictError, RequestStillProcessingError):

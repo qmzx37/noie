@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from memory_schemas import MemoryCreate, MemoryResponse
+from memory_extraction_service import (
+    MemoryExtractionAccessError,
+    MemoryExtractionDatabaseError,
+    MemoryExtractionNotFoundError,
+    MemoryExtractionRoleError,
+    extract_memory_for_message,
+    get_memory_extraction,
+)
+from memory_schemas import (
+    MemoryCreate,
+    MemoryExtractionRequest,
+    MemoryExtractionResponse,
+    MemoryResponse,
+)
 from memory_service import (
     MemoryDatabaseError,
     MemoryEvidenceValidationError,
@@ -83,3 +96,59 @@ def get_memory_by_id(
         raise _not_found() from error
     except MemoryDatabaseError as error:
         raise _database_error() from error
+
+
+def _raise_extraction_error(error: Exception) -> None:
+    """추출 API의 내부 예외를 안정적인 HTTP 상태로 변환합니다."""
+
+    if isinstance(error, MemoryExtractionNotFoundError):
+        raise _not_found() from error
+    if isinstance(error, MemoryExtractionAccessError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="다른 사용자의 message에는 접근할 수 없습니다.",
+        ) from error
+    if isinstance(error, MemoryExtractionRoleError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user message만 자동 Memory 추출 대상으로 사용할 수 있습니다.",
+        ) from error
+    raise _database_error() from error
+
+
+@router.post(
+    "/messages/{message_id}/extract-memory",
+    response_model=MemoryExtractionResponse,
+)
+def post_extract_memory(
+    message_id: UUID,
+    data: MemoryExtractionRequest,
+) -> MemoryExtractionResponse:
+    try:
+        return extract_memory_for_message(message_id, data.user_id)
+    except (
+        MemoryExtractionNotFoundError,
+        MemoryExtractionAccessError,
+        MemoryExtractionRoleError,
+        MemoryExtractionDatabaseError,
+    ) as error:
+        _raise_extraction_error(error)
+
+
+@router.get(
+    "/messages/{message_id}/memory-extraction",
+    response_model=MemoryExtractionResponse,
+)
+def get_message_memory_extraction(
+    message_id: UUID,
+    user_id: UUID = Query(),
+) -> MemoryExtractionResponse:
+    try:
+        return get_memory_extraction(message_id, user_id)
+    except (
+        MemoryExtractionNotFoundError,
+        MemoryExtractionAccessError,
+        MemoryExtractionRoleError,
+        MemoryExtractionDatabaseError,
+    ) as error:
+        _raise_extraction_error(error)

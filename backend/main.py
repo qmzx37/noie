@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text as sql_text
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,6 +22,7 @@ from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
 from memory_router import router as memory_router
+from memory_extraction_service import run_memory_extraction_background
 from openai_analyzer import (
     fallback_chat_reply,
     generate_chat_reply_with_openai,
@@ -1331,7 +1332,7 @@ def analyze_emotion(request: AnalyzeEmotionRequest) -> dict:
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> dict:
+def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
     # DB에는 사용자가 보낸 원문을 그대로 저장하고 기존 OpenAI 처리에는 trim 값을 씁니다.
     original_text = request.text
     text = original_text.strip()
@@ -1453,6 +1454,12 @@ def chat(request: ChatRequest) -> dict:
 
     # 최종 응답과 assistant 원문을 함께 완료해 중복 요청이 같은 결과를 재사용하게 합니다.
     complete_chat_request(persistence_context, reply, reply_source, response)
+    if persistence_context and persistence_context.user_message_id:
+        # 응답 생성은 기다리지 않고, 저장된 user 원문만 보수적으로 장기 기억 후보로 분석합니다.
+        background_tasks.add_task(
+            run_memory_extraction_background,
+            persistence_context.user_message_id,
+        )
     return response
 
 

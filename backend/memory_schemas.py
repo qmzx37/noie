@@ -9,6 +9,19 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+MemoryKind = Literal[
+    "goal",
+    "preference",
+    "project",
+    "experience",
+    "person",
+    "place",
+    "routine",
+    "decision",
+    "other",
+]
+
+
 class MemoryCreate(BaseModel):
     """Swagger에서 원문 evidence를 지정해 기억을 생성하는 요청입니다."""
 
@@ -78,3 +91,36 @@ class MemoryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     evidence: list[MemoryEvidenceResponse]
+
+
+class MemoryExtractionDecision(BaseModel):
+    """OpenAI structured output을 저장 전에 다시 검증하는 타입입니다."""
+
+    should_remember: bool
+    reason: str = Field(min_length=1)
+    content: str
+    kind: MemoryKind
+    importance: int = Field(ge=0, le=100)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class MemoryExtractionRequest(BaseModel):
+    """인증 전 개발 단계에서 message 소유자를 명시하는 요청입니다."""
+
+    user_id: UUID
+
+
+class MemoryExtractionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    message_id: UUID
+    memory_id: UUID | None
+    extractor_version: str
+    status: Literal["processing", "completed", "failed"]
+    should_remember: bool | None
+    reason: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None

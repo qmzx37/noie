@@ -3,6 +3,7 @@
 from models.chat_request import ChatRequestRecord
 from models.conversation import Conversation
 from models.memory import Memory, MemoryEvidence
+from models.memory_extraction import MemoryExtraction
 from models.message import Message
 from models.user import User
 
@@ -11,6 +12,7 @@ __all__ = [
     "Conversation",
     "Memory",
     "MemoryEvidence",
+    "MemoryExtraction",
     "Message",
     "User",
 ]
