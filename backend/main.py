@@ -12,8 +12,11 @@ from sqlalchemy.orm import Session
 
 from chat_storage_router import router as chat_storage_router
 from chat_persistence_service import (
-    persist_assistant_message,
-    persist_user_message,
+    RequestIdConflictError,
+    RequestStillProcessingError,
+    begin_chat_request,
+    complete_chat_request,
+    mark_chat_request_failed,
 )
 from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
@@ -1330,8 +1333,31 @@ def chat(request: ChatRequest) -> dict:
     # DB에는 사용자가 보낸 원문을 그대로 저장하고 기존 OpenAI 처리에는 trim 값을 씁니다.
     original_text = request.text
     text = original_text.strip()
-    persistence_context = persist_user_message(original_text)
-    analysis_response, source = analyze_text(text)
+    try:
+        persistence_start = begin_chat_request(original_text, request.request_id)
+    except RequestIdConflictError as error:
+        # 동일 UUID를 다른 요청에 재사용하거나 이전 처리가 실패한 경우 새 UUID가 필요합니다.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="request_id를 새로 생성해 다시 요청해 주세요.",
+        ) from error
+    except RequestStillProcessingError as error:
+        # 첫 요청이 오래 처리 중이면 중복 생성을 피하고 명시적으로 재시도를 요청합니다.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="같은 요청이 아직 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+        ) from error
+
+    if persistence_start.cached_response is not None:
+        return persistence_start.cached_response
+
+    persistence_context = persistence_start.context
+    try:
+        analysis_response, source = analyze_text(text)
+    except Exception:
+        # 분석 자체가 끝나지 못한 요청은 중복 재시도가 무한 대기하지 않게 표시합니다.
+        mark_chat_request_failed(persistence_context)
+        raise
     state_summary = analysis_response["user_view"]["state_summary"]
 
     history = [
@@ -1411,10 +1437,7 @@ def chat(request: ChatRequest) -> dict:
             reply = fallback_chat_reply(state_summary)
             reply_source = "rule" if source == "rule_based" else "fallback"
 
-    # 생성 방식과 관계없이 사용자에게 반환하는 최종 답변을 정확히 한 번 저장합니다.
-    persist_assistant_message(persistence_context, reply, reply_source)
-
-    return {
+    response = {
         "reply": reply,
         "state_summary": state_summary,
         "analysis": analysis_response,
@@ -1423,7 +1446,12 @@ def chat(request: ChatRequest) -> dict:
         "conversation_id": persistence_context.conversation_id
         if persistence_context
         else None,
+        "request_id": request.request_id,
     }
+
+    # 최종 응답과 assistant 원문을 함께 완료해 중복 요청이 같은 결과를 재사용하게 합니다.
+    complete_chat_request(persistence_context, reply, reply_source, response)
+    return response
 
 
 @app.post("/extract-daily-trace", response_model=ExtractDailyTraceResponse)

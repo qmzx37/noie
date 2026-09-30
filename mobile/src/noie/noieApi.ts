@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../constants/appConstants";
+import { randomUUID } from "expo-crypto";
 import type {
   ChatApiResponse,
   ExtractDailyTraceResponse,
@@ -16,12 +17,15 @@ export async function requestChatReply(
   text: string,
   messages: NoieChatHistoryMessage[]
 ) {
+  // 한 번 만든 UUID는 이 HTTP 요청 본문에 고정되어 네트워크 재전송에도 재사용됩니다.
+  const requestId = randomUUID();
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text,
       messages,
+      request_id: requestId,
     }),
   });
 
@@ -51,12 +55,14 @@ export async function requestProjectChatReply({
   projectStatus?: string | null;
   latestCheckpoint?: ProjectCheckpoint | null;
 }) {
+  const requestId = randomUUID();
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text,
       messages,
+      request_id: requestId,
       is_project: true,
       project_id: projectId,
       project_name: projectName,

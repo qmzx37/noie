@@ -185,6 +185,8 @@ export type ChatApiResponse = {
   analysis: AnalyzeEmotionResponse;
   source: AnalysisSource;
   checkpoint_draft?: ProjectCheckpointDraft | null;
+  conversation_id?: string | null;
+  request_id?: string | null;
 };
 
 export type GenerateTitleResponse = {

@@ -254,6 +254,8 @@ class ProjectCheckpointContext(BaseModel):
 
 class ChatRequest(BaseModel):
     text: str = Field(min_length=1, examples=["나 오늘 친구랑 싸워서 힘들어"])
+    # 구버전 클라이언트 호환을 위해 선택값이며, mobile은 항상 UUID를 보냅니다.
+    request_id: Optional[UUID] = None
     messages: list[ChatHistoryMessage] = Field(default_factory=list)
     is_project: bool = False
     project_id: Optional[str] = None
@@ -271,6 +273,7 @@ class ChatResponse(BaseModel):
     source: Literal["openai", "rule_based"]
     checkpoint_draft: Optional[ProjectCheckpointDraft] = None
     conversation_id: Optional[UUID] = None
+    request_id: Optional[UUID] = None
 
 
 DailyTraceItemType = Literal[
