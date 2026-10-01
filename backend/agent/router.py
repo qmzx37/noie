@@ -4,6 +4,8 @@ from fastapi import APIRouter, HTTPException, status
 
 from agent.orchestrator import orchestrate_with_openai
 from agent.schemas import OrchestratorRequest, OrchestratorResult
+from agent.tool_gateway import create_tool_plan
+from agent.tool_schemas import ToolPlanRequest, ToolPlanResponse
 
 
 router = APIRouter(tags=["agent"])
@@ -21,3 +23,10 @@ def post_orchestrate(request: OrchestratorRequest) -> OrchestratorResult:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Orchestrator 판단을 완료하지 못했습니다.",
         ) from error
+
+
+@router.post("/agent/tool-plan", response_model=ToolPlanResponse)
+def post_tool_plan(request: ToolPlanRequest) -> ToolPlanResponse:
+    """정책을 검증한 dry-run 계획만 만들고 Tool이나 DB는 실행하지 않습니다."""
+
+    return create_tool_plan(request)

@@ -2,5 +2,14 @@
 
 from agent.orchestrator import orchestrate_with_openai
 from agent.schemas import OrchestratorRequest, OrchestratorResult
+from agent.tool_gateway import create_tool_plan
+from agent.tool_schemas import ToolPlanRequest, ToolPlanResponse
 
-__all__ = ["OrchestratorRequest", "OrchestratorResult", "orchestrate_with_openai"]
+__all__ = [
+    "OrchestratorRequest",
+    "OrchestratorResult",
+    "ToolPlanRequest",
+    "ToolPlanResponse",
+    "create_tool_plan",
+    "orchestrate_with_openai",
+]
