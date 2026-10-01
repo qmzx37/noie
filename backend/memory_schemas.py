@@ -126,6 +126,9 @@ class MemoryExtractionResponse(BaseModel):
     reconciliation_reason: str | None
     reconciler_version: str | None
     error_message: str | None
+    attempt_count: int
+    processing_started_at: datetime | None
+    lease_expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None

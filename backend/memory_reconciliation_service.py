@@ -97,6 +97,7 @@ def apply_reconciliation(
     candidate: MemoryExtractionDecision,
     decision: MemoryReconciliationDecision,
     candidates: list[dict[str, Any]],
+    expected_attempt_count: int,
 ) -> MemoryExtraction:
     """조정 행동과 extraction 감사를 하나의 짧은 transaction으로 확정합니다."""
 
@@ -113,7 +114,11 @@ def apply_reconciliation(
             )
             if extraction is None:
                 raise MemoryReconciliationDatabaseError
-            if extraction.status != "processing":
+            # lease가 만료되어 새 worker가 시작됐다면 이전 worker의 결과를 반영하지 않습니다.
+            if (
+                extraction.status != "processing"
+                or extraction.attempt_count != expected_attempt_count
+            ):
                 return extraction
 
             matched_memory = None
@@ -178,6 +183,7 @@ def apply_reconciliation(
             extraction.reconciliation_reason = decision.reason
             extraction.reconciler_version = RECONCILER_VERSION
             extraction.error_message = None
+            extraction.lease_expires_at = None
             extraction.completed_at = func.now()
             db.flush()
             db.commit()

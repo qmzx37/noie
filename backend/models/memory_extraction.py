@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +35,10 @@ class MemoryExtraction(TimestampMixin, Base):
         CheckConstraint(
             "reconciliation_action IS NULL OR reconciliation_action IN ('new', 'reinforce', 'supersede')",
             name="ck_memory_extractions_reconciliation_action",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0",
+            name="ck_memory_extractions_attempt_count_nonnegative",
         ),
     )
 
@@ -79,6 +83,21 @@ class MemoryExtraction(TimestampMixin, Base):
     reconciler_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # 외부 API의 세부 정보나 키를 넣지 않고 안전한 오류 종류만 저장합니다.
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # lease를 획득할 때마다 증가하며 오래된 worker의 결과 반영을 막는 fencing 값으로 사용합니다.
+    attempt_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
