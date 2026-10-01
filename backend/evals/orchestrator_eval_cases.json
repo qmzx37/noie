@@ -1,0 +1,126 @@
+[
+  {
+    "id": "completed_exercise",
+    "text": "오늘 운동했어",
+    "expected": [{"type": "daily_life", "mode": "record"}, {"type": "routine", "mode": "record"}],
+    "forbidden_types": ["memory"],
+    "min_actions": 2
+  },
+  {
+    "id": "memory_v1_completed",
+    "text": "오늘 NOIE Memory v1 끝냈어",
+    "expected": [{"type": "daily_life", "mode": "record"}, {"type": "dream_goal", "mode": "record", "max_confidence": 0.8}],
+    "min_actions": 2
+  },
+  {
+    "id": "frustrated_emotion",
+    "text": "기분이 너무 답답해",
+    "expected": [{"type": "emotion", "mode": "record"}],
+    "forbidden_types": ["memory"]
+  },
+  {
+    "id": "future_exercise",
+    "text": "내일 오후 3시에 운동할래",
+    "expected": [{"type": "schedule", "mode": "execute", "requires_confirmation": true}, {"type": "routine"}],
+    "min_actions": 2
+  },
+  {
+    "id": "weekend_friend_cafe",
+    "text": "주말에 친구랑 카페 가고 싶어",
+    "expected": [{"type": "relationship", "mode": "record"}, {"type": "place", "mode": "record"}, {"type": "recommendation", "mode": "suggest"}],
+    "min_actions": 3
+  },
+  {
+    "id": "movie_hobby",
+    "text": "요즘 영화 보는 게 재밌어",
+    "expected": [{"type": "hobby", "mode": "record"}],
+    "forbidden_types": ["relationship"]
+  },
+  {
+    "id": "personal_ai_dream",
+    "text": "내 꿈은 개인 AI를 완성하는 거야",
+    "expected": [{"type": "dream_goal", "mode": "record"}, {"type": "memory", "mode": "record"}],
+    "min_actions": 2
+  },
+  {
+    "id": "greeting",
+    "text": "안녕",
+    "needs_action": false,
+    "expected": [],
+    "max_actions": 0
+  },
+  {
+    "id": "multi_action_day",
+    "text": "오늘 개발 끝냈고 기분 좋고 내일 친구랑 카페 갈 거야",
+    "expected": [{"type": "daily_life", "mode": "record"}, {"type": "emotion", "mode": "record"}, {"type": "schedule", "mode": "execute", "requires_confirmation": true}, {"type": "relationship", "mode": "record"}, {"type": "place", "mode": "record"}],
+    "min_actions": 5
+  },
+  {
+    "id": "current_over_memory",
+    "text": "예전과 달리 지금은 커피를 좋아하지 않아",
+    "memories": [{"content": "사용자는 커피를 매우 좋아한다.", "relevance": 0.95}],
+    "expected": [{"type": "memory", "mode": "record"}],
+    "forbidden_types": ["recommendation"],
+    "current_utterance_priority": true,
+    "reason_must_include_any": ["지금", "현재", "바뀌", "달리", "좋아하지"]
+  },
+  {
+    "id": "relationship_event",
+    "text": "민수를 이번 주에 세 번 만났어",
+    "expected": [{"type": "relationship", "mode": "record"}],
+    "reason_forbidden_terms": ["친해졌다", "가까워졌다", "관계가 깊어졌다"]
+  },
+  {
+    "id": "creator_attention",
+    "text": "요즘 침착맨 영상을 많이 봐",
+    "expected": [{"type": "hobby", "mode": "record"}],
+    "forbidden_types": ["relationship"]
+  },
+  {
+    "id": "strong_tension",
+    "text": "오늘 너무 긴장되고 힘들어",
+    "expected": [{"type": "emotion", "mode": "record"}, {"type": "reflection", "mode": "suggest"}],
+    "min_actions": 2
+  },
+  {
+    "id": "implicit_dream_link",
+    "text": "오늘 NOIE 개발했어",
+    "memories": [{"content": "사용자의 꿈은 개인 AI NOIE를 완성하는 것이다.", "relevance": 0.92}],
+    "expected": [{"type": "daily_life", "mode": "record"}, {"type": "dream_goal", "mode": "record", "intent": "link_action_to_dream_hypothesis", "max_confidence": 0.8}],
+    "min_actions": 2
+  },
+  {
+    "id": "explicit_dream_link",
+    "text": "응, 그건 내 꿈 때문에 한 거야",
+    "memories": [{"content": "사용자는 오늘 NOIE 개발을 했다.", "relevance": 0.9}, {"content": "사용자의 꿈은 개인 AI를 완성하는 것이다.", "relevance": 0.9}],
+    "expected": [{"type": "dream_goal", "mode": "record", "intent": "confirm_action_dream_link", "min_confidence": 0.8}]
+  },
+  {
+    "id": "create_schedule",
+    "text": "내일 일정에 운동 넣어줘",
+    "expected": [{"type": "schedule", "mode": "execute", "requires_confirmation": true}]
+  },
+  {
+    "id": "delete_schedule",
+    "text": "그 일정 삭제해줘",
+    "expected": [{"type": "schedule", "mode": "execute", "requires_confirmation": true}]
+  },
+  {
+    "id": "minor_meal",
+    "text": "오늘 라면 먹었어",
+    "expected": [{"type": "daily_life", "mode": "record"}],
+    "forbidden_types": ["memory"]
+  },
+  {
+    "id": "weekend_recommendation",
+    "text": "주말에 뭐 할까?",
+    "expected": [{"type": "recommendation", "mode": "suggest"}]
+  },
+  {
+    "id": "casual_bored_chat",
+    "text": "나는 그냥 심심해서 말 걸었어",
+    "needs_action": false,
+    "expected": [],
+    "max_actions": 0
+  }
+]

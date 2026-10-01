@@ -10,6 +10,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from agent.router import router as agent_router
 from chat_storage_router import router as chat_storage_router
 from chat_persistence_service import (
     RequestIdConflictError,
@@ -64,6 +65,7 @@ app.add_middleware(
 # 원본 채팅 CRUD는 main.py와 분리된 라우터에서 관리합니다.
 app.include_router(chat_storage_router)
 app.include_router(memory_router)
+app.include_router(agent_router)
 
 
 def to_level(score: float) -> str:
