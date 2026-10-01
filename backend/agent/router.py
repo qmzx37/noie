@@ -3,12 +3,14 @@
 from fastapi import APIRouter, HTTPException, status
 
 from agent.orchestrator import orchestrate_with_openai
+from agent.action_router import router as action_router
 from agent.schemas import OrchestratorRequest, OrchestratorResult
 from agent.tool_gateway import create_tool_plan
 from agent.tool_schemas import ToolPlanRequest, ToolPlanResponse
 
 
 router = APIRouter(tags=["agent"])
+router.include_router(action_router)
 
 
 @router.post("/orchestrate", response_model=OrchestratorResult)

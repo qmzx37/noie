@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
-from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
+from uuid import UUID, uuid4
 
 from agent.tool_policy import validate_tool_policy
 from agent.tool_registry import find_tool
@@ -24,9 +24,9 @@ def _idempotency_key(action_id: UUID, tool_name: str | None) -> str:
 
 
 def _confirmation_id(action_id: UUID) -> UUID:
-    """승인 대상을 action_id에 명확히 결합한 식별자를 만듭니다."""
+    """예측할 수 없는 승인 ID를 만들고 DB에서 action_id와 함께 검증합니다."""
 
-    return uuid5(NAMESPACE_URL, f"noie-confirmation:{action_id}")
+    return uuid4()
 
 
 def _build_plan(action: GatewayAction, duplicate_order: bool) -> ToolExecutionPlan:
