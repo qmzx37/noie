@@ -1,0 +1,287 @@
+[
+  {
+    "id": "direct_project_recall",
+    "category": "direct_recall",
+    "query": "내가 요즘 가장 집중하는 프로젝트가 뭐였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "noie_project", "content": "사용자는 NOIE를 장기 프로젝트로 개발하고 있다.", "kind": "project", "importance": 95, "confidence": 0.92},
+      {"fixture_key": "spicy_food", "content": "사용자는 매운 음식을 좋아한다.", "kind": "preference", "importance": 60, "confidence": 0.9}
+    ],
+    "expected_memory_keys": ["noie_project"],
+    "forbidden_memory_keys": ["spicy_food"],
+    "expected_facts": [["NOIE"]],
+    "notes": "장기 프로젝트 직접 회상"
+  },
+  {
+    "id": "exclude_food_from_ai_project",
+    "category": "irrelevant_exclusion",
+    "query": "내 AI 프로젝트에 대해 기억나는 걸 말해줘.",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "noie_ai", "content": "사용자는 개인 AI 프로젝트 NOIE를 만들고 있다.", "kind": "project", "importance": 90, "confidence": 0.9},
+      {"fixture_key": "spicy_food", "content": "사용자는 매운 음식을 매우 좋아한다.", "kind": "preference", "importance": 85, "confidence": 0.95}
+    ],
+    "expected_memory_keys": ["noie_ai"],
+    "forbidden_memory_keys": ["spicy_food"],
+    "expected_facts": [["NOIE"]],
+    "forbidden_answer_facts": ["매운 음식"],
+    "notes": "관련 없는 음식 선호 배제"
+  },
+  {
+    "id": "long_term_goal_recall",
+    "category": "goal_recall",
+    "query": "내 장기 목표 중 하나가 뭐였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "personal_ai_goal", "content": "사용자는 개인 AI를 완성하는 것을 장기 목표로 둔다.", "kind": "goal", "importance": 95, "confidence": 0.9},
+      {"fixture_key": "busan_place", "content": "사용자는 부산의 바다 산책로를 좋아한다.", "kind": "place", "importance": 45, "confidence": 0.8}
+    ],
+    "expected_memory_keys": ["personal_ai_goal"],
+    "forbidden_memory_keys": ["busan_place"],
+    "expected_facts": [["개인 AI", "AI를 완성"]],
+    "notes": "장기 목표 회상"
+  },
+  {
+    "id": "current_career_priority",
+    "category": "current_utterance_priority",
+    "query": "나는 이제 개발자보다 AI 기획 쪽으로 가려고 해. 내 진로 방향을 어떻게 이해하고 있어?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "developer_goal", "content": "사용자는 AI 개발자를 진로 목표로 한다.", "kind": "goal", "importance": 90, "confidence": 0.9}
+    ],
+    "expected_memory_keys": [],
+    "forbidden_memory_keys": [],
+    "expected_facts": [["AI 기획", "기획 쪽"]],
+    "forbidden_answer_facts": ["현재 AI 개발자를 목표"],
+    "notes": "과거 기억보다 현재 진로 변경 발화 우선"
+  },
+  {
+    "id": "no_memory_general_question",
+    "category": "no_memory",
+    "query": "오늘 집중력을 높이려면 어떻게 시작하는 게 좋을까?",
+    "user_key": "user-empty",
+    "memories": [],
+    "expected_memory_keys": [],
+    "forbidden_memory_keys": [],
+    "expected_facts": [],
+    "expect_no_memory": true,
+    "notes": "후보가 없는 일반 질문"
+  },
+  {
+    "id": "ambiguous_ai_topic",
+    "category": "ambiguous_relevance",
+    "query": "AI 개발자로 취업하려는 내 목표가 뭐였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "ai_interest", "content": "사용자는 AI 기술 뉴스를 흥미롭게 본다.", "kind": "preference", "importance": 70, "confidence": 0.85},
+      {"fixture_key": "ai_job_goal", "content": "사용자는 AI 개발자로 취업하는 것을 목표로 한다.", "kind": "goal", "importance": 90, "confidence": 0.92},
+      {"fixture_key": "other_user_ai", "content": "다른 사용자는 AI 연구자가 되고 싶어 한다.", "kind": "goal", "importance": 100, "confidence": 0.99, "user_key": "user-b"}
+    ],
+    "expected_memory_keys": ["ai_job_goal"],
+    "forbidden_memory_keys": ["ai_interest", "other_user_ai"],
+    "expected_facts": [["AI 개발자"], ["취업"]],
+    "notes": "같은 AI 주제와 실제 목표 구분 및 사용자 격리"
+  },
+  {
+    "id": "superseded_career_exclusion",
+    "category": "superseded",
+    "query": "지금 내가 생각하는 진로 방향은 뭐였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "old_developer", "content": "사용자는 AI 개발자를 목표로 한다.", "kind": "goal", "importance": 95, "confidence": 0.95, "status": "superseded"},
+      {"fixture_key": "active_planner", "content": "사용자는 현재 AI 기획자를 진로 목표로 한다.", "kind": "goal", "importance": 90, "confidence": 0.9, "status": "active"}
+    ],
+    "expected_memory_keys": ["active_planner"],
+    "forbidden_memory_keys": ["old_developer"],
+    "expected_facts": [["AI 기획자", "AI 기획"]],
+    "forbidden_answer_facts": ["현재 AI 개발자를 목표"],
+    "notes": "superseded Memory 후보 제외"
+  },
+  {
+    "id": "multi_memory_project_goal",
+    "category": "multi_memory",
+    "query": "내가 만드는 것과 그걸 통해 이루고 싶은 목표를 같이 정리해줘.",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "noie_project", "content": "사용자는 NOIE라는 개인 AI 프로젝트를 개발하고 있다.", "kind": "project", "importance": 95, "confidence": 0.92},
+      {"fixture_key": "ai_goal", "content": "사용자는 개인 AI를 실제 서비스로 완성하는 것을 목표로 한다.", "kind": "goal", "importance": 90, "confidence": 0.9},
+      {"fixture_key": "ramen", "content": "사용자는 라멘을 좋아한다.", "kind": "preference", "importance": 40, "confidence": 0.8}
+    ],
+    "expected_memory_keys": ["noie_project", "ai_goal"],
+    "forbidden_memory_keys": ["ramen"],
+    "expected_facts": [["NOIE"], ["서비스", "완성"]],
+    "notes": "두 개의 관련 Memory가 필요한 질문"
+  },
+  {
+    "id": "spicy_preference_recall",
+    "category": "preference_recall",
+    "query": "내가 어떤 맛을 좋아한다고 했지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "spicy", "content": "사용자는 매운맛을 선호한다.", "kind": "preference", "importance": 65, "confidence": 0.9},
+      {"fixture_key": "quiet_place", "content": "사용자는 조용한 카페를 선호한다.", "kind": "place", "importance": 60, "confidence": 0.85}
+    ],
+    "expected_memory_keys": ["spicy"],
+    "forbidden_memory_keys": ["quiet_place"],
+    "expected_facts": [["매운맛", "매운"]],
+    "notes": "지속 선호 회상"
+  },
+  {
+    "id": "meaningful_place_recall",
+    "category": "place_recall",
+    "query": "내가 쉬고 싶을 때 좋아하는 장소 분위기가 뭐였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "quiet_cafe", "content": "사용자는 쉬고 싶을 때 조용한 북카페를 선호한다.", "kind": "place", "importance": 70, "confidence": 0.88},
+      {"fixture_key": "coding_goal", "content": "사용자는 코딩 실력을 높이고 싶어 한다.", "kind": "goal", "importance": 80, "confidence": 0.8}
+    ],
+    "expected_memory_keys": ["quiet_cafe"],
+    "forbidden_memory_keys": ["coding_goal"],
+    "expected_facts": [["조용한", "북카페"]],
+    "notes": "장소 선호 회상"
+  },
+  {
+    "id": "morning_running_routine",
+    "category": "routine_recall",
+    "query": "내가 요즘 아침에 반복하는 습관이 뭐였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "running", "content": "사용자는 요즘 매일 아침 러닝을 한다.", "kind": "routine", "importance": 75, "confidence": 0.9},
+      {"fixture_key": "movie", "content": "사용자는 SF 영화를 좋아한다.", "kind": "preference", "importance": 55, "confidence": 0.85}
+    ],
+    "expected_memory_keys": ["running"],
+    "forbidden_memory_keys": ["movie"],
+    "expected_facts": [["아침"], ["러닝"]],
+    "notes": "루틴 회상"
+  },
+  {
+    "id": "backend_decision_recall",
+    "category": "decision_recall",
+    "query": "NOIE 백엔드 기술을 뭘로 정했었지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "fastapi_decision", "content": "사용자는 NOIE 백엔드를 FastAPI와 PostgreSQL로 구성하기로 결정했다.", "kind": "decision", "importance": 90, "confidence": 0.95},
+      {"fixture_key": "expo_project", "content": "사용자는 모바일 앱에 Expo를 사용한다.", "kind": "project", "importance": 75, "confidence": 0.9}
+    ],
+    "expected_memory_keys": ["fastapi_decision"],
+    "forbidden_memory_keys": ["expo_project"],
+    "expected_facts": [["FastAPI"], ["PostgreSQL"]],
+    "notes": "중요 기술 결정 회상"
+  },
+  {
+    "id": "important_person_recall",
+    "category": "person_recall",
+    "query": "내 프로젝트 조언을 자주 해주는 사람이 누구였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "mentor_jiyoon", "content": "지윤은 사용자의 프로젝트에 자주 조언을 주는 멘토다.", "kind": "person", "importance": 80, "confidence": 0.88},
+      {"fixture_key": "busan", "content": "사용자는 부산에 산다.", "kind": "place", "importance": 60, "confidence": 0.8}
+    ],
+    "expected_memory_keys": ["mentor_jiyoon"],
+    "forbidden_memory_keys": ["busan"],
+    "expected_facts": [["지윤"], ["멘토", "조언"]],
+    "notes": "중요 인물 회상"
+  },
+  {
+    "id": "unrelated_weather_question",
+    "category": "no_memory",
+    "query": "오늘 비가 올까?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "spicy", "content": "사용자는 매운 음식을 좋아한다.", "kind": "preference", "importance": 90, "confidence": 0.95},
+      {"fixture_key": "ai_goal", "content": "사용자는 개인 AI를 완성하고 싶어 한다.", "kind": "goal", "importance": 95, "confidence": 0.9}
+    ],
+    "expected_memory_keys": [],
+    "forbidden_memory_keys": ["spicy", "ai_goal"],
+    "expected_facts": [],
+    "expect_no_memory": true,
+    "notes": "기억과 무관한 날씨 질문"
+  },
+  {
+    "id": "distinguish_two_projects",
+    "category": "project_recall",
+    "query": "내 개인 AI 프로젝트 이름과 목적을 알려줘.",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "noie", "content": "NOIE는 사용자의 장기 개인 AI 프로젝트다.", "kind": "project", "importance": 95, "confidence": 0.95},
+      {"fixture_key": "recipe_app", "content": "사용자는 취미로 레시피 앱 아이디어를 기록했다.", "kind": "project", "importance": 45, "confidence": 0.7},
+      {"fixture_key": "noie_goal", "content": "사용자는 NOIE가 대화와 기억을 연결하는 개인 AI가 되길 원한다.", "kind": "goal", "importance": 90, "confidence": 0.9}
+    ],
+    "expected_memory_keys": ["noie", "noie_goal"],
+    "forbidden_memory_keys": ["recipe_app"],
+    "expected_facts": [["NOIE"], ["대화"], ["기억"]],
+    "notes": "비슷한 project kind 중 관련 프로젝트만 선택"
+  },
+  {
+    "id": "current_preference_change",
+    "category": "current_utterance_priority",
+    "query": "예전엔 커피를 좋아했지만 지금은 차를 더 좋아해. 내 현재 선호를 어떻게 이해해?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "coffee", "content": "사용자는 커피를 선호한다.", "kind": "preference", "importance": 75, "confidence": 0.9}
+    ],
+    "expected_memory_keys": [],
+    "forbidden_memory_keys": [],
+    "expected_facts": [["차"]],
+    "forbidden_answer_facts": ["현재 커피를 선호"],
+    "notes": "현재 선호 변경 발화 우선"
+  },
+  {
+    "id": "no_memory_technical_question",
+    "category": "no_memory",
+    "query": "파이썬 리스트와 튜플의 차이를 간단히 설명해줘.",
+    "user_key": "user-empty",
+    "memories": [],
+    "expected_memory_keys": [],
+    "forbidden_memory_keys": [],
+    "expected_facts": [],
+    "expect_no_memory": true,
+    "notes": "개인 기억이 필요 없는 기술 질문"
+  },
+  {
+    "id": "career_and_project_summary",
+    "category": "multi_memory",
+    "query": "내가 고민하는 진로와 진행 중인 핵심 프로젝트를 함께 요약해줘.",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "planner_goal", "content": "사용자는 AI 기획자를 진로 방향으로 고민하고 있다.", "kind": "goal", "importance": 90, "confidence": 0.9},
+      {"fixture_key": "noie_project", "content": "사용자는 NOIE 개인 AI 프로젝트를 개발 중이다.", "kind": "project", "importance": 95, "confidence": 0.95},
+      {"fixture_key": "spicy", "content": "사용자는 매운 음식을 좋아한다.", "kind": "preference", "importance": 70, "confidence": 0.9}
+    ],
+    "expected_memory_keys": ["planner_goal", "noie_project"],
+    "forbidden_memory_keys": ["spicy"],
+    "expected_facts": [["AI 기획"], ["NOIE"]],
+    "notes": "진로와 프로젝트 복수 Memory"
+  },
+  {
+    "id": "routine_not_generic_ai_interest",
+    "category": "ambiguous_relevance",
+    "query": "내가 정기적으로 AI 공부하는 시간이 언제였지?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "ai_interest", "content": "사용자는 AI 기술에 관심이 많다.", "kind": "preference", "importance": 85, "confidence": 0.9},
+      {"fixture_key": "study_routine", "content": "사용자는 평일 저녁 9시에 AI 공부를 한다.", "kind": "routine", "importance": 80, "confidence": 0.9}
+    ],
+    "expected_memory_keys": ["study_routine"],
+    "forbidden_memory_keys": ["ai_interest"],
+    "expected_facts": [["평일"], ["저녁 9시", "9시"]],
+    "notes": "일반 관심과 구체적 루틴 구분"
+  },
+  {
+    "id": "private_memory_not_leaked",
+    "category": "no_memory",
+    "query": "HTTP 상태 코드 404가 무슨 뜻이야?",
+    "user_key": "user-a",
+    "memories": [
+      {"fixture_key": "private_person", "content": "민수는 사용자가 최근 갈등을 겪은 가까운 친구다.", "kind": "person", "importance": 95, "confidence": 0.9},
+      {"fixture_key": "noie_goal", "content": "사용자는 NOIE를 완성하고 싶어 한다.", "kind": "goal", "importance": 90, "confidence": 0.9}
+    ],
+    "expected_memory_keys": [],
+    "forbidden_memory_keys": ["private_person", "noie_goal"],
+    "expected_facts": [],
+    "forbidden_answer_facts": ["민수"],
+    "expect_no_memory": true,
+    "notes": "무관한 개인정보 및 목표 Memory 노출 방지"
+  }
+]

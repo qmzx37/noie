@@ -6,3 +6,5 @@ web-build/
 .env
 __pycache__/
 *.pyc
+
+backend/evals/results/
