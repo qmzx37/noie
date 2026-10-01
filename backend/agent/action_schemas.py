@@ -28,6 +28,14 @@ class ConfirmationRequest(BaseModel):
     confirmation_id: UUID
 
 
+class ExecuteActionRequest(BaseModel):
+    """개발용 execute API가 action 소유자를 검증하기 위한 요청입니다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+
+
 class AgentActionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,3 +66,12 @@ class AgentActionResponse(BaseModel):
     updated_at: datetime
     completed_at: datetime | None
     cancelled_at: datetime | None
+
+
+class ExecuteActionResponse(BaseModel):
+    """실행 결과와 재시도 가능 여부를 함께 반환합니다."""
+
+    action: AgentActionResponse
+    executor_called: bool
+    fenced: bool
+    can_retry: bool
