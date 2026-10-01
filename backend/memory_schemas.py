@@ -138,3 +138,38 @@ class MemoryReconciliationDecision(BaseModel):
     matched_memory_id: UUID | None
     reason: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
+
+
+class MemoryRetrievalPreviewRequest(BaseModel):
+    """인증 전 개발 단계에서 특정 사용자의 retrieval을 확인하는 요청입니다."""
+
+    user_id: UUID
+    query: str
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("query는 공백일 수 없습니다.")
+        return value
+
+
+class MemoryRetrievalCandidate(BaseModel):
+    memory_id: UUID
+    content: str
+    kind: str
+    importance: int | None
+    confidence: float | None
+
+
+class SelectedMemory(BaseModel):
+    memory_id: UUID
+    content: str
+    relevance: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class MemoryRetrievalPreviewResponse(BaseModel):
+    candidates: list[MemoryRetrievalCandidate]
+    selected_memories: list[SelectedMemory]
+    fallback_used: bool = False

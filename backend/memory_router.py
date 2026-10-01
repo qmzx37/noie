@@ -20,8 +20,11 @@ from memory_schemas import (
     MemoryCreate,
     MemoryExtractionRequest,
     MemoryExtractionResponse,
+    MemoryRetrievalPreviewRequest,
+    MemoryRetrievalPreviewResponse,
     MemoryResponse,
 )
+from memory_retriever import retrieve_relevant_memories
 from memory_service import (
     MemoryDatabaseError,
     MemoryEvidenceValidationError,
@@ -152,3 +155,28 @@ def get_message_memory_extraction(
         MemoryExtractionDatabaseError,
     ) as error:
         _raise_extraction_error(error)
+
+
+@router.post(
+    "/memory-retrieval/preview",
+    response_model=MemoryRetrievalPreviewResponse,
+)
+def post_memory_retrieval_preview(
+    data: MemoryRetrievalPreviewRequest,
+) -> MemoryRetrievalPreviewResponse:
+    """후보와 최종 선택을 개발자가 Swagger에서 함께 확인합니다."""
+
+    try:
+        candidates, selected = retrieve_relevant_memories(data.user_id, data.query)
+        return MemoryRetrievalPreviewResponse(
+            candidates=candidates,
+            selected_memories=selected,
+        )
+    except Exception as error:
+        # Preview도 내부 오류를 노출하지 않고 fallback 여부만 명시합니다.
+        print(f"[noie] memory retrieval preview failed: {type(error).__name__}")
+        return MemoryRetrievalPreviewResponse(
+            candidates=[],
+            selected_memories=[],
+            fallback_used=True,
+        )

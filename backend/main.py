@@ -23,6 +23,7 @@ from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
 from memory_router import router as memory_router
 from memory_extraction_service import run_memory_extraction_background
+from memory_retriever import retrieve_relevant_memories_safe
 from openai_analyzer import (
     fallback_chat_reply,
     generate_chat_reply_with_openai,
@@ -1355,6 +1356,15 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
         return persistence_start.cached_response
 
     persistence_context = persistence_start.context
+    relevant_memories = []
+    if persistence_context and persistence_context.user_id:
+        # Retrieval은 품질 향상용이므로 실패하면 빈 context로 기존 흐름을 계속합니다.
+        relevant_memories = retrieve_relevant_memories_safe(
+            persistence_context.user_id,
+            text,
+        )
+    relevant_memory_contents = [memory.content for memory in relevant_memories]
+
     try:
         analysis_response, source = analyze_text(text)
     except Exception:
@@ -1392,6 +1402,7 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
                 latest_checkpoint=request.latest_checkpoint.dict()
                 if request.latest_checkpoint
                 else None,
+                relevant_memories=relevant_memory_contents,
             )
             reply = str(project_chat_result.get("reply") or "").strip()
             if not reply:
@@ -1419,6 +1430,7 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
                     is_project=True,
                     project_name=request.project_name,
                     project_goal=request.project_goal,
+                    relevant_memories=relevant_memory_contents,
                 )
                 reply_source = "openai"
             except Exception:
@@ -1434,6 +1446,7 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
                 is_project=False,
                 project_name=request.project_name,
                 project_goal=request.project_goal,
+                relevant_memories=relevant_memory_contents,
             )
             reply_source = "openai"
         except Exception:
