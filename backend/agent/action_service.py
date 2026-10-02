@@ -121,6 +121,7 @@ def _action_values(data: PersistActionPlanRequest, plan) -> dict:
         "confirmation_id": confirmation_id,
         "rejected_at": rejected_at,
         "attempt_count": 0,
+        "arguments": plan.arguments.model_dump(mode="json") if plan.arguments else None,
         "metadata": {
             "gateway_implemented": plan.implemented,
             "policy_messages": [

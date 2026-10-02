@@ -61,6 +61,7 @@ class AgentActionResponse(BaseModel):
     lease_expires_at: datetime | None
     attempt_count: int
     result: dict[str, Any] | None
+    arguments: dict[str, Any] | None
     error_message: str | None
     created_at: datetime
     updated_at: datetime

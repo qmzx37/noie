@@ -76,6 +76,7 @@ class AgentAction(TimestampMixin, Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    arguments: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # 외부 예외 전문이나 secret은 저장하지 않고 안전한 오류 종류만 허용합니다.
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column(

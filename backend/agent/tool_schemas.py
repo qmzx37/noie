@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.schemas import ActionMode, AgentType
+from agent.emotion_schemas import EmotionRecordArguments
 
 
 PlanStatus = Literal[
@@ -39,6 +40,7 @@ class GatewayAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
+    arguments: EmotionRecordArguments | None = None
 
 
 class ToolPlanRequest(BaseModel):
@@ -66,6 +68,7 @@ class ToolExecutionPlan(BaseModel):
     implemented: bool
     can_execute: bool = False
     policy_messages: list[str] = Field(default_factory=list)
+    arguments: EmotionRecordArguments | None = None
 
 
 class ToolPlanResponse(BaseModel):

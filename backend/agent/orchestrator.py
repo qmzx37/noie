@@ -50,6 +50,20 @@ ORCHESTRATOR_OUTPUT_SCHEMA = {
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     "requires_confirmation": {"type": "boolean"},
                     "execution_order": {"type": "integer", "minimum": 1},
+                    "arguments": {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    key: {"type": "number", "minimum": 0, "maximum": 1}
+                                    for key in ["F", "A", "D", "J", "C", "G", "T", "R", "confidence"]
+                                },
+                                "required": ["F", "A", "D", "J", "C", "G", "T", "R", "confidence"],
+                                "additionalProperties": False,
+                            },
+                            {"type": "null"},
+                        ]
+                    },
                 },
                 "required": [
                     "type",
@@ -59,6 +73,7 @@ ORCHESTRATOR_OUTPUT_SCHEMA = {
                     "confidence",
                     "requires_confirmation",
                     "execution_order",
+                    "arguments",
                 ],
                 "additionalProperties": False,
             },

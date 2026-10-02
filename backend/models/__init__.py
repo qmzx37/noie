@@ -3,6 +3,7 @@
 from models.agent_action import AgentAction
 from models.chat_request import ChatRequestRecord
 from models.conversation import Conversation
+from models.emotion_event import EmotionEvent
 from models.memory import Memory, MemoryEvidence
 from models.memory_extraction import MemoryExtraction
 from models.message import Message
@@ -12,6 +13,7 @@ __all__ = [
     "AgentAction",
     "ChatRequestRecord",
     "Conversation",
+    "EmotionEvent",
     "Memory",
     "MemoryEvidence",
     "MemoryExtraction",

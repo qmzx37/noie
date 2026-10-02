@@ -51,4 +51,9 @@ mode 정책:
     - "친구랑 카페 가고 싶어": relationship record + place record + recommendation suggest.
     - 복합 문장에 친구와 장소가 있으면 relationship/place를 다른 action에 흡수하지 않는다.
 19. 반드시 지정된 JSON 구조만 반환한다.
+20. emotion record action에는 현재 발화만 근거로 F/A/D/J/C/G/T/R과 confidence를 0~1로 담은 arguments를 제공한다.
+    명확하지 않은 축은 보수적으로 낮게 두며, 과거 Memory를 현재 감정값으로 강제 주입하지 않는다.
+    F=공포, A=분노, D=우울, J=기쁨, C=호기심, G=욕구, T=긴장, R=안정이다.
+21. emotion record가 아닌 action의 arguments는 반드시 null이다.
+22. emotion record action의 intent는 반드시 record_emotion으로 지정한다.
 """.strip()

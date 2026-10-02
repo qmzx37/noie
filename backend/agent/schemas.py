@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from agent.emotion_schemas import EmotionRecordArguments
+
 
 AgentType = Literal[
     "memory",
@@ -50,6 +52,7 @@ class OrchestratorAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
+    arguments: EmotionRecordArguments | None = None
 
     @model_validator(mode="after")
     def validate_confirmation_policy(self) -> "OrchestratorAction":
@@ -58,6 +61,11 @@ class OrchestratorAction(BaseModel):
             raise ValueError("execute action은 사용자 확인이 필요합니다.")
         if self.mode != "execute" and self.requires_confirmation:
             raise ValueError("record/suggest action은 확인을 요구하지 않습니다.")
+        is_emotion_record = self.type == "emotion" and self.mode == "record"
+        if is_emotion_record and self.arguments is None:
+            raise ValueError("emotion record action에는 8축 arguments가 필요합니다.")
+        if not is_emotion_record and self.arguments is not None:
+            raise ValueError("arguments는 emotion record action에서만 사용할 수 있습니다.")
         return self
 
 

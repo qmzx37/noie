@@ -79,3 +79,8 @@ def _test_failure_executor(context: ExecutorContext) -> ExecutorResult:
 
 register_executor("test_success_tool", _test_success_executor)
 register_executor("test_failure_tool", _test_failure_executor)
+
+# 실제 업무 executor는 암묵적 fallback 없이 tool_name과 정확히 일치하게 등록합니다.
+from agent.record_emotion_executor import record_emotion_executor  # noqa: E402
+
+register_executor("record_emotion", record_emotion_executor)

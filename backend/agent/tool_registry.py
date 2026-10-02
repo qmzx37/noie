@@ -21,7 +21,7 @@ class ToolDefinition:
 # planning_supported는 v0.1 계획 계약 준비 여부, implemented는 실제 executor 존재 여부입니다.
 # 이번 단계에는 실제 executor가 없으므로 모든 Tool의 implemented는 false입니다.
 TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
-    ToolDefinition("record_emotion", "emotion", ("record_emotion", "record_emotion_event"), ("record",), False, True, False),
+    ToolDefinition("record_emotion", "emotion", ("record_emotion", "record_emotion_event"), ("record",), False, True, True),
     ToolDefinition("record_daily_trace", "daily_life", ("record_daily_life", "record_daily_trace", "record_completed_action"), ("record",), False, True, False),
     ToolDefinition("record_routine_event", "routine", ("record_routine", "record_routine_event", "record_exercise_event"), ("record",), False, True, False),
     ToolDefinition("create_memory_candidate", "memory", ("record_memory_candidate", "record_goal_memory", "record_preference_change"), ("record",), False, True, False),

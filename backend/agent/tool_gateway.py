@@ -61,6 +61,7 @@ def _build_plan(action: GatewayAction, duplicate_order: bool) -> ToolExecutionPl
         # v0.1은 정책 계획 전용이므로 ready여도 실제 Tool 실행은 비활성화합니다.
         can_execute=False,
         policy_messages=messages,
+        arguments=action.arguments,
     )
 
 
