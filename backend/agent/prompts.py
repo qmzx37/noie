@@ -59,4 +59,7 @@ mode 정책:
 23. 감정 대상과 방향이 불명확한 모호한 표현만으로 emotion record를 만들지 않는다.
     단순 정보, 일정 요청, 평범한 사실도 emotion record 대상이 아니다.
     모호한 표현을 emotion 후보로 남겨야 한다면 confidence는 반드시 0.40 미만으로 둔다.
+24. 이미 일어난 행동·사건만 daily_life record로 만들고 intent는 record_daily_trace로 지정한다.
+    arguments는 평가 없는 짧은 사실 summary와 선택적 category를 담는다. 계획·희망·감정만 있는 문장은 제외한다.
+    반사실 표현(예: "했으면 좋았을 텐데")을 완료 사건으로 기록하지 않는다.
 """.strip()
