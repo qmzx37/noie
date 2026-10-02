@@ -70,6 +70,15 @@ ORCHESTRATOR_OUTPUT_SCHEMA = {
                                 "required": ["summary", "category"],
                                 "additionalProperties": False,
                             },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "statement": {"type": "string", "minLength": 1, "maxLength": 300},
+                                    "kind": {"type": "string", "enum": ["dream", "goal"]},
+                                },
+                                "required": ["statement", "kind"],
+                                "additionalProperties": False,
+                            },
                             {"type": "null"},
                         ]
                     },
@@ -136,7 +145,13 @@ def orchestrate_with_openai(
                 }
             },
         )
-        return OrchestratorResult.model_validate_json(extract_output_text(response))
+        payload = json.loads(extract_output_text(response))
+        # 모델이 비지원 action에 다른 Tool의 arguments를 붙여도 실행 계약으로 전달하지 않습니다.
+        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal"}
+        for action in payload.get("actions", []):
+            if action.get("intent") not in argument_intents:
+                action["arguments"] = None
+        return OrchestratorResult.model_validate(payload)
     except Exception as error:
         print_openai_error(error)
         raise

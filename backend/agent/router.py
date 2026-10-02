@@ -6,6 +6,7 @@ from agent.orchestrator import orchestrate_with_openai
 from agent.action_router import router as action_router
 from agent.emotion_event_router import router as emotion_event_router
 from agent.daily_life_event_router import router as daily_life_event_router
+from agent.dream_goal_event_router import router as dream_goal_event_router
 from agent.schemas import OrchestratorRequest, OrchestratorResult
 from agent.tool_gateway import create_tool_plan
 from agent.tool_schemas import ToolPlanRequest, ToolPlanResponse
@@ -15,6 +16,7 @@ router = APIRouter(tags=["agent"])
 router.include_router(action_router)
 router.include_router(emotion_event_router)
 router.include_router(daily_life_event_router)
+router.include_router(dream_goal_event_router)
 
 
 @router.post("/orchestrate", response_model=OrchestratorResult)

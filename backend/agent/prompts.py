@@ -54,7 +54,8 @@ mode 정책:
 20. emotion record action에는 현재 발화만 근거로 F/A/D/J/C/G/T/R과 confidence를 0~1로 담은 arguments를 제공한다.
     명확하지 않은 축은 보수적으로 낮게 두며, 과거 Memory를 현재 감정값으로 강제 주입하지 않는다.
     F=공포, A=분노, D=우울, J=기쁨, C=호기심, G=욕구, T=긴장, R=안정이다.
-21. emotion record가 아닌 action의 arguments는 반드시 null이다.
+21. arguments는 record_emotion, record_daily_trace, record_dream_goal 세 intent에만 각각 지정된 형식으로 제공한다.
+    그 밖의 모든 action은 type이나 mode와 관계없이 arguments를 반드시 null로 둔다.
 22. emotion record action의 intent는 반드시 record_emotion으로 지정한다.
 23. 감정 대상과 방향이 불명확한 모호한 표현만으로 emotion record를 만들지 않는다.
     단순 정보, 일정 요청, 평범한 사실도 emotion record 대상이 아니다.
@@ -62,4 +63,13 @@ mode 정책:
 24. 이미 일어난 행동·사건만 daily_life record로 만들고 intent는 record_daily_trace로 지정한다.
     arguments는 평가 없는 짧은 사실 summary와 선택적 category를 담는다. 계획·희망·감정만 있는 문장은 제외한다.
     반사실 표현(예: "했으면 좋았을 텐데")을 완료 사건으로 기록하지 않는다.
+25. 사용자가 현재 자신의 장기 꿈이나 목표를 명시적으로 선언한 경우에만 dream_goal record를 만들고
+    intent는 record_dream_goal로 지정한다. arguments에는 사용자의 뜻을 바꾸지 않은 statement와
+    dream 또는 goal인 kind를 담는다. 오늘 한 행동, 단기 계획, 질문, 과거에 가졌던 목표,
+    다른 사람의 목표, 부정한 목표(예: "개발자가 되고 싶지 않아")는 record_dream_goal로 기록하지 않는다.
+    Daily Life 사실을 Dream Goal로 자동 연결하거나 진행률을 갱신하지 않는다.
+    "예전에 개발자가 되고 싶었는데 지금은 아니야"처럼 과거 목표를 현재 부정하면 새 Dream Goal을 만들지 않는다.
+    이 문장을 memory 정정 후보로 routing하더라도 arguments는 반드시 null이다.
+    "친구는 개발자가 되고 싶대"처럼 목표 주체가 다른 사람이면 relationship 후보일 수 있지만
+    사용자 자신의 record_dream_goal은 절대 만들지 않는다.
 """.strip()
