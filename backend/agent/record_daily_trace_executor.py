@@ -47,7 +47,7 @@ def record_daily_trace_executor(
             inserted_id = db.scalar(pg_insert(DailyLifeEvent).values(
                 user_id=action.user_id, conversation_id=action.conversation_id, message_id=action.message_id,
                 agent_action_id=action.id, summary=arguments.summary, category=arguments.category,
-                source="orchestrator", metadata={"extractor_version": "daily-life-v1", "record_kind": "daily_life_event"},
+                source="orchestrator", metadata={"extractor_version": "daily-life-v1", "pipeline": "orchestrator-record-daily-trace", "record_kind": "daily_life_event"},
             ).on_conflict_do_nothing(index_elements=[DailyLifeEvent.agent_action_id]).returning(DailyLifeEvent.id))
             event = db.get(DailyLifeEvent, inserted_id) if inserted_id else db.scalar(select(DailyLifeEvent).where(DailyLifeEvent.agent_action_id == action.id))
             if event is None:
