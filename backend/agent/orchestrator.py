@@ -61,6 +61,15 @@ ORCHESTRATOR_OUTPUT_SCHEMA = {
                                 "required": ["F", "A", "D", "J", "C", "G", "T", "R", "confidence"],
                                 "additionalProperties": False,
                             },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "summary": {"type": "string", "minLength": 1, "maxLength": 200},
+                                    "category": {"anyOf": [{"type": "string", "maxLength": 50}, {"type": "null"}]},
+                                },
+                                "required": ["summary", "category"],
+                                "additionalProperties": False,
+                            },
                             {"type": "null"},
                         ]
                     },

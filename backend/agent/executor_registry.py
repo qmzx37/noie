@@ -84,3 +84,6 @@ register_executor("test_failure_tool", _test_failure_executor)
 from agent.record_emotion_executor import record_emotion_executor  # noqa: E402
 
 register_executor("record_emotion", record_emotion_executor)
+from agent.record_daily_trace_executor import record_daily_trace_executor  # noqa: E402
+
+register_executor("record_daily_trace", record_daily_trace_executor)

@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from agent.emotion_schemas import EmotionRecordArguments
+from agent.daily_life_schemas import DailyTraceArguments
 
 
 AgentType = Literal[
@@ -52,7 +53,7 @@ class OrchestratorAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
-    arguments: EmotionRecordArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | None = None
 
     @model_validator(mode="after")
     def validate_confirmation_policy(self) -> "OrchestratorAction":
@@ -62,10 +63,15 @@ class OrchestratorAction(BaseModel):
         if self.mode != "execute" and self.requires_confirmation:
             raise ValueError("record/suggest action은 확인을 요구하지 않습니다.")
         is_emotion_record = self.type == "emotion" and self.mode == "record"
+        is_daily_record = self.type == "daily_life" and self.mode == "record"
         if is_emotion_record and self.arguments is None:
             raise ValueError("emotion record action에는 8축 arguments가 필요합니다.")
-        if not is_emotion_record and self.arguments is not None:
-            raise ValueError("arguments는 emotion record action에서만 사용할 수 있습니다.")
+        if is_daily_record and not isinstance(self.arguments, DailyTraceArguments):
+            raise ValueError("daily_life record action에는 사실 중심 arguments가 필요합니다.")
+        if is_emotion_record and not isinstance(self.arguments, EmotionRecordArguments):
+            raise ValueError("emotion arguments 형식이 올바르지 않습니다.")
+        if not (is_emotion_record or is_daily_record) and self.arguments is not None:
+            raise ValueError("arguments는 구현된 record action에서만 사용할 수 있습니다.")
         return self
 
 
