@@ -56,4 +56,7 @@ mode 정책:
     F=공포, A=분노, D=우울, J=기쁨, C=호기심, G=욕구, T=긴장, R=안정이다.
 21. emotion record가 아닌 action의 arguments는 반드시 null이다.
 22. emotion record action의 intent는 반드시 record_emotion으로 지정한다.
+23. 감정 대상과 방향이 불명확한 모호한 표현만으로 emotion record를 만들지 않는다.
+    단순 정보, 일정 요청, 평범한 사실도 emotion record 대상이 아니다.
+    모호한 표현을 emotion 후보로 남겨야 한다면 confidence는 반드시 0.40 미만으로 둔다.
 """.strip()

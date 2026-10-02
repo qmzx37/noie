@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -26,13 +27,22 @@ class RecordEmotionDatabaseError(Exception):
     """내부 DB 정보를 노출하지 않고 공통 executor에 실패를 전달합니다."""
 
 
+EMOTION_EXTRACTOR_VERSION = "emotion-v1"
+EMOTION_PIPELINE = "orchestrator-record-emotion"
+
+
 def _dominant_emotion(arguments: EmotionRecordArguments) -> str | None:
     values = {key: getattr(arguments, key) for key in "FADJCGTR"}
     key, value = max(values.items(), key=lambda item: item[1])
     return key if value > 0 else None
 
 
-def record_emotion_executor(context: ExecutorContext) -> ExecutorResult:
+def record_emotion_executor(
+    context: ExecutorContext,
+    *,
+    before_insert: Callable[[], None] | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> ExecutorResult:
     """짧은 transaction에서 소유권을 확인하고 idempotent event를 저장합니다."""
 
     if SessionLocal is None:
@@ -92,6 +102,8 @@ def record_emotion_executor(context: ExecutorContext) -> ExecutorResult:
 
             arguments = EmotionRecordArguments.model_validate(action.arguments)
             values = arguments.model_dump()
+            if before_insert is not None:
+                before_insert()
             inserted_id = db.scalar(
                 pg_insert(EmotionEvent)
                 .values(
@@ -103,8 +115,12 @@ def record_emotion_executor(context: ExecutorContext) -> ExecutorResult:
                     c=values["C"], g=values["G"], t=values["T"], r=values["R"],
                     dominant_emotion=_dominant_emotion(arguments),
                     confidence=arguments.confidence,
-                    source="agent",
-                    metadata={"record_kind": "emotion_event"},
+                    source="orchestrator",
+                    metadata={
+                        "record_kind": "emotion_event",
+                        "extractor_version": EMOTION_EXTRACTOR_VERSION,
+                        "pipeline": EMOTION_PIPELINE,
+                    },
                 )
                 .on_conflict_do_nothing(index_elements=[EmotionEvent.agent_action_id])
                 .returning(EmotionEvent.id)
@@ -116,6 +132,8 @@ def record_emotion_executor(context: ExecutorContext) -> ExecutorResult:
             )
             if event is None or event.user_id != action.user_id:
                 raise RecordEmotionValidationError
+            if before_commit is not None:
+                before_commit()
             db.commit()
             return ExecutorResult(
                 outcome="emotion_recorded",
