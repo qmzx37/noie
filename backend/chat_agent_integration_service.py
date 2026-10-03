@@ -26,6 +26,8 @@ from models.agent_action import AgentAction
 
 
 AUTO_EXECUTE_TOOLS = {
+    # Relationship 실패도 다른 domain 및 기본 reply를 rollback하지 않습니다.
+    "record_relationship_event",
     # 명시적 장소 기록만 자동 실행하며 기존 place 관심 planning은 제외합니다.
     "record_place_event",
     # 신체 상태 실패도 다른 Record transaction이나 채팅 응답을 취소하지 않습니다.
@@ -69,6 +71,9 @@ def _deterministic_action_id(
     """같은 채팅 Message의 같은 routing action에 항상 같은 UUID를 부여합니다."""
 
     namespace = request_id or message_id
+    # 같은 요청의 여러 관계는 records 묶음 하나이며 routing 순서가 바뀌어도 재사용합니다.
+    if action.intent == "record_relationship_event":
+        return uuid5(namespace, "chat-relationship-v1")
     # Record 순서 변화와 관계없이 한 채팅 요청은 한 추천 Action만 가집니다.
     if action.intent == "suggest_recommendation":
         return uuid5(namespace, "chat-recommendation-v1")

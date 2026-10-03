@@ -16,6 +16,7 @@ from models.body_state_event import BodyStateEvent
 # Alembic도 새 인지 모델을 동일한 metadata에서 확인합니다.
 from models.cognitive_state_event import CognitiveStateEvent
 from models.recommendation import Recommendation
+from models.relationship_event import RelationshipEvent
 
 __all__ = [
     "AgentAction",
@@ -34,4 +35,5 @@ __all__ = [
     "BodyStateEvent",
     "CognitiveStateEvent",
     "Recommendation",
+    "RelationshipEvent",
 ]

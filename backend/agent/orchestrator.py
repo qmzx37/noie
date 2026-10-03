@@ -17,6 +17,8 @@ from agent.schemas import OrchestratorAction, OrchestratorMemoryContext, Orchest
 from agent.body_state_schemas import BODY_AXES
 from agent.cognitive_state_schemas import COGNITIVE_AXES
 from agent.recommendation_schemas import RecommendationContext
+from agent.relationship_schemas import RecordRelationshipArguments
+from agent.relationship_event_service import validate_relationship_evidence
 from openai_analyzer import extract_output_text, print_openai_error
 
 
@@ -177,6 +179,77 @@ ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["argu
 })
 
 
+# strict Structured Output은 nullable 필드도 required에 포함합니다.
+RELATIONSHIP_RECORD_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "properties": {
+        "person_label": {"type": "string", "minLength": 1, "maxLength": 120},
+        "identity_kind": {"type": "string", "enum": ["named", "temporary"]},
+        "record_kind": {"type": "string", "enum": ["social_relation", "relationship_state", "meaning_relation", "observation"]},
+        "relationship_type": {"anyOf": [{"type": "string", "enum": ["family", "friend", "colleague", "acquaintance", "partner", "other"]}, {"type": "null"}]},
+        "meaning_relation_type": {"anyOf": [{"type": "string", "enum": ["fan_of", "role_model", "inspired_by", "follows", "likes"]}, {"type": "null"}]},
+        "relationship_statement": {"type": "string", "minLength": 1, "maxLength": 500},
+        "temporal_scope": {"type": "string", "enum": ["past", "current"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+    "required": ["person_label", "identity_kind", "record_kind", "relationship_type", "meaning_relation_type", "relationship_statement", "temporal_scope", "confidence"],
+}
+ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["arguments"]["anyOf"].insert(-1, {
+    "type": "object", "additionalProperties": False,
+    "properties": {"records": {"type": "array", "minItems": 1, "maxItems": 8, "items": RELATIONSHIP_RECORD_SCHEMA}},
+    "required": ["records"],
+})
+
+
+def relationship_output_schema() -> dict:
+    """개인 Memory 없이 현재 발화의 Relationship만 재판단하는 계약입니다."""
+    schema = deepcopy(ORCHESTRATOR_OUTPUT_SCHEMA)
+    actions = schema["properties"]["actions"]
+    actions["maxItems"] = 1
+    fields = actions["items"]["properties"]
+    for key, value in (("type", "relationship"), ("intent", "record_relationship_event"), ("mode", "record")):
+        fields[key] = {"type": "string", "enum": [value]}
+    fields["requires_confirmation"] = {"type": "boolean", "enum": [False]}
+    fields["execution_order"] = {"type": "integer", "enum": [1]}
+    fields["arguments"] = deepcopy(next(item for item in fields["arguments"]["anyOf"] if "records" in item.get("properties", {})))
+    return schema
+
+
+def isolate_relationship_candidates(payload: dict, text: str) -> dict:
+    """불량 관계 후보만 보류해 다른 Record의 유효한 결과를 보존합니다."""
+    actions = payload.get("actions", [])
+    if payload.get("needs_action") != bool(actions) or [item.get("execution_order") for item in actions] != list(range(1, len(actions) + 1)):
+        return payload
+    remaining = []
+    relationship_items = []
+    for item in actions:
+        if item.get("type") == "relationship" or item.get("intent") == "record_relationship_event":
+            try:
+                action = OrchestratorAction.model_validate(item)
+                if action.intent == "record_relationship_event":
+                    validate_relationship_evidence(RecordRelationshipArguments.model_validate(item.get("arguments")), text)
+                    relationship_items.append(action)
+            except (ValidationError, ValueError):
+                print("[noie] relationship candidate rejected: invalid_or_unsupported_evidence")
+                continue
+        remaining.append(item)
+    # 모델이 여러 action으로 나눈 유효 근거는 같은 묶음에 모읍니다. 역할을 선택/overwrite하지 않습니다.
+    if len(relationship_items) > 1:
+        try:
+            combined = RecordRelationshipArguments(records=[record for action in relationship_items for record in action.arguments.records])
+        except ValidationError:
+            print("[noie] relationship candidates rejected: duplicate_or_excess_records")
+            remaining = [item for item in remaining if item.get("intent") != "record_relationship_event"]
+        else:
+            first = next(item for item in remaining if item.get("intent") == "record_relationship_event")
+            first["arguments"] = combined.model_dump()
+            first["confidence"] = min(action.confidence for action in relationship_items)
+            remaining = [item for item in remaining if item.get("intent") != "record_relationship_event" or item is first]
+    return {**payload, "needs_action": bool(remaining), "actions": [
+        {**item, "execution_order": index} for index, item in enumerate(remaining, 1)
+    ]}
+
+
 def recommendation_output_schema() -> dict:
     """공통 계약을 복사해 추천만 허용하며 기존 Record 스키마는 변경하지 않습니다."""
     schema = deepcopy(ORCHESTRATOR_OUTPUT_SCHEMA)
@@ -270,6 +343,7 @@ def orchestrate_with_openai(
     *,
     reference_time: datetime | None = None,
     recommendation_context: RecommendationContext | None = None,
+    relationship_only: bool = False,
 ) -> OrchestratorResult:
     """현재 발화를 우선하여 routing만 판단하고 외부 상태는 변경하지 않습니다."""
 
@@ -279,7 +353,10 @@ def orchestrate_with_openai(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다.")
 
-    memories = relevant_memories or []
+    # 전용 Relationship 호출에는 Memory나 다른 도메인의 context를 전달하지 않습니다.
+    if relationship_only and recommendation_context is not None:
+        raise ValueError("relationship_recommendation_context_forbidden")
+    memories = [] if relationship_only else (relevant_memories or [])
     time_context = schedule_time_context(reference_time)
     payload = {
         "current_user_utterance": text,
@@ -297,6 +374,10 @@ def orchestrate_with_openai(
                    "언급되지 않은 신체/감정/인지 상태는 모른다. 피로 또는 수면 부족이 없다고 단정하지 않는다. "
                    "근거 부족 시 현재 선택 질문만 근거로 낮은 확신의 일반 제안을 하고 부족한 근거를 명시한다.")
         output_schema = recommendation_output_schema()
+    elif relationship_only:
+        payload = {"current_user_utterance": text}
+        purpose = "\n이번 호출은 현재 문장의 Relationship 근거만 판단한다. 다른 action은 금지다. 근거 없으면 actions=[]이다. 한 action records[]에 모든 명시적 관계를 모은다."
+        output_schema = relationship_output_schema()
     else:
         purpose = ""
         output_schema = ORCHESTRATOR_OUTPUT_SCHEMA
@@ -305,9 +386,12 @@ def orchestrate_with_openai(
         os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
     )
     try:
-        client = OpenAI(api_key=api_key)
+        # 전용 관계 재판단이 네트워크 장애로 기존 reply를 무한 대기시키지 않게 제한합니다.
+        # 기존 다른 도메인의 client 정책은 바꾸지 않습니다.
+        client = OpenAI(api_key=api_key, **({"timeout": 60.0, "max_retries": 1} if relationship_only else {}))
         response = client.responses.create(
             model=model,
+            **({"max_output_tokens": 8192} if relationship_only else {}),
             input=[
                 {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT + purpose},
                 {
@@ -335,7 +419,7 @@ def orchestrate_with_openai(
         # 모델이 비지원 action에 다른 Tool의 arguments를 붙여도 실행 계약으로 전달하지 않습니다.
         # Place를 추가해도 Schedule/Emotion 등의 기존 인자 보존 정책은 유지합니다.
         # 새 인지 인자만 추가하며 기존 도메인 인자 보존 정책은 유지합니다.
-        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule", "record_place_event", "record_body_state", "record_cognitive_state", "suggest_recommendation"}
+        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule", "record_place_event", "record_body_state", "record_cognitive_state", "record_relationship_event", "suggest_recommendation"}
         for action in payload.get("actions", []):
             if action.get("intent") not in argument_intents:
                 action["arguments"] = None
@@ -344,7 +428,24 @@ def orchestrate_with_openai(
                 action["arguments"] = None
                 action["confidence"] = min(action.get("confidence", 0), 0.79)
         # 근거 없는 상태 placeholder가 정상 Body/Emotion 등 전체 출력을 취소하지 않게 합니다.
-        return OrchestratorResult.model_validate(isolate_invalid_recommendations(discard_unknown_state_candidates(payload)))
+        # Memory를 받았던 일반 routing 후보는 현재 발화 전용 호출의 결과로만 교체합니다.
+        # 전용 호출 실패도 기존 Emotion/Daily 등의 정상 결과를 취소하지 않습니다.
+        if memories and recommendation_context is None and not relationship_only:
+            actions = payload.get("actions", [])
+            relationship_items = [item for item in actions if item.get("type") == "relationship" or item.get("intent") == "record_relationship_event"]
+            if relationship_items and payload.get("needs_action") == bool(actions) and [item.get("execution_order") for item in actions] == list(range(1, len(actions) + 1)):
+                replacement = []
+                try:
+                    replacement = [item.model_dump() for item in orchestrate_with_openai(text, relationship_only=True).actions]
+                except Exception as error:
+                    print(f"[noie] relationship source-only routing failed: {type(error).__name__}")
+                first = actions.index(relationship_items[0])
+                kept = [item for item in actions if not any(item is candidate for candidate in relationship_items)]
+                kept[first:first] = replacement
+                payload = {**payload, "needs_action": bool(kept), "actions": [{**item, "execution_order": index} for index, item in enumerate(kept, 1)]}
+        if relationship_only and any(item.get("type") != "relationship" or item.get("intent") != "record_relationship_event" for item in payload.get("actions", [])):
+            raise ValueError("relationship_purpose_violation")
+        return OrchestratorResult.model_validate(isolate_relationship_candidates(isolate_invalid_recommendations(discard_unknown_state_candidates(payload)), text))
     except Exception as error:
         print_openai_error(error)
         raise

@@ -109,3 +109,8 @@ from agent.suggest_recommendation_executor import suggest_recommendation_executo
 
 # Suggest 실행은 추천 이력 저장뿐이며 추천된 실제 행동을 실행하지 않습니다.
 register_executor("suggest_recommendation", suggest_recommendation_executor)
+
+# 사람 근거도 기존 lease/retry/fencing 경로에서만 저장합니다.
+from agent.record_relationship_event_executor import record_relationship_event_executor  # noqa: E402
+
+register_executor("record_relationship_event", record_relationship_event_executor)
