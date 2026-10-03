@@ -12,6 +12,7 @@ from agent.place_event_router import router as place_event_router
 from agent.body_state_event_router import router as body_state_event_router
 # 소유자 제한 인지 읽기 API를 기존 라우터에 추가합니다.
 from agent.cognitive_state_event_router import router as cognitive_state_event_router
+from agent.recommendation_router import router as recommendation_router
 from agent.schemas import OrchestratorRequest, OrchestratorResult
 from agent.tool_gateway import create_tool_plan
 from agent.tool_schemas import ToolPlanRequest, ToolPlanResponse
@@ -26,6 +27,7 @@ router.include_router(schedule_router)
 router.include_router(place_event_router)
 router.include_router(body_state_event_router)
 router.include_router(cognitive_state_event_router)
+router.include_router(recommendation_router)
 
 
 @router.post("/orchestrate", response_model=OrchestratorResult)

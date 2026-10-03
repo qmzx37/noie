@@ -19,7 +19,7 @@ from chat_persistence_service import (
     complete_chat_request,
     mark_chat_request_failed,
 )
-from chat_agent_integration_service import run_chat_agent_integration
+from chat_agent_integration_service import prepare_chat_recommendation, run_chat_agent_integration
 from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
@@ -1456,6 +1456,15 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
             reply = fallback_chat_reply(state_summary)
             reply_source = "rule" if source == "rule_based" else "fallback"
 
+    # 추천은 선택 지원이며 실행하지 않습니다. 실패하면 기존 reply를 그대로 보존합니다.
+    prepared_routing = None
+    if persistence_context and persistence_context.user_message_id:
+        prepared_routing, recommendation_text = prepare_chat_recommendation(
+            persistence_context.user_message_id, persistence_context.request_id, relevant_memories,
+        )
+        if recommendation_text:
+            reply = f"{reply}\n\n{recommendation_text}"
+
     response = {
         "reply": reply,
         "state_summary": state_summary,
@@ -1486,6 +1495,7 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
             run_chat_agent_integration,
             persistence_context.user_message_id,
             persistence_context.request_id,
+            prepared_routing,
         )
     return response
 

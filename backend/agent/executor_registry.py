@@ -105,3 +105,7 @@ from agent.record_cognitive_state_executor import record_cognitive_state_executo
 
 # 인지 기록도 기존 lease/retry/fencing을 사용합니다.
 register_executor("record_cognitive_state", record_cognitive_state_executor)
+from agent.suggest_recommendation_executor import suggest_recommendation_executor  # noqa: E402
+
+# Suggest 실행은 추천 이력 저장뿐이며 추천된 실제 행동을 실행하지 않습니다.
+register_executor("suggest_recommendation", suggest_recommendation_executor)

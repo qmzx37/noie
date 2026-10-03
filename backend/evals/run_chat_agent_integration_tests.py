@@ -50,7 +50,8 @@ def dream(order: int = 1) -> OrchestratorAction:
     return OrchestratorAction(type="dream_goal", intent="record_dream_goal", mode="record", reason="명시적 목표", confidence=.9, requires_confirmation=False, execution_order=order, arguments={"statement":"AI 개발자가 되는 것이 목표다","kind":"goal"})
 
 
-def fake_orchestrate(text: str, memories=None, *, reference_time=None) -> OrchestratorResult:
+def fake_orchestrate(text: str, memories=None, *, reference_time=None, recommendation_context=None) -> OrchestratorResult:
+    # 기존 fake 판단은 새 읽기 전용 context 인자도 수용하되 결과를 바꾸지 않습니다.
     del memories
     mapping = {
         "오늘 기분이 좋아.": [emotion()],

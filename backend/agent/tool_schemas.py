@@ -17,6 +17,7 @@ from agent.place_schemas import RecordPlaceEventArguments
 from agent.body_state_schemas import RecordBodyStateArguments
 # 인지 인자는 다른 도메인과 분리해 검증합니다.
 from agent.cognitive_state_schemas import RecordCognitiveStateArguments
+from agent.recommendation_schemas import RecommendationArguments
 
 
 PlanStatus = Literal[
@@ -47,7 +48,18 @@ class GatewayAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | None = None
+
+    @model_validator(mode="after")
+    def validate_recommendation_arguments(self) -> "GatewayAction":
+        """직접 호출도 추천의 type/mode/인자/확인 정책을 우회할 수 없습니다."""
+        if self.intent == "suggest_recommendation":
+            if self.type != "recommendation" or self.mode != "suggest" or self.requires_confirmation or not isinstance(self.arguments, RecommendationArguments):
+                raise ValueError("추천은 확인 없는 Suggest와 유효한 인자가 필요합니다.")
+            self.confidence = min(self.confidence, self.arguments.confidence)
+        elif isinstance(self.arguments, RecommendationArguments):
+            raise ValueError("추천 인자는 suggest_recommendation에서만 사용합니다.")
+        return self
 
     @model_validator(mode="after")
     def validate_cognitive_arguments(self) -> "GatewayAction":
@@ -107,7 +119,7 @@ class ToolExecutionPlan(BaseModel):
     implemented: bool
     can_execute: bool = False
     policy_messages: list[str] = Field(default_factory=list)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | None = None
 
 
 class ToolPlanResponse(BaseModel):

@@ -42,6 +42,8 @@ TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
     ToolDefinition("record_relationship_event", "relationship", ("record_relationship_event",), ("record",), False, False, False),
     ToolDefinition("update_relationship_status", "relationship", ("update_relationship_status",), ("execute",), True, True, False),
     ToolDefinition("create_recommendation", "recommendation", ("request_recommendation", "create_recommendation"), ("suggest",), False, True, False),
+    # 기존 미래 planning 이름은 유지하고 구현된 추천 이력 Tool만 별도 등록합니다.
+    ToolDefinition("suggest_recommendation", "recommendation", ("suggest_recommendation",), ("suggest",), False, True, True),
     ToolDefinition("suggest_reflection", "reflection", ("suggest_reflection", "suggest_rest", "reflect_emotion"), ("suggest",), False, True, False),
 )
 
