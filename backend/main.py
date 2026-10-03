@@ -19,6 +19,7 @@ from chat_persistence_service import (
     complete_chat_request,
     mark_chat_request_failed,
 )
+from chat_agent_integration_service import run_chat_agent_integration
 from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
@@ -1468,12 +1469,23 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
     }
 
     # 최종 응답과 assistant 원문을 함께 완료해 중복 요청이 같은 결과를 재사용하게 합니다.
-    complete_chat_request(persistence_context, reply, reply_source, response)
-    if persistence_context and persistence_context.user_message_id:
+    chat_persisted = complete_chat_request(
+        persistence_context,
+        reply,
+        reply_source,
+        response,
+    )
+    if chat_persisted and persistence_context and persistence_context.user_message_id:
         # 응답 생성은 기다리지 않고, 저장된 user 원문만 보수적으로 장기 기억 후보로 분석합니다.
         background_tasks.add_task(
             run_memory_extraction_background,
             persistence_context.user_message_id,
+        )
+        # 응답 저장 후 Agent를 실행해 실패나 지연이 기존 chat 결과를 깨뜨리지 않게 합니다.
+        background_tasks.add_task(
+            run_chat_agent_integration,
+            persistence_context.user_message_id,
+            persistence_context.request_id,
         )
     return response
 

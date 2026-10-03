@@ -252,11 +252,11 @@ def complete_chat_request(
     content: str,
     source: str,
     response: dict[str, Any],
-) -> None:
+) -> bool:
     """최종 assistant 원문과 재사용할 API 응답을 한 transaction으로 완료합니다."""
 
     if context is None or SessionLocal is None:
-        return
+        return False
 
     try:
         with SessionLocal() as db:
@@ -267,7 +267,7 @@ def complete_chat_request(
                     MessageCreate(role="assistant", content=content),
                     metadata={"source": source},
                 )
-                return
+                return True
 
             record = db.scalar(
                 select(ChatRequestRecord)
@@ -275,7 +275,7 @@ def complete_chat_request(
                 .with_for_update()
             )
             if record is None or record.status == "completed":
-                return
+                return False
 
             assistant_message = Message(
                 conversation_id=context.conversation_id,
@@ -293,10 +293,12 @@ def complete_chat_request(
             record.status = "completed"
             record.response = jsonable_encoder(response)
             db.commit()
+            return True
     except Exception as error:
         # DB 저장 실패가 사용자에게 반환할 기존 응답을 깨뜨리지 않게 합니다.
         print(f"[noie] assistant message persistence failed: {type(error).__name__}")
         mark_chat_request_failed(context)
+        return False
 
 
 def mark_chat_request_failed(context: ChatPersistenceContext | None) -> None:
