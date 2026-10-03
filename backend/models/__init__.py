@@ -11,6 +11,7 @@ from models.memory_extraction import MemoryExtraction
 from models.message import Message
 from models.user import User
 from models.schedule import Schedule
+from models.place_event import PlaceEvent
 
 __all__ = [
     "AgentAction",
@@ -25,4 +26,5 @@ __all__ = [
     "Message",
     "User",
     "Schedule",
+    "PlaceEvent",
 ]

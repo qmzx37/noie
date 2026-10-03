@@ -19,7 +19,7 @@ class ToolDefinition:
 
 
 # planning_supported는 v0.1 계획 계약 준비 여부, implemented는 실제 executor 존재 여부입니다.
-# 이번 단계에는 실제 executor가 없으므로 모든 Tool의 implemented는 false입니다.
+# 구현된 Record/Schedule Tool과 미래 planning Tool을 각각 명시적으로 구분합니다.
 TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
     ToolDefinition("record_emotion", "emotion", ("record_emotion", "record_emotion_event"), ("record",), False, True, True),
     ToolDefinition("record_daily_trace", "daily_life", ("record_daily_life", "record_daily_trace", "record_completed_action"), ("record",), False, True, True),
@@ -33,6 +33,8 @@ TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
     ToolDefinition("delete_schedule", "schedule", ("delete_schedule",), ("execute",), True, True, False),
     ToolDefinition("record_hobby", "hobby", ("record_hobby", "record_content_attention"), ("record",), False, False, False),
     ToolDefinition("record_place", "place", ("record_place", "record_place_interest"), ("record",), False, False, False),
+    # 기존 관심 planning entry는 유지하고 명시적 사실/선호만 실행 가능한 Tool로 분리합니다.
+    ToolDefinition("record_place_event", "place", ("record_place_event",), ("record",), False, True, True),
     ToolDefinition("record_relationship_event", "relationship", ("record_relationship_event",), ("record",), False, False, False),
     ToolDefinition("update_relationship_status", "relationship", ("update_relationship_status",), ("execute",), True, True, False),
     ToolDefinition("create_recommendation", "recommendation", ("request_recommendation", "create_recommendation"), ("suggest",), False, True, False),

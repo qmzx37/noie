@@ -22,6 +22,8 @@ from models.user import User
 
 
 AUTO_EXECUTE_TOOLS = {
+    # 명시적 장소 기록만 자동 실행하며 기존 place 관심 planning은 제외합니다.
+    "record_place_event",
     "record_emotion",
     "record_daily_trace",
     "record_dream_goal",

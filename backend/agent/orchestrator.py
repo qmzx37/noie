@@ -116,6 +116,20 @@ ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["argu
 })
 
 
+# strict output의 선택 필드도 누락하지 않고 명시적 null로 받습니다.
+ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["arguments"]["anyOf"].insert(-1, {
+    "type": "object",
+    "properties": {
+        "place_name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "kind": {"type": "string", "enum": ["visit", "context", "preference"]},
+        "preference": {"anyOf": [{"type": "string", "enum": ["like", "dislike"]}, {"type": "null"}]},
+        "occurred_at": {"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]},
+    },
+    "required": ["place_name", "kind", "preference", "occurred_at"],
+    "additionalProperties": False,
+})
+
+
 def schedule_time_context(reference_time: datetime | None = None) -> dict:
     """운영자가 명시한 IANA timezone만 상대 날짜 해석에 사용합니다."""
     instant = reference_time or datetime.now(timezone.utc)
@@ -181,7 +195,8 @@ def orchestrate_with_openai(
         )
         payload = json.loads(extract_output_text(response))
         # 모델이 비지원 action에 다른 Tool의 arguments를 붙여도 실행 계약으로 전달하지 않습니다.
-        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule"}
+        # Place를 추가해도 Schedule/Emotion 등의 기존 인자 보존 정책은 유지합니다.
+        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule", "record_place_event"}
         for action in payload.get("actions", []):
             if action.get("intent") not in argument_intents:
                 action["arguments"] = None

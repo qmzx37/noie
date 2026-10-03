@@ -1,8 +1,8 @@
 """Executor Common Layer가 호출할 안전한 실행 함수를 등록합니다.
 
-v0.1에서는 실제 NOIE 데이터를 변경하는 Tool을 연결하지 않고 테스트용
-executor만 제공합니다. 실제 Tool은 동일한 계약을 구현한 뒤 다음 단계에서
-명시적으로 등록해야 합니다.
+테스트용 Tool과 구현된 업무 Tool 모두 동일한 실행 계약을 사용합니다.
+새 업무 Tool은 아래 registry에 명시적으로 등록해야 하며 암묵적인
+fallback executor는 제공하지 않습니다.
 """
 
 from __future__ import annotations
@@ -93,3 +93,7 @@ register_executor("record_dream_goal", record_dream_goal_executor)
 from agent.create_schedule_executor import create_schedule_executor  # noqa: E402
 
 register_executor("create_schedule", create_schedule_executor)
+from agent.record_place_event_executor import record_place_event_executor  # noqa: E402
+
+# Place도 공통 lease/retry/fencing 경로에서만 실행합니다.
+register_executor("record_place_event", record_place_event_executor)

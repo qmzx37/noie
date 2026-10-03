@@ -6,13 +6,14 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agent.schemas import ActionMode, AgentType
 from agent.emotion_schemas import EmotionRecordArguments
 from agent.daily_life_schemas import DailyTraceArguments
 from agent.dream_goal_schemas import DreamGoalArguments
 from agent.schedule_schemas import CreateScheduleArguments
+from agent.place_schemas import RecordPlaceEventArguments
 
 
 PlanStatus = Literal[
@@ -43,7 +44,17 @@ class GatewayAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | None = None
+
+    @model_validator(mode="after")
+    def validate_place_arguments(self) -> "GatewayAction":
+        """Gateway 직접 호출에서도 Place의 type, mode, 인자를 재검증합니다."""
+        if self.intent == "record_place_event":
+            if self.type != "place" or self.mode != "record" or not isinstance(self.arguments, RecordPlaceEventArguments):
+                raise ValueError("record_place_event의 type/mode/arguments가 올바르지 않습니다.")
+        elif isinstance(self.arguments, RecordPlaceEventArguments):
+            raise ValueError("Place arguments는 record_place_event에서만 사용합니다.")
+        return self
 
 
 class ToolPlanRequest(BaseModel):
@@ -71,7 +82,7 @@ class ToolExecutionPlan(BaseModel):
     implemented: bool
     can_execute: bool = False
     policy_messages: list[str] = Field(default_factory=list)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | None = None
 
 
 class ToolPlanResponse(BaseModel):

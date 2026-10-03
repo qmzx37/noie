@@ -10,6 +10,7 @@ from agent.emotion_schemas import EmotionRecordArguments
 from agent.daily_life_schemas import DailyTraceArguments
 from agent.dream_goal_schemas import DreamGoalArguments
 from agent.schedule_schemas import CreateScheduleArguments
+from agent.place_schemas import RecordPlaceEventArguments
 
 
 AgentType = Literal[
@@ -55,7 +56,8 @@ class OrchestratorAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | None = None
+    # Place 인자는 기존 도메인 계약을 변경하지 않고 선택지에만 추가합니다.
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | None = None
 
     @model_validator(mode="after")
     def validate_confirmation_policy(self) -> "OrchestratorAction":
@@ -68,6 +70,9 @@ class OrchestratorAction(BaseModel):
         is_daily_record = self.type == "daily_life" and self.mode == "record"
         is_dream_record = self.type == "dream_goal" and self.mode == "record" and self.intent == "record_dream_goal"
         is_schedule_create = self.type == "schedule" and self.mode == "execute" and self.intent == "create_schedule"
+        is_place_record = self.type == "place" and self.mode == "record" and self.intent == "record_place_event"
+        if is_place_record and not isinstance(self.arguments, RecordPlaceEventArguments):
+            raise ValueError("record_place_event에는 명시적 장소 arguments가 필요합니다.")
         # 시각 불명확 후보는 null로 보류하지만 다른 Tool의 인자는 허용하지 않습니다.
         if is_schedule_create and self.arguments is not None and not isinstance(self.arguments, CreateScheduleArguments):
             raise ValueError("create_schedule arguments 형식이 올바르지 않습니다.")
@@ -79,7 +84,7 @@ class OrchestratorAction(BaseModel):
             raise ValueError("record_dream_goal action에는 statement와 kind가 필요합니다.")
         if is_emotion_record and not isinstance(self.arguments, EmotionRecordArguments):
             raise ValueError("emotion arguments 형식이 올바르지 않습니다.")
-        if not (is_emotion_record or is_daily_record or is_dream_record or is_schedule_create) and self.arguments is not None:
+        if not (is_emotion_record or is_daily_record or is_dream_record or is_schedule_create or is_place_record) and self.arguments is not None:
             raise ValueError("arguments는 구현된 record action에서만 사용할 수 있습니다.")
         return self
 
