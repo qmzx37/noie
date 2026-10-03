@@ -12,6 +12,7 @@ from models.message import Message
 from models.user import User
 from models.schedule import Schedule
 from models.place_event import PlaceEvent
+from models.body_state_event import BodyStateEvent
 
 __all__ = [
     "AgentAction",
@@ -27,4 +28,5 @@ __all__ = [
     "User",
     "Schedule",
     "PlaceEvent",
+    "BodyStateEvent",
 ]

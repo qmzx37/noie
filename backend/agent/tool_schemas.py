@@ -14,6 +14,7 @@ from agent.daily_life_schemas import DailyTraceArguments
 from agent.dream_goal_schemas import DreamGoalArguments
 from agent.schedule_schemas import CreateScheduleArguments
 from agent.place_schemas import RecordPlaceEventArguments
+from agent.body_state_schemas import RecordBodyStateArguments
 
 
 PlanStatus = Literal[
@@ -44,7 +45,18 @@ class GatewayAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | None = None
+
+    @model_validator(mode="after")
+    def validate_body_arguments(self) -> "GatewayAction":
+        """직접 Gateway 호출도 Body type/mode/신뢰도 경계를 통과해야 합니다."""
+        if self.intent == "record_body_state":
+            if self.type != "body_state" or self.mode != "record" or not isinstance(self.arguments, RecordBodyStateArguments):
+                raise ValueError("record_body_state의 type/mode/arguments가 올바르지 않습니다.")
+            self.confidence = min(self.confidence, self.arguments.confidence)
+        elif isinstance(self.arguments, RecordBodyStateArguments):
+            raise ValueError("Body arguments는 record_body_state에서만 사용합니다.")
+        return self
 
     @model_validator(mode="after")
     def validate_place_arguments(self) -> "GatewayAction":
@@ -82,7 +94,7 @@ class ToolExecutionPlan(BaseModel):
     implemented: bool
     can_execute: bool = False
     policy_messages: list[str] = Field(default_factory=list)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | None = None
 
 
 class ToolPlanResponse(BaseModel):

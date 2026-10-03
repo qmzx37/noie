@@ -12,6 +12,7 @@ from openai import OpenAI
 
 from agent.prompts import ORCHESTRATOR_SYSTEM_PROMPT
 from agent.schemas import OrchestratorMemoryContext, OrchestratorResult
+from agent.body_state_schemas import BODY_AXES
 from openai_analyzer import extract_output_text, print_openai_error
 
 
@@ -21,6 +22,7 @@ ORCHESTRATOR_VERSION = "orchestrator-v0.1"
 AGENT_TYPES = [
     "memory",
     "emotion",
+    "body_state",
     "daily_life",
     "dream_goal",
     "schedule",
@@ -130,6 +132,18 @@ ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["argu
 })
 
 
+# 모든 축 키를 요구하되 unknown은 null로 받아 0과 구분합니다.
+ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["arguments"]["anyOf"].insert(-1, {
+    "type": "object",
+    "properties": {
+        **{axis: {"anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]} for axis in BODY_AXES},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+    "required": [*BODY_AXES, "confidence"],
+    "additionalProperties": False,
+})
+
+
 def schedule_time_context(reference_time: datetime | None = None) -> dict:
     """운영자가 명시한 IANA timezone만 상대 날짜 해석에 사용합니다."""
     instant = reference_time or datetime.now(timezone.utc)
@@ -196,7 +210,7 @@ def orchestrate_with_openai(
         payload = json.loads(extract_output_text(response))
         # 모델이 비지원 action에 다른 Tool의 arguments를 붙여도 실행 계약으로 전달하지 않습니다.
         # Place를 추가해도 Schedule/Emotion 등의 기존 인자 보존 정책은 유지합니다.
-        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule", "record_place_event"}
+        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule", "record_place_event", "record_body_state"}
         for action in payload.get("actions", []):
             if action.get("intent") not in argument_intents:
                 action["arguments"] = None

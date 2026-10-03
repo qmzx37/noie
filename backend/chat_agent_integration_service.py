@@ -24,6 +24,8 @@ from models.user import User
 AUTO_EXECUTE_TOOLS = {
     # 명시적 장소 기록만 자동 실행하며 기존 place 관심 planning은 제외합니다.
     "record_place_event",
+    # 신체 상태 실패도 다른 Record transaction이나 채팅 응답을 취소하지 않습니다.
+    "record_body_state",
     "record_emotion",
     "record_daily_trace",
     "record_dream_goal",

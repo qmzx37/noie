@@ -97,3 +97,7 @@ from agent.record_place_event_executor import record_place_event_executor  # noq
 
 # Place도 공통 lease/retry/fencing 경로에서만 실행합니다.
 register_executor("record_place_event", record_place_event_executor)
+from agent.record_body_state_executor import record_body_state_executor  # noqa: E402
+
+# 새로운 실행 framework 없이 기존 lease/retry/fencing을 사용합니다.
+register_executor("record_body_state", record_body_state_executor)

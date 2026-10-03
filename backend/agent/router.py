@@ -9,6 +9,7 @@ from agent.daily_life_event_router import router as daily_life_event_router
 from agent.dream_goal_event_router import router as dream_goal_event_router
 from agent.schedule_router import router as schedule_router
 from agent.place_event_router import router as place_event_router
+from agent.body_state_event_router import router as body_state_event_router
 from agent.schemas import OrchestratorRequest, OrchestratorResult
 from agent.tool_gateway import create_tool_plan
 from agent.tool_schemas import ToolPlanRequest, ToolPlanResponse
@@ -21,6 +22,7 @@ router.include_router(daily_life_event_router)
 router.include_router(dream_goal_event_router)
 router.include_router(schedule_router)
 router.include_router(place_event_router)
+router.include_router(body_state_event_router)
 
 
 @router.post("/orchestrate", response_model=OrchestratorResult)

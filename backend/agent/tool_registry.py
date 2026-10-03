@@ -35,6 +35,8 @@ TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
     ToolDefinition("record_place", "place", ("record_place", "record_place_interest"), ("record",), False, False, False),
     # 기존 관심 planning entry는 유지하고 명시적 사실/선호만 실행 가능한 Tool로 분리합니다.
     ToolDefinition("record_place_event", "place", ("record_place_event",), ("record",), False, True, True),
+    # Body는 감정/인지와 분리된 현재 신체 상태 Record입니다.
+    ToolDefinition("record_body_state", "body_state", ("record_body_state",), ("record",), False, True, True),
     ToolDefinition("record_relationship_event", "relationship", ("record_relationship_event",), ("record",), False, False, False),
     ToolDefinition("update_relationship_status", "relationship", ("update_relationship_status",), ("execute",), True, True, False),
     ToolDefinition("create_recommendation", "recommendation", ("request_recommendation", "create_recommendation"), ("suggest",), False, True, False),
