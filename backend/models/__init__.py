@@ -10,6 +10,7 @@ from models.memory import Memory, MemoryEvidence
 from models.memory_extraction import MemoryExtraction
 from models.message import Message
 from models.user import User
+from models.schedule import Schedule
 
 __all__ = [
     "AgentAction",
@@ -23,4 +24,5 @@ __all__ = [
     "MemoryExtraction",
     "Message",
     "User",
+    "Schedule",
 ]

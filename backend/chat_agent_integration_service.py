@@ -13,6 +13,7 @@ from agent.orchestrator import orchestrate_with_openai
 from agent.schemas import OrchestratorMemoryContext
 from agent.tool_gateway import create_tool_plan
 from agent.tool_schemas import GatewayAction, ToolPlanRequest
+from agent.schedule_schemas import CreateScheduleArguments
 from database import SessionLocal
 from memory_retriever import retrieve_relevant_memories_safe
 from models.conversation import Conversation
@@ -78,7 +79,8 @@ def run_chat_agent_integration(
             )
             for memory in selected_memories
         ]
-        routing = orchestrate_with_openai(message.content, memory_context)
+        # 저장 시각을 상대 날짜 기준으로 사용해 background 지연에도 날짜가 흔들리지 않게 합니다.
+        routing = orchestrate_with_openai(message.content, memory_context, reference_time=message.created_at)
         allowed_actions: list[GatewayAction] = []
         for action in routing.actions:
             gateway_action = GatewayAction.model_validate(action.model_dump())
@@ -102,7 +104,14 @@ def run_chat_agent_integration(
             and plan.implemented
             and not plan.requires_confirmation
         ]
-        if not executable_plans:
+        # Schedule은 확인 대기 계획만 저장하고 자동 실행 목록에는 넣지 않습니다.
+        pending_schedules = [
+            plan for plan in gateway_result.plans
+            if plan.tool_name == "create_schedule" and plan.mode == "execute"
+            and plan.status == "pending_confirmation" and plan.requires_confirmation
+            and isinstance(plan.arguments, CreateScheduleArguments)
+        ]
+        if not executable_plans and not pending_schedules:
             return
 
         if SessionLocal is None:
@@ -114,12 +123,14 @@ def run_chat_agent_integration(
                     user_id=user_id,
                     conversation_id=conversation_id,
                     message_id=message_id,
-                    plans=executable_plans,
+                    plans=sorted(executable_plans + pending_schedules, key=lambda plan: plan.execution_order),
                 ),
             )
 
         # 각 Tool은 독립 transaction이므로 하나의 실패가 다른 성공을 되돌리지 않습니다.
         for action in saved_actions:
+            if action.tool_name not in AUTO_EXECUTE_TOOLS or action.mode != "record" or action.requires_confirmation:
+                continue
             try:
                 execute_action(action.action_id, user_id)
             except Exception as error:

@@ -50,7 +50,7 @@ def dream(order: int = 1) -> OrchestratorAction:
     return OrchestratorAction(type="dream_goal", intent="record_dream_goal", mode="record", reason="명시적 목표", confidence=.9, requires_confirmation=False, execution_order=order, arguments={"statement":"AI 개발자가 되는 것이 목표다","kind":"goal"})
 
 
-def fake_orchestrate(text: str, memories=None) -> OrchestratorResult:
+def fake_orchestrate(text: str, memories=None, *, reference_time=None) -> OrchestratorResult:
     del memories
     mapping = {
         "오늘 기분이 좋아.": [emotion()],
@@ -118,7 +118,7 @@ def run() -> None:
             check(f"{index} chat/domain routing", response.status_code == 200 and actual == expected)
 
         # Orchestrator 장애는 이미 완료된 user/assistant 원문과 chat 성공을 깨뜨리지 않습니다.
-        integration.orchestrate_with_openai = lambda text, memories=None: (_ for _ in ()).throw(RuntimeError("forced"))
+        integration.orchestrate_with_openai = lambda text, memories=None, **kwargs: (_ for _ in ()).throw(RuntimeError("forced"))
         failure_id = uuid4(); failure_response = post(client, "오케스트레이터 실패 테스트", failure_id)
         with SessionLocal() as db:
             message_count = db.scalar(select(func.count(Message.id)).where(Message.metadata_["request_id"].astext == str(failure_id)))

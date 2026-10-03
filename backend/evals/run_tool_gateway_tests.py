@@ -71,8 +71,8 @@ def main_test() -> None:
     check(
         "5 create schedule pending",
         schedule.status == "pending_confirmation"
-        and not schedule.implemented
-        and "executor_not_connected" in schedule.policy_messages,
+        and schedule.implemented
+        and "executor_not_connected" not in schedule.policy_messages,
     )
 
     delete = plan_for(action("schedule", "delete_schedule", "execute", confirmation=True))

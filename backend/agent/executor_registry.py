@@ -90,3 +90,6 @@ register_executor("record_daily_trace", record_daily_trace_executor)
 from agent.record_dream_goal_executor import record_dream_goal_executor  # noqa: E402
 
 register_executor("record_dream_goal", record_dream_goal_executor)
+from agent.create_schedule_executor import create_schedule_executor  # noqa: E402
+
+register_executor("create_schedule", create_schedule_executor)

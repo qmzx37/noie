@@ -28,7 +28,7 @@ TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
     ToolDefinition("record_dream_goal", "dream_goal", ("record_dream_goal",), ("record",), False, True, True),
     ToolDefinition("review_dream_goal_link", "dream_goal", ("link_action_to_dream_hypothesis", "confirm_action_dream_link"), ("record",), False, True, False),
     ToolDefinition("update_dream_progress", "dream_goal", ("update_dream_progress", "change_dream_goal"), ("execute",), True, True, False),
-    ToolDefinition("create_schedule", "schedule", ("create_schedule",), ("execute",), True, True, False),
+    ToolDefinition("create_schedule", "schedule", ("create_schedule",), ("execute",), True, True, True),
     ToolDefinition("update_schedule", "schedule", ("update_schedule",), ("execute",), True, True, False),
     ToolDefinition("delete_schedule", "schedule", ("delete_schedule",), ("execute",), True, True, False),
     ToolDefinition("record_hobby", "hobby", ("record_hobby", "record_content_attention"), ("record",), False, False, False),
