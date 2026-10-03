@@ -101,3 +101,7 @@ from agent.record_body_state_executor import record_body_state_executor  # noqa:
 
 # 새로운 실행 framework 없이 기존 lease/retry/fencing을 사용합니다.
 register_executor("record_body_state", record_body_state_executor)
+from agent.record_cognitive_state_executor import record_cognitive_state_executor  # noqa: E402
+
+# 인지 기록도 기존 lease/retry/fencing을 사용합니다.
+register_executor("record_cognitive_state", record_cognitive_state_executor)

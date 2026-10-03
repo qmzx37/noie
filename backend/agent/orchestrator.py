@@ -13,6 +13,7 @@ from openai import OpenAI
 from agent.prompts import ORCHESTRATOR_SYSTEM_PROMPT
 from agent.schemas import OrchestratorMemoryContext, OrchestratorResult
 from agent.body_state_schemas import BODY_AXES
+from agent.cognitive_state_schemas import COGNITIVE_AXES
 from openai_analyzer import extract_output_text, print_openai_error
 
 
@@ -23,6 +24,7 @@ AGENT_TYPES = [
     "memory",
     "emotion",
     "body_state",
+    "cognitive_state",
     "daily_life",
     "dream_goal",
     "schedule",
@@ -144,6 +146,50 @@ ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["argu
 })
 
 
+# strict output에서도 미언급 인지 축은 누락/0 대신 명시적 null로 받습니다.
+ORCHESTRATOR_OUTPUT_SCHEMA["properties"]["actions"]["items"]["properties"]["arguments"]["anyOf"].insert(-1, {
+    "type": "object",
+    "properties": {
+        **{axis: {"anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]} for axis in COGNITIVE_AXES},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+    "required": [*COGNITIVE_AXES, "confidence"],
+    "additionalProperties": False,
+})
+
+
+def discard_unknown_state_candidates(payload: dict) -> dict:
+    """LLM의 전부 unknown인 placeholder만 제외하고 정상 도메인은 보존합니다."""
+    actions = payload.get("actions", [])
+    # 잘못된 action 표식/순서를 정당화하지 않습니다. 기존 검증이 거부합니다.
+    if payload.get("needs_action") != bool(actions) or [action.get("execution_order") for action in actions] != list(range(1, len(actions) + 1)):
+        return payload
+    state_tools = {
+        "record_body_state": ("body_state", BODY_AXES),
+        "record_cognitive_state": ("cognitive_state", COGNITIVE_AXES),
+    }
+    remaining = []
+    for action in actions:
+        state = state_tools.get(action.get("intent"))
+        arguments = action.get("arguments")
+        # 정확한 nullable 상태 계약만 대상으로 삼습니다. extra/잘못된 type/mode는 숨기지 않습니다.
+        empty_state = (state is not None and action.get("type") == state[0]
+                       and action.get("mode") == "record" and action.get("requires_confirmation") is False
+                       and "arguments" in action
+                       and (arguments is None or (isinstance(arguments, dict)
+                            and set(arguments) == {*state[1], "confidence"}
+                            and all(arguments[axis] is None for axis in state[1]))))
+        if empty_state:
+            # NULL을 0으로 채우지 않으며 직접 Gateway/DB의 all-null 금지는 그대로입니다.
+            print(f"[noie] unknown state candidate skipped: {action['intent']}")
+        else:
+            remaining.append(action)
+    if len(remaining) == len(actions):
+        return payload
+    return {**payload, "needs_action": bool(remaining),
+            "actions": [{**action, "execution_order": index} for index, action in enumerate(remaining, 1)]}
+
+
 def schedule_time_context(reference_time: datetime | None = None) -> dict:
     """운영자가 명시한 IANA timezone만 상대 날짜 해석에 사용합니다."""
     instant = reference_time or datetime.now(timezone.utc)
@@ -210,7 +256,8 @@ def orchestrate_with_openai(
         payload = json.loads(extract_output_text(response))
         # 모델이 비지원 action에 다른 Tool의 arguments를 붙여도 실행 계약으로 전달하지 않습니다.
         # Place를 추가해도 Schedule/Emotion 등의 기존 인자 보존 정책은 유지합니다.
-        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule", "record_place_event", "record_body_state"}
+        # 새 인지 인자만 추가하며 기존 도메인 인자 보존 정책은 유지합니다.
+        argument_intents = {"record_emotion", "record_daily_trace", "record_dream_goal", "create_schedule", "record_place_event", "record_body_state", "record_cognitive_state"}
         for action in payload.get("actions", []):
             if action.get("intent") not in argument_intents:
                 action["arguments"] = None
@@ -218,7 +265,8 @@ def orchestrate_with_openai(
                 # 사용자 timezone 부재 시 LLM이 임의 offset을 만들어도 저장 가능한 후보로 인정하지 않습니다.
                 action["arguments"] = None
                 action["confidence"] = min(action.get("confidence", 0), 0.79)
-        return OrchestratorResult.model_validate(payload)
+        # 근거 없는 상태 placeholder가 정상 Body/Emotion 등 전체 출력을 취소하지 않게 합니다.
+        return OrchestratorResult.model_validate(discard_unknown_state_candidates(payload))
     except Exception as error:
         print_openai_error(error)
         raise

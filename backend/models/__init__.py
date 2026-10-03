@@ -13,6 +13,8 @@ from models.user import User
 from models.schedule import Schedule
 from models.place_event import PlaceEvent
 from models.body_state_event import BodyStateEvent
+# Alembic도 새 인지 모델을 동일한 metadata에서 확인합니다.
+from models.cognitive_state_event import CognitiveStateEvent
 
 __all__ = [
     "AgentAction",
@@ -29,4 +31,5 @@ __all__ = [
     "Schedule",
     "PlaceEvent",
     "BodyStateEvent",
+    "CognitiveStateEvent",
 ]

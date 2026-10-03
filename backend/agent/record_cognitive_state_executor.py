@@ -1,0 +1,81 @@
+"""검증된 Cognitive State를 기존 공통 Executor 계약으로 중복 없이 저장합니다."""
+
+from collections.abc import Callable
+from uuid import UUID
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
+
+from agent.cognitive_state_schemas import RecordCognitiveStateArguments
+from agent.executor_registry import ExecutorContext, ExecutorResult
+from agent.tool_policy import CONFIDENCE_THRESHOLDS
+from database import SessionLocal
+from models.agent_action import AgentAction
+from models.cognitive_state_event import CognitiveStateEvent
+from models.conversation import Conversation
+from models.message import Message
+from models.user import User
+
+
+class RecordCognitiveStateError(Exception):
+    """DB 내부 정보나 원문을 사용자 응답에 노출하지 않기 위한 오류 경계입니다."""
+
+
+def record_cognitive_state_executor(
+    context: ExecutorContext,
+    *,
+    before_insert: Callable[[], None] | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> ExecutorResult:
+    """현재 attempt와 소유권을 확인하고 짧은 DB transaction만 수행합니다."""
+    if SessionLocal is None:
+        raise RecordCognitiveStateError
+    try:
+        with SessionLocal() as db:
+            # OpenAI는 이 transaction 밖에서 이미 호출되었습니다.
+            action = db.scalar(select(AgentAction).where(
+                AgentAction.action_id == UUID(context.action_id),
+                AgentAction.user_id == UUID(context.user_id),
+            ).with_for_update())
+            if (action is None or action.tool_name != "record_cognitive_state"
+                or action.intent != "record_cognitive_state" or action.action_type != "cognitive_state"
+                or action.mode != "record" or action.requires_confirmation
+                or action.status != "processing" or action.attempt_count != context.attempt_count):
+                raise RecordCognitiveStateError
+            if db.scalar(select(User.id).where(User.id == action.user_id, User.deleted_at.is_(None))) is None:
+                raise RecordCognitiveStateError
+            if action.conversation_id is not None and db.scalar(select(Conversation.id).where(
+                Conversation.id == action.conversation_id, Conversation.user_id == action.user_id,
+                Conversation.deleted_at.is_(None),
+            )) is None:
+                raise RecordCognitiveStateError
+            if action.message_id is not None:
+                message = db.scalar(select(Message).join(Conversation).where(
+                    Message.id == action.message_id, Message.user_id == action.user_id,
+                    Message.role == "user", Conversation.user_id == action.user_id,
+                    Conversation.deleted_at.is_(None),
+                ))
+                if message is None or (action.conversation_id is not None and message.conversation_id != action.conversation_id):
+                    raise RecordCognitiveStateError
+            arguments = RecordCognitiveStateArguments.model_validate(action.arguments)
+            # 수동으로 만들어진 ready 계획도 공통 Record 기준을 우회할 수 없습니다.
+            if min(action.confidence, arguments.confidence) < CONFIDENCE_THRESHOLDS["record"]:
+                raise RecordCognitiveStateError
+            if before_insert is not None:
+                before_insert()
+            # model_dump의 None을 제거하지 않습니다. unknown을 0으로 바꾸지 않습니다.
+            inserted_id = db.scalar(pg_insert(CognitiveStateEvent).values(
+                user_id=action.user_id, conversation_id=action.conversation_id, message_id=action.message_id,
+                agent_action_id=action.id, **arguments.model_dump(),
+                source="orchestrator", metadata={"extractor_version": "cognitive-state-v1"},
+            ).on_conflict_do_nothing(index_elements=[CognitiveStateEvent.agent_action_id]).returning(CognitiveStateEvent.id))
+            item = db.get(CognitiveStateEvent, inserted_id) if inserted_id else db.scalar(select(CognitiveStateEvent).where(CognitiveStateEvent.agent_action_id == action.id))
+            if item is None:
+                raise RecordCognitiveStateError
+            if before_commit is not None:
+                before_commit()
+            db.commit()
+            return ExecutorResult(outcome="cognitive_state_recorded", data={"cognitive_state_event_id": str(item.id), "recorded": inserted_id is not None})
+    except SQLAlchemyError as error:
+        # 세션 context manager가 미commit 변경을 rollback합니다.
+        raise RecordCognitiveStateError from error

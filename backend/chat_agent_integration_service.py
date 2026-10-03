@@ -26,6 +26,8 @@ AUTO_EXECUTE_TOOLS = {
     "record_place_event",
     # 신체 상태 실패도 다른 Record transaction이나 채팅 응답을 취소하지 않습니다.
     "record_body_state",
+    # 인지 실패도 채팅 응답과 다른 도메인 저장을 취소하지 않습니다.
+    "record_cognitive_state",
     "record_emotion",
     "record_daily_trace",
     "record_dream_goal",

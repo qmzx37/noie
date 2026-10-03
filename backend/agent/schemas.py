@@ -12,12 +12,15 @@ from agent.dream_goal_schemas import DreamGoalArguments
 from agent.schedule_schemas import CreateScheduleArguments
 from agent.place_schemas import RecordPlaceEventArguments
 from agent.body_state_schemas import RecordBodyStateArguments
+# Cognitive 인자는 기존 도메인과 합치지 않고 별도 검증합니다.
+from agent.cognitive_state_schemas import COGNITIVE_AXES, RecordCognitiveStateArguments
 
 
 AgentType = Literal[
     "memory",
     "emotion",
     "body_state",
+    "cognitive_state",
     "daily_life",
     "dream_goal",
     "schedule",
@@ -59,7 +62,7 @@ class OrchestratorAction(BaseModel):
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
     # Place 인자는 기존 도메인 계약을 변경하지 않고 선택지에만 추가합니다.
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | None = None
 
     @model_validator(mode="after")
     def validate_confirmation_policy(self) -> "OrchestratorAction":
@@ -74,6 +77,12 @@ class OrchestratorAction(BaseModel):
         is_schedule_create = self.type == "schedule" and self.mode == "execute" and self.intent == "create_schedule"
         is_place_record = self.type == "place" and self.mode == "record" and self.intent == "record_place_event"
         is_body_record = self.type == "body_state" and self.mode == "record" and self.intent == "record_body_state"
+        # routing과 축 해석 중 낮은 신뢰도로 과신을 방지합니다.
+        is_cognitive_record = self.type == "cognitive_state" and self.mode == "record" and self.intent == "record_cognitive_state"
+        if is_cognitive_record:
+            if not isinstance(self.arguments, RecordCognitiveStateArguments):
+                raise ValueError("record_cognitive_state에는 근거 있는 5축 arguments가 필요합니다.")
+            self.confidence = min(self.confidence, self.arguments.confidence)
         if is_body_record:
             if not isinstance(self.arguments, RecordBodyStateArguments):
                 raise ValueError("record_body_state에는 근거 있는 6축 arguments가 필요합니다.")
@@ -92,7 +101,7 @@ class OrchestratorAction(BaseModel):
             raise ValueError("record_dream_goal action에는 statement와 kind가 필요합니다.")
         if is_emotion_record and not isinstance(self.arguments, EmotionRecordArguments):
             raise ValueError("emotion arguments 형식이 올바르지 않습니다.")
-        if not (is_emotion_record or is_daily_record or is_dream_record or is_schedule_create or is_place_record or is_body_record) and self.arguments is not None:
+        if not (is_emotion_record or is_daily_record or is_dream_record or is_schedule_create or is_place_record or is_body_record or is_cognitive_record) and self.arguments is not None:
             raise ValueError("arguments는 구현된 record action에서만 사용할 수 있습니다.")
         return self
 
@@ -110,4 +119,31 @@ class OrchestratorResult(BaseModel):
         orders = [action.execution_order for action in self.actions]
         if orders != list(range(1, len(self.actions) + 1)):
             raise ValueError("execution_order는 1부터 연속된 순서여야 합니다.")
+        # 한 발화의 현재 인지 벡터를 축별 action으로 중복 저장하지 않습니다.
+        # Message/Memory를 비교하거나 병합하는 것이 아니라 이번 출력 계약만 정규화합니다.
+        cognitive = [action for action in self.actions if action.type == "cognitive_state"
+                     and action.intent == "record_cognitive_state" and action.mode == "record"]
+        if len(cognitive) > 1:
+            known = {axis: None for axis in COGNITIVE_AXES}
+            for action in cognitive:
+                for axis in COGNITIVE_AXES:
+                    value = getattr(action.arguments, axis)
+                    # 충돌한 점수를 선택/평균내면 해석을 조작하므로 명시적으로 거부합니다.
+                    if value is not None and known[axis] is not None and value != known[axis]:
+                        raise ValueError(f"동일 발화의 Cognitive {axis} 점수가 서로 충돌합니다.")
+                    if value is not None:
+                        known[axis] = value
+            arguments = RecordCognitiveStateArguments(
+                **known, confidence=min(action.arguments.confidence for action in cognitive),
+            )
+            combined = cognitive[0].model_copy(update={
+                "arguments": arguments,
+                "confidence": min(action.confidence for action in cognitive),
+                "reason": "; ".join(action.reason for action in cognitive),
+            })
+            # 다른 도메인 필드는 그대로 보존하고 제거된 중복 뒤의 순서만 연속 정리합니다.
+            remaining = [combined if action is cognitive[0] else action
+                         for action in self.actions if not any(action is extra for extra in cognitive[1:])]
+            self.actions = [action.model_copy(update={"execution_order": index})
+                            for index, action in enumerate(remaining, 1)]
         return self
