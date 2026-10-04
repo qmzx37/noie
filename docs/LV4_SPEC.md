@@ -3,8 +3,9 @@
 ## Status / Purpose
 
 **Lv3/Lv4는 NOIE 내부 개발 단계 이름이며 공식 업계 레벨 표준이 아니다.**
-상태: 설계 제안, 미구현. 기준: [LV3_BASELINE.md](LV3_BASELINE.md), HEAD `d900cda`.
-이번 문서는 Agent/code/prompt/schema/migration/UI/평가 기대값을 변경하지 않는다.
+상태: Phase 1 공통 계약/인터페이스/registry만 구현. 실제 Specialist 및 협업 흐름은 미구현.
+기준: [LV3_BASELINE.md](LV3_BASELINE.md), Lv3 HEAD `d900cda`; Phase 1 시작 HEAD `4d1fbf5`.
+기존 runtime/prompt/schema/migration/UI/평가 기대값은 변경하지 않는다.
 
 여러 전문 관점이 독립적으로 의견을 내고, 검토와 조정을 거쳐 사용자의 선택 비용을 줄인다.
 독립 관점은 반드시 병렬 호출·서로 완전히 격리된 프로세스를 뜻하지 않는다.
@@ -83,9 +84,18 @@ Lv3 Recommendation에는 과거 Relationship loader가 없으므로 새 전송 �
 후속 확장 후보: 명시적으로 허용된 현재 위치, 이동시간, 날씨, 영업시간, 혼잡도.
 이번 설계 작업에서 외부 실시간 데이터·GPS·지도 API를 연결하지 않는다.
 
-## AgentOpinion Contract (Document Only)
+## AgentOpinion Contract
 
-아래는 공통 계약 제안이며 Pydantic/JSON Schema를 구현한 상태가 아니다.
+Phase 1은 `backend/agent/lv4/`에서 공통 Pydantic 계약과 ABC 인터페이스, 독립 registry만 구현한다.
+`SpecialistAgent(name, description)`를 상속해 `_run(SpecialistInput)`을 구현한다.
+공통 `run`은 입력/반환 schema 및 agent_name을 재검증한다. Registry는 register/get/list만 제공하며 실행하지 않는다.
+Evidence는 source_type/summary 및 선택적 evidence_ref/observed_at/interpretation/relevance로 제한한다.
+각 text 최대 500자, evidence 16개/risk 8개/후보 action 4개 제한은 Phase 1 최소화 정책이다.
+Action 후보는 type/intent/mode/summary뿐이다. typed arguments와 실제 Tool adapter는 Phase 6에서 승인 후 구현한다.
+result_status는 구현했고 contract_version/run_id/as_of envelope는 후속 제안으로 남긴다.
+confidence=None은 unknown, bool/문자열/NaN/inf와 모든 중첩 extra field는 거부한다.
+Registry의 계약 검증은 신뢰된 Python 구현용이며 악성 코드 sandbox나 evidence 소유권 검증이 아니다.
+DB/Memory/context loader/OpenAI/기존 chat import 경로 연결 및 실제 Agent 자동 등록은 없다.
 
 | 필드 | 의미 / 제약 |
 | --- | --- |
@@ -202,7 +212,7 @@ Physical AI/Robotics는 미래 범위로, 별도의 물리 안전장치·사용�
 | 7 | Multi-Agent run observability | 구조화된 결과/근거/상태/지연/비용만, 비밀·hidden reasoning·전체 개인 context 없음 | 로그/조회 설계, 필요 DB 변경은 별도 승인 |
 | 8 | E2E / eval / regression | 품질·무추천·현재 의사·privacy·실패 격리·기존 domain/Memory 회귀, 변동 결과 공개 | 실제 OpenAI 평가/DB 격리 테스트/최종 보고 |
 
-단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. 이번 문서 작성으로 어떤 Phase 코드도 구현 완료되지 않았다.
+단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 1은 공통 계약 기반만이며 Phase 2 이후는 미구현이다.
 
 ## Evaluation / Open Decisions
 
