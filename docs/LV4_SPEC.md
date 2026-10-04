@@ -3,7 +3,7 @@
 ## Status / Purpose
 
 **Lv3/Lv4는 NOIE 내부 개발 단계 이름이며 공식 업계 레벨 표준이 아니다.**
-상태: Phase 1~3 기반/Specialist, Phase 4 Critic, Phase 5 Arbitrator 구현. 기존 runtime과 협업 흐름은 미연결.
+상태: Phase 1~5 Specialist와 Phase 6 독립 Collaboration Pipeline 구현. 기존 production runtime은 미연결.
 기준: [LV3_BASELINE.md](LV3_BASELINE.md), Lv3 HEAD `d900cda`; Phase 1 시작 HEAD `4d1fbf5`.
 기존 runtime/prompt/schema/migration/UI/평가 기대값은 변경하지 않는다.
 
@@ -210,7 +210,29 @@ User Message
   -> 기존 Gateway -> 기존 agent_actions -> 기존 Executor -> Domain Tool / DB
 ```
 
-추천 불필요/사용자 결정/추천 거부에는 협업 호출 및 추가 개인 context 조회를 건너뛴다.
+Phase 6 v0.1은 위 흐름 중 State -> Recommendation -> Critic -> Arbitrator만 Python에서 연결한다.
+후속 action adapter/Gateway/agent_actions/Executor 및 /chat 연결은 아직 구현하지 않는다.
+`Lv4CollaborationContext`는 원문 current_utterance, reference_time, 기존 StateContext와
+기존 CriticConstraints(Memory 4/Schedule 3/Relationship 3)를 재사용한다. 상태 축 schema를 복제하지 않는다.
+StateContext.as_of와 reference_time은 동일 시각이어야 하고 관찰 시각/원문은 수정하지 않는다.
+State는 기존 고정 `state observations` 입력으로 관찰만 정리한다. 이후 세 단계는 동일 원문을 받는다.
+Recommendation에는 State opinion과 제한된 제약을 전달하고 기존 Specialist의 필터/필요성 판단을 유지한다.
+Critic 제약은 기존 prepare_evidence가 선택한 최소 근거로만 투영한다. 무추천이면 별도 제약은 비운다.
+Arbitrator에는 현재 발화/기준 시각/세 opinion만 전달하며 raw root context나 추가 Memory bag을 주지 않는다.
+Pipeline은 새 판단/추론/추천 정책 없이 context 연결과 고정 순차 실행만 담당한다.
+네 Specialist는 필수 외부 주입이며 인스턴스 로컬 registry 계약 검사만 사용한다. 전역 자동 등록은 없다.
+`Lv4CollaborationResult`는 네 선택적 opinion, COMPLETED/FAILED, 실패 시 failed_stage/failure_kind만 포함한다.
+완료 결과의 최종 협업 의견은 arbitrator_opinion이다. COMPLETED는 사용자 정보가 충분하다는 뜻이 아니다.
+NEEDS_INPUT/NO_RECOMMENDATION도 후속 검토/조정을 계속하며 정상 opinion을 그대로 추적한다.
+각 단계 예외는 FAILED/exception, 명시적 ERROR/NOT_RUN은 FAILED/reported_failure로 후속 실행을 중단한다.
+예외 단계 opinion은 None이고 이전 실제 결과만 보존한다. 명시적 실패 opinion은 해당 단계에 보존한다.
+예외 문자열/traceback/내부 객체/로그 dump/가짜 정상 opinion은 만들지 않는다. 잘못된 root/config는 실행 전 예외다.
+실행별 상태는 지역 변수이고 재사용 가능하다. retry/cache/timeout/병렬 실행/영속성을 새로 보장하지 않는다.
+실제 OpenAI 없이 fake reasoner와 네 실제 Specialist로 계약을 검증한다. 주입 구현의 의미 품질은 별도 검증 대상이다.
+DB read/write/Tool 실행/endpoint/migration/UI 변경은 없다. production 연결과 사용자 인증은 후속 별도 승인 범위다.
+
+향후 production 진입 정책에서는 추천 불필요/사용자 결정/추천 거부에 협업 호출 및 추가 개인 context 조회를 건너뛴다.
+현재 명시적으로 호출한 독립 pipeline은 진입 판단을 새로 만들지 않고 무추천도 네 단계 모두 거친다.
 예: `뭐부터 할까?`, `지금 개발할까 쉴까?`는 후보; `오늘 기분 좋아`,
 `광안리 다녀왔어`, `내일 3시에 수업 있어`, `오늘은 쉴래`는 협업을 자동 요구하지 않는다.
 기존 일반 chat의 Memory retrieval과 Record routing은 별개로 유지한다.
@@ -280,11 +302,11 @@ Physical AI/Robotics는 미래 범위로, 별도의 물리 안전장치·사용�
 | 3 | Recommendation adapter / collaboration | State 활용, NO_RECOMMENDATION, 기존 추천 typed 계약·privacy 보존 | 추천 생성 adapter, 기존 persistence 재작성 금지 |
 | 4 | Critic | unsupported claim/Memory 과대적용/일정/과추천/모순 구분, 명령 강요 없음 | read-only opinion 검토 |
 | 5 | Arbitrator | 충돌·보류·질문·절충 선택의 명확한 정책, 사용자 agency 평가 | 제한된 결과 조정, 직접 Tool 실행 없음 |
-| 6 | 기존 Gateway/action/Executor 통합 | 같은 request 중복·동시 요청·승인·rollback·retry/fencing·finalize loss 회귀 성공 | 최소 /chat adapter와 기존 실행 경로 연결 |
+| 6 | 독립 Collaboration Pipeline | 네 단계 순차 실행/최소 context/무추천·정보부족/실패 추적/DI 계약 성공 | 미연결 협업 계층만. /chat/Gateway/action/Executor 통합은 후속 별도 승인 |
 | 7 | Multi-Agent run observability | 구조화된 결과/근거/상태/지연/비용만, 비밀·hidden reasoning·전체 개인 context 없음 | 로그/조회 설계, 필요 DB 변경은 별도 승인 |
 | 8 | E2E / eval / regression | 품질·무추천·현재 의사·privacy·실패 격리·기존 domain/Memory 회귀, 변동 결과 공개 | 실제 OpenAI 평가/DB 격리 테스트/최종 보고 |
 
-단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 5는 미연결 결정론적 조정 경계이며 Phase 6 이후는 미구현이다.
+단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 6은 독립 순차 협업 경계이며 Phase 7 이후와 production 통합은 미구현이다.
 
 ## Evaluation / Open Decisions
 
