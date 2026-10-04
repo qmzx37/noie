@@ -3,7 +3,7 @@
 ## Status / Purpose
 
 **Lv3/Lv4는 NOIE 내부 개발 단계 이름이며 공식 업계 레벨 표준이 아니다.**
-상태: Phase 1~3 기반/Specialist 및 Phase 4 CriticSpecialist 구현. 기존 runtime과 협업 흐름은 미연결.
+상태: Phase 1~3 기반/Specialist, Phase 4 Critic, Phase 5 Arbitrator 구현. 기존 runtime과 협업 흐름은 미연결.
 기준: [LV3_BASELINE.md](LV3_BASELINE.md), Lv3 HEAD `d900cda`; Phase 1 시작 HEAD `4d1fbf5`.
 기존 runtime/prompt/schema/migration/UI/평가 기대값은 변경하지 않는다.
 
@@ -95,6 +95,29 @@ Arbitrator, 자동 등록, /chat, Gateway, Executor, DB 저장과 연결하지 �
 - 안전 경계가 과거 목표를 근거로 사용자를 강제하는 명분이 되어서는 안 된다.
 - Specialist의 confidence 평균만으로 진실을 정하지 않는다. 권한 없는 제안은 Gateway에 보내지 않는다.
 - 최종 판단은 AI 응답 정리이며 인간의 최종 선택권을 대체하지 않는다.
+
+Phase 5 v0.1은 OpenAI 없이 최소 ArbitratorContext(current_utterance, 선택적 State/Recommendation/Critic
+opinion, 선택적 reference_time)를 받는다. 전체 Recommendation/Critic context, DB ID/metadata/history는 받지 않는다.
+State는 관찰, Recommendation은 기존 후보, Critic은 지적, Arbitrator는 최종 협업 의견을 담당한다.
+최종 협업 의견도 실제 행동 실행권이나 사용자 대신 결정할 권한은 아니다.
+판단은 현재 명시적 결정 -> 추천에 실제 참조된 직접 관찰 -> 연결된 가까운 제약 -> 과거 근거 순서다.
+현재 결정/추천 거부는 NO_RECOMMENDATION, 뒤에서 다시 선택 질문을 하면 조정 가능하다.
+Recommendation의 NO_RECOMMENDATION을 보존하고 State/Critic만으로 새 행동을 생성하지 않는다.
+추천은 현재 발화와 정확히 일치하는 utterance evidence가 필요하다. 이름/높은 confidence만으로 승인하지 않는다.
+Critic은 현재 발화 또는 해당 추천 인용 근거가 연결된 경우만 사용한다. 실패/근거 없는 지적은 자동 veto가 아니다.
+과거 피로 risk/일정 충돌은 기존 행동의 명시적 소요를 빼고 짧은 시간 경계 후 재선택으로 완화한다.
+새 고정 분/시간, 이동 소요, 새 행동을 만들지 않는다. 일정 전 가능한 범위라는 조건은 일정 충돌의 해소 증명이 아니다.
+unsupported inference는 분리 가능한 인과절만 제거한다. 분리 불가/중요한 모순/강제 후보는 보류한다.
+낮은 confidence의 과도한 확신은 지적된 후보의 단정 표현만 완화한다. 새로운 위험 탐지기는 구현하지 않는다.
+약한 concern은 선택을 취소하지 않는다. State partial 자체도 추가 질문을 강제하지 않는다.
+선택 근거/후보/필수 정보가 실제로 없거나 중요 충돌이 미해결이면 NEEDS_INPUT이고 후보는 비운다.
+confidence는 실제 사용한 opinion들의 min, 하나라도 None이면 None이다. 현재 결정만 사용하면 None이다.
+중요 미해결 충돌 및 unsupported/schedule/확신 과장 조정은 알려진 min의 0.5배다. max/평균/성공 확률로 해석하지 않는다.
+최종 evidence는 현재 발화와 실제 사용한 근거만 중복 제거해 최대 16개다. 잘못된 추천 인용은 interpretation=True다.
+risks는 최대 8개(초과 코드 요약), 후보는 원래 후보에서 최대 2개, mode=suggest만 허용한다.
+Registry는 테스트에서만 명시적 등록한다. /chat/DB/agent_actions/Gateway/Executor/production pipeline과 연결하지 않는다.
+결정/부정/인용/인과절의 한국어 의미 경계는 제한된 규칙이다. Critic 미검출 오류의 복구나 후보별 risk attribution은 보장하지 않는다.
+근거의 소유권/관련성 선별과 의견의 동일 요청 연결은 호출자 책임이다. PASS가 안전/실행 승인을 의미하지 않는다.
 
 ## Context Providers, Not Initial Agents
 
@@ -261,7 +284,7 @@ Physical AI/Robotics는 미래 범위로, 별도의 물리 안전장치·사용�
 | 7 | Multi-Agent run observability | 구조화된 결과/근거/상태/지연/비용만, 비밀·hidden reasoning·전체 개인 context 없음 | 로그/조회 설계, 필요 DB 변경은 별도 승인 |
 | 8 | E2E / eval / regression | 품질·무추천·현재 의사·privacy·실패 격리·기존 domain/Memory 회귀, 변동 결과 공개 | 실제 OpenAI 평가/DB 격리 테스트/최종 보고 |
 
-단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 4는 미연결 결정론적 검토 경계이며 Phase 5 이후는 미구현이다.
+단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 5는 미연결 결정론적 조정 경계이며 Phase 6 이후는 미구현이다.
 
 ## Evaluation / Open Decisions
 
