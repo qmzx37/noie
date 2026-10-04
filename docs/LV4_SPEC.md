@@ -3,7 +3,7 @@
 ## Status / Purpose
 
 **Lv3/Lv4는 NOIE 내부 개발 단계 이름이며 공식 업계 레벨 표준이 아니다.**
-상태: Phase 1 기반, Phase 2 StateSpecialist, Phase 3 RecommendationSpecialist 구현. 기존 runtime과 협업 흐름은 미연결.
+상태: Phase 1~3 기반/Specialist 및 Phase 4 CriticSpecialist 구현. 기존 runtime과 협업 흐름은 미연결.
 기준: [LV3_BASELINE.md](LV3_BASELINE.md), Lv3 HEAD `d900cda`; Phase 1 시작 HEAD `4d1fbf5`.
 기존 runtime/prompt/schema/migration/UI/평가 기대값은 변경하지 않는다.
 
@@ -68,6 +68,24 @@ State 근거는 별도 evidence로 전달해 중복하지 않는다. 내부 DB I
 - 검사: 근거 없는 추론, 사용자 의사 침해, 과거 Memory 과대적용, 일정 충돌, 과한 추천, 의견 모순.
 - 결과: 어떤 결론의 어떤 근거/위험을 보완할지 구조화해 제시한다. hidden reasoning은 요청하지 않는다.
 - 최종 결정권자가 아니고 위험을 과장하는 보수적 명령자도 아니다. 데이터 부족과 실제 충돌을 구분한다.
+
+Phase 4 v0.1은 typed CriticContext(현재 발화, 선택적 State/Recommendation opinion,
+선택적 reference_time, 최소 Memory/Schedule/Relationship 제약)만 받고 DB/OpenAI를 호출하지 않는다.
+역할 이름과 중첩 extra/score/시각 계약을 검증한다. 기존 State/Recommendation 구현은 수정하지 않는다.
+명백한 현재 휴식 결정 침해, 강제/죄책감 표현, 과거 기억의 절대화, 관계 의도 과해석,
+관찰 없는 상태 단정, 일부 axis 모순, 낮은 confidence의 강한 단정, 명시적 일정/시간 충돌을 검사한다.
+State v0.1의 axis=value 근거를 읽으며 unknown을 다른 domain 점수로 채우지 않는다.
+ENG 낮음+MOT 높음, FOC 높음+LOD 높음, CLR 높음+UNC 높음은 모순으로 취급하지 않는다.
+과거 피로 경험과 2시간 이상 명시적 제안은 재평가 참고 risk이지 STOP/행동 취소 조건이 아니다.
+PASS와 concerns는 공통 result_status=OK의 conclusion/risks로 구분한다.
+검토 대상/필수 시각/처리 결과가 부족하면 NEEDS_INPUT이며 NO_RECOMMENDATION은 정상 검토 결과다.
+수정 방향은 최대 2개의 reflection/review_opinion/Suggest 후보다. 실제 Tool 호출이나 추천 재작성 확정이 아니다.
+confidence는 제공된 opinion confidence의 최솟값, 하나라도 unknown이면 None이며 의미 검증 정확도가 아니다.
+risk 8개 초과 시 앞 7개와 추가 코드 요약을 반환한다. 문제 근거만 중복 제거해 최대 16개 보존한다.
+결정론적 한국어 표현/숫자 시간 검사는 완전한 의미·시간·인과 parser가 아니다.
+조건/부정/인용/복합 문장에 오탐·미탐이 가능하며 PASS가 모든 의미의 안전성을 보증하지 않는다.
+관련성/소유권/동일 사용자 근거의 선별은 호출자 책임이고 이 계층은 인증이나 Entity resolution을 하지 않는다.
+Arbitrator, 자동 등록, /chat, Gateway, Executor, DB 저장과 연결하지 않는다.
 
 ### Arbitrator (조정자 / 중재자)
 
@@ -243,7 +261,7 @@ Physical AI/Robotics는 미래 범위로, 별도의 물리 안전장치·사용�
 | 7 | Multi-Agent run observability | 구조화된 결과/근거/상태/지연/비용만, 비밀·hidden reasoning·전체 개인 context 없음 | 로그/조회 설계, 필요 DB 변경은 별도 승인 |
 | 8 | E2E / eval / regression | 품질·무추천·현재 의사·privacy·실패 격리·기존 domain/Memory 회귀, 변동 결과 공개 | 실제 OpenAI 평가/DB 격리 테스트/최종 보고 |
 
-단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 3는 미연결 Recommendation opinion 경계이며 Phase 4 이후는 미구현이다.
+단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 4는 미연결 결정론적 검토 경계이며 Phase 5 이후는 미구현이다.
 
 ## Evaluation / Open Decisions
 
