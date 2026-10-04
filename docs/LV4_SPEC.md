@@ -3,7 +3,7 @@
 ## Status / Purpose
 
 **Lv3/Lv4는 NOIE 내부 개발 단계 이름이며 공식 업계 레벨 표준이 아니다.**
-상태: Phase 1 공통 계약/인터페이스/registry만 구현. 실제 Specialist 및 협업 흐름은 미구현.
+상태: Phase 1 기반과 Phase 2 StateSpecialist만 구현. 기존 runtime과 협업 흐름은 미연결.
 기준: [LV3_BASELINE.md](LV3_BASELINE.md), Lv3 HEAD `d900cda`; Phase 1 시작 HEAD `4d1fbf5`.
 기존 runtime/prompt/schema/migration/UI/평가 기대값은 변경하지 않는다.
 
@@ -23,6 +23,16 @@
 - Emotion/Body/Cognitive를 각각 별도 LLM Agent로 만들지 않는다.
 - 관측이 없으면 unknown이며 과거 상태를 현재 상태로 덮어쓰지 않는다. 현재 직접 진술과 과거 snapshot의 차이를 드러낸다.
 - state opinion은 새로운 측정값, 진단, Record action 또는 DB 상태 갱신이 아니다.
+
+Phase 2 v0.1은 OpenAI 없이 typed StateContext를 받아 관찰을 나란히 정리한다.
+Emotion은 기존 F/A/D/J/C/G/T/R, Body/Cognitive는 기존 축 이름과 nullable 값을 사용한다.
+DB ID/metadata/다른 domain context를 받지 않으며 공통 입력 호환용 current_utterance는 고정 문자열이다.
+StateContext의 as_of와 선택적 max_age_seconds는 호출자가 제공한다. Agent 내부 고정 유효 창/decay는 없다.
+기준 이후/유효 창 초과 관찰은 evidence에는 보존하고 종합·confidence 집계에서 제외한다.
+시각 미상/시점 차이/유효 창 미지정은 risks로 표시하며 결론은 최신 상태라고 확정하지 않는다.
+confidence는 사용한 domain confidence의 최솟값이며 하나라도 None이면 None이다.
+partial 또는 유효 관찰 없음은 NEEDS_INPUT, 후자는 insufficient_context risk로 표현한다.
+suggested_actions는 항상 빈 목록이며 등록은 테스트에서만 명시적으로 수행한다.
 
 ### Recommendation Agent
 
@@ -212,7 +222,7 @@ Physical AI/Robotics는 미래 범위로, 별도의 물리 안전장치·사용�
 | 7 | Multi-Agent run observability | 구조화된 결과/근거/상태/지연/비용만, 비밀·hidden reasoning·전체 개인 context 없음 | 로그/조회 설계, 필요 DB 변경은 별도 승인 |
 | 8 | E2E / eval / regression | 품질·무추천·현재 의사·privacy·실패 격리·기존 domain/Memory 회귀, 변동 결과 공개 | 실제 OpenAI 평가/DB 격리 테스트/최종 보고 |
 
-단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 1은 공통 계약 기반만이며 Phase 2 이후는 미구현이다.
+단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 2는 pure State 종합만이며 Phase 3 이후는 미구현이다.
 
 ## Evaluation / Open Decisions
 

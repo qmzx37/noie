@@ -30,7 +30,8 @@ class SpecialistAgent(ABC):
         if not isinstance(request, SpecialistInput):
             raise TypeError("SpecialistInput이 필요합니다.")
         # 중첩 list의 변경이나 model_construct로 우회한 입력도 다시 검사합니다.
-        checked_request = SpecialistInput.model_validate(request.model_dump())
+        # StateContext 등 typed 입력 확장의 필드를 버리지 않고 해당 계약으로 재검증합니다.
+        checked_request = type(request).model_validate(request.model_dump())
         result = self._run(checked_request)
         if not isinstance(result, AgentOpinion):
             raise TypeError("Specialist는 AgentOpinion을 반환해야 합니다.")
