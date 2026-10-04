@@ -3,7 +3,7 @@
 ## Status / Purpose
 
 **Lv3/Lv4는 NOIE 내부 개발 단계 이름이며 공식 업계 레벨 표준이 아니다.**
-상태: Phase 1 기반과 Phase 2 StateSpecialist만 구현. 기존 runtime과 협업 흐름은 미연결.
+상태: Phase 1 기반, Phase 2 StateSpecialist, Phase 3 RecommendationSpecialist 구현. 기존 runtime과 협업 흐름은 미연결.
 기준: [LV3_BASELINE.md](LV3_BASELINE.md), Lv3 HEAD `d900cda`; Phase 1 시작 HEAD `4d1fbf5`.
 기존 runtime/prompt/schema/migration/UI/평가 기대값은 변경하지 않는다.
 
@@ -41,6 +41,26 @@ suggested_actions는 항상 빈 목록이며 등록은 테스트에서만 명시
 - 이미 결정한 사용자, 추천 거부, 단순 보고에는 NO_RECOMMENDATION이 정상 결과다.
 - 현재 질문의 근거가 부족하면 개인 사정을 지어내지 않고 현재 발화 중심 제안 또는 질문/보류를 반환한다.
 - 기존 Suggest 종류·threshold·인자 계약을 adapter로 재사용한다. 실제 행동 실행 권한은 없다.
+
+Phase 3 v0.1은 `RecommendationContext`의 current_utterance/reference_time, 선택적 State opinion,
+Memory 최대 4개, Schedule 최대 3개, Relationship 최대 3개만 입력받는다. 모든 중첩 extra field/비유한 score를 거부한다.
+State는 기존 opinion의 120분 내 관찰 근거만 참고한다. 제외된 상태가 섞이면 원래 결론도 전송하지 않는다.
+Memory는 기존 관련성 helper, .55/Top-K 4를 유지한다. 전체 검색/DB 조회는 하지 않는다.
+Schedule은 관련성 .55 이상, 진행 중 또는 기본 2시간/오늘·내일 계획 최대 24시간 범위로 제한한다.
+Relationship은 질문에 명시된 person_label의 관련 사용자 진술만 받으며 현재 관계 정답/상대 의도로 확대하지 않는다.
+기준 시각 이후 Memory/State/Relationship은 제외한다. Memory/관계의 과거·시각 미상 자료는 참고 이력이지 최신 사실이 아니다.
+reasoner는 명시적으로 주입한다. `OpenAIRecommendationAdapter`는 기존 ORCHESTRATOR_SYSTEM_PROMPT,
+추천 전용 JSON Schema와 RecommendationArguments를 재사용하며 used_evidence_refs 및 필수 정보 질문 필드를 출력 계약에 추가한다.
+실제 OpenAI 호출은 adapter를 명시적으로 주입해 run할 때만 가능하며 이번 검증은 fake client만 사용한다.
+전달 payload: current_user_utterance, reference_time, 최소화한 state_opinion(name/conclusion/confidence/status/needs_user_input),
+recommendation_evidence(source_type/summary/opaque evidence_ref/observed_at/interpretation/relevance).
+State 근거는 별도 evidence로 전달해 중복하지 않는다. 내부 DB ID/metadata/Goal/전체 history는 전달하지 않는다.
+기존 recommendation_needed로 결정/보고/추천 거부를 reasoning 전에 제외하며, 출력이 참조한 허용 근거만 opinion에 남긴다.
+현재 발화 참조와 관련 일정 참조를 요구한다. 최대 두 후보는 Suggest이며 저장/실행하지 않는다.
+명백한 강제 표현과 일정 시작을 초과하는 명시적 숫자 소요 시간은 보수적으로 거부한다. 자연어 의미 전체를 검증하는 Critic이 아니다.
+원래 필요성·주제 필터의 보수성, 자연어 시간/의도·일정 충돌 해석, LLM 지목 근거의 실제 사용 여부는 한계다.
+예컨대 단독 '2시간 더 개발하고 싶어'는 기존 필요성 필터에서 제외될 수 있으며 별도 hardcode/정책 변경으로 강제 추천하지 않는다.
+반환 오류는 안전한 보류/예외로 남기며 생성에 실패한 의견을 성공으로 위장하지 않는다. 제품 runtime에는 연결하지 않는다.
 
 ### Critic / Reviewer (검토자)
 
@@ -105,7 +125,8 @@ Action 후보는 type/intent/mode/summary뿐이다. typed arguments와 실제 To
 result_status는 구현했고 contract_version/run_id/as_of envelope는 후속 제안으로 남긴다.
 confidence=None은 unknown, bool/문자열/NaN/inf와 모든 중첩 extra field는 거부한다.
 Registry의 계약 검증은 신뢰된 Python 구현용이며 악성 코드 sandbox나 evidence 소유권 검증이 아니다.
-DB/Memory/context loader/OpenAI/기존 chat import 경로 연결 및 실제 Agent 자동 등록은 없다.
+공통 계약/registry에는 DB/Memory/context loader/OpenAI 실행이나 실제 Agent 자동 등록이 없다.
+Phase 3의 선택적 OpenAI adapter는 별도 주입 경계이며 기존 chat import 경로와 미연결이다.
 
 | 필드 | 의미 / 제약 |
 | --- | --- |
@@ -222,7 +243,7 @@ Physical AI/Robotics는 미래 범위로, 별도의 물리 안전장치·사용�
 | 7 | Multi-Agent run observability | 구조화된 결과/근거/상태/지연/비용만, 비밀·hidden reasoning·전체 개인 context 없음 | 로그/조회 설계, 필요 DB 변경은 별도 승인 |
 | 8 | E2E / eval / regression | 품질·무추천·현재 의사·privacy·실패 격리·기존 domain/Memory 회귀, 변동 결과 공개 | 실제 OpenAI 평가/DB 격리 테스트/최종 보고 |
 
-단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 2는 pure State 종합만이며 Phase 3 이후는 미구현이다.
+단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 3는 미연결 Recommendation opinion 경계이며 Phase 4 이후는 미구현이다.
 
 ## Evaluation / Open Decisions
 
