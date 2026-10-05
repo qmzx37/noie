@@ -7,15 +7,20 @@ from sqlalchemy.orm import Session
 from agent.relationship_schemas import RelationshipEventResponse
 from agent.relationship_event_service import RelationshipDatabaseError, RelationshipNotFoundError, get_relationship_event, list_relationship_events
 from database import get_db
+from auth_context import AuthPrincipal
+from auth_ownership import require_core_principal, require_matching_user_id
+
+# AUTH ON에서는 client UUID만으로 다른 사용자 기록에 접근할 수 없습니다.
+# Principal이 authority이며, path/query UUID는 일치 여부만 확인합니다.
 
 router = APIRouter(tags=["relationship-evidence"])
 
 
 @router.get("/relationship-events/{event_id}", response_model=RelationshipEventResponse)
-def get_relationship_by_id(event_id: UUID, user_id: UUID = Query(), db: Session = Depends(get_db)):
+def get_relationship_by_id(event_id: UUID, user_id: UUID = Query(), principal: AuthPrincipal | None = Depends(require_core_principal), db: Session = Depends(get_db)):
     """다른 사용자와 존재하지 않는 기록은 모두 404입니다."""
     try:
-        return get_relationship_event(db, event_id, user_id)
+        return get_relationship_event(db, event_id, require_matching_user_id(principal, user_id))
     except RelationshipNotFoundError as error:
         raise HTTPException(status_code=404, detail="Relationship 근거를 찾을 수 없습니다.") from error
     except RelationshipDatabaseError as error:
@@ -23,10 +28,10 @@ def get_relationship_by_id(event_id: UUID, user_id: UUID = Query(), db: Session 
 
 
 @router.get("/users/{user_id}/relationship-events", response_model=list[RelationshipEventResponse])
-def get_user_relationships(user_id: UUID, limit: int = Query(default=50, ge=1, le=100), db: Session = Depends(get_db)):
+def get_user_relationships(user_id: UUID, limit: int = Query(default=50, ge=1, le=100), principal: AuthPrincipal | None = Depends(require_core_principal), db: Session = Depends(get_db)):
     """당시 근거 기록을 반환하며 현재 유효한 관계 목록으로 해석하지 않습니다."""
     try:
-        return list_relationship_events(db, user_id, limit)
+        return list_relationship_events(db, require_matching_user_id(principal, user_id), limit)
     except RelationshipNotFoundError as error:
         raise HTTPException(status_code=404, detail="Relationship 근거를 찾을 수 없습니다.") from error
     except RelationshipDatabaseError as error:
