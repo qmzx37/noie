@@ -7,6 +7,8 @@ import time
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+from chat_background_observability import run_background_tail_probe
+
 
 def shadow_enabled():
     """기존 환경변수 방식으로 읽으며 미설정/잘못된 값은 OFF입니다. 자동 sampling은 없습니다."""
@@ -53,9 +55,30 @@ def shadow_eligibility(user_id, request_id):
 def _emit(event, observation):
     """원문/의견/예외 문자열은 출력하지 않습니다. 로깅 실패도 production으로 전파하지 않습니다."""
     try:
-        print("[noie] lv4_shadow " + json.dumps({"event":event, **observation}, ensure_ascii=True))
+        print("[noie] lv4_shadow " + json.dumps({"event":event, **observation}, ensure_ascii=True), flush=True)
     except Exception:
         pass
+
+
+def run_shadow_dispatch_observed(*, user_id, text, memories, correlation):
+    """기존 Shadow 호출의 경계만 기록하고 반환값/예외 전파 정책은 그대로 유지합니다."""
+    try:
+        _emit("dispatch_started", {"correlation": correlation})
+    except Exception:
+        # helper 자체가 실패해도 실제 Shadow는 반드시 호출합니다.
+        pass
+    event = "dispatch_returned"
+    try:
+        return run_shadow(user_id=user_id, text=text, memories=memories, correlation=correlation)
+    except BaseException:
+        event = "dispatch_failed"
+        raise
+    finally:
+        try:
+            # 예외 문자열이나 사용자/Memory 원문은 관측 로그에 넣지 않습니다.
+            _emit(event, {"correlation": correlation})
+        except Exception:
+            pass
 
 
 def schedule_shadow(background_tasks, *, context, text, memories):
@@ -74,8 +97,11 @@ def schedule_shadow(background_tasks, *, context, text, memories):
         # 이미 production Retrieval이 선택한 최대 4개만 detached 최소 필드로 넘깁니다. 추가 검색은 없습니다.
         selected = tuple({"content":item.content, "relevance":item.relevance,
             "confidence":getattr(item,"confidence",None)} for item in memories[:4])
-        background_tasks.add_task(run_shadow, user_id=context.user_id, text=text,
+        background_tasks.add_task(run_shadow_dispatch_observed, user_id=context.user_id, text=text,
             memories=selected, correlation=correlation)
+        # allowlist를 통과해 실제 Shadow가 예약된 경우에만 뒤에 초경량 tail을 붙입니다.
+        background_tasks.add_task(run_background_tail_probe,
+            correlation_source=context.request_id or context.user_message_id)
         _emit("gate", {"correlation":correlation,"eligible":True,"scheduled":True,"gate_reason":reason})
     except Exception:
         _emit("failed", {"correlation":correlation,"failure_stage":"SCHEDULING","failure_code":"scheduling_failed"})

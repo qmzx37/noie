@@ -9,7 +9,7 @@ def _emit(event, task_name, correlation, elapsed_ms=None):
     """고정된 이벤트/작업명만 출력하며 직렬화와 print 오류는 업무 함수로 전파하지 않습니다."""
     try:
         # probe도 같은 최소 로그 형식을 사용하며 출력 즉시 flush합니다.
-        if task_name not in {"probe", "memory", "agent"}:
+        if task_name not in {"probe", "tail", "memory", "agent"}:
             return
         record = {"event": event, "task": task_name, "correlation": correlation}
         if elapsed_ms is not None:
@@ -32,6 +32,22 @@ def run_background_probe(*, correlation_source=None):
             # 로그 helper 자체가 실패해도 뒤 background 작업은 계속됩니다.
             _emit(event, "probe", correlation)
         except Exception:
+            pass
+
+
+def run_background_tail_probe(*, correlation_source=None):
+    """Shadow 뒤에서 외부 작업 없이 진입/반환만 기록합니다."""
+    correlation = None
+    try:
+        # 앞 probe 및 Shadow와 같은 request hash만 사용하고 원본 UUID는 출력하지 않습니다.
+        correlation = hashlib.sha256(correlation_source.bytes).hexdigest()[:24]
+    except Exception:
+        pass
+    for event in ("started", "returned"):
+        try:
+            _emit(event, "tail", correlation)
+        except Exception:
+            # 관측 오류는 background chain으로 전파하지 않습니다.
             pass
 
 

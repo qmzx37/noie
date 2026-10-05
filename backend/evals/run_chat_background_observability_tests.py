@@ -151,12 +151,14 @@ class BackgroundObservabilityTests(unittest.TestCase):
         original = BackgroundTasks.add_task
         def capture(tasks, function, *args, **kwargs):
             order.append(args[0] if function is observer.run_observed_background else 'shadow'
-                if function is shadow.run_shadow else 'other')
+                if function is shadow.run_shadow_dispatch_observed else 'tail'
+                if function is shadow.run_background_tail_probe else 'other')
             return original(tasks, function, *args, **kwargs)
         with patch.object(BackgroundTasks, 'add_task', capture):
             _, _, _, trace, _, _ = self.call_chat(True)
-        self.assertEqual(order, ['memory', 'agent', 'shadow'])
-        self.assertEqual(trace, order)
+        # 기존 업무 순서는 유지하고 allowlisted Shadow 뒤에 진단 tail만 추가합니다.
+        self.assertEqual(order, ['memory', 'agent', 'shadow', 'tail'])
+        self.assertEqual(trace, order[:-1])
 
     def test_matching_shadow_correlation(self):
         _, context, _, _, output, _ = self.call_chat(True)

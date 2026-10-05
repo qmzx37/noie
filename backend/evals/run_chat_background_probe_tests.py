@@ -58,7 +58,8 @@ class BackgroundProbeTests(unittest.TestCase):
                 response, _, trace, registered, _ = self.call_chat(value)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(trace, ['memory', 'agent', 'shadow'])
-                self.assertEqual(len(registered), 3)
+                self.assertEqual(len(registered), 4)
+                self.assertIs(registered[-1][0], shadow.run_background_tail_probe)
 
     def test_on_values_order_and_correlation(self):
         """허용된 값에서만 probe가 Memory보다 먼저 등록/실행됩니다."""
@@ -67,7 +68,9 @@ class BackgroundProbeTests(unittest.TestCase):
                 response, context, trace, registered, output = self.call_chat(value)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(trace, ['probe', 'memory', 'agent', 'shadow'])
-                self.assertEqual(len(registered), 4)
+                self.assertEqual(len(registered), 5)
+                self.assertIs(registered[-2][0], shadow.run_shadow_dispatch_observed)
+                self.assertIs(registered[-1][0], shadow.run_background_tail_probe)
                 self.assertEqual(registered[0][2]['correlation_source'], context.request_id)
                 self.assertEqual(registered[1][1][0], 'memory')
                 self.assertEqual(registered[2][1][0], 'agent')
