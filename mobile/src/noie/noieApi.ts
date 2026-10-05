@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "../constants/appConstants";
 import { randomUUID } from "expo-crypto";
+import { fetchChatWithAuth } from "../auth/chatAuthFetch";
 import type {
   ChatApiResponse,
   ExtractDailyTraceResponse,
@@ -19,15 +20,15 @@ export async function requestChatReply(
 ) {
   // 한 번 만든 UUID는 이 HTTP 요청 본문에 고정되어 네트워크 재전송에도 재사용됩니다.
   const requestId = randomUUID();
-  const response = await fetch(`${API_BASE_URL}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  // Bearer/401 처리는 이 두 /chat 요청에만 적용하며 body는 한 번만 생성합니다.
+  const response = await fetchChatWithAuth(
+    `${API_BASE_URL}/chat`,
+    JSON.stringify({
       text,
       messages,
       request_id: requestId,
-    }),
-  });
+    })
+  );
 
   if (!response.ok) {
     throw new Error(`API 응답 오류: ${response.status}`);
@@ -56,10 +57,10 @@ export async function requestProjectChatReply({
   latestCheckpoint?: ProjectCheckpoint | null;
 }) {
   const requestId = randomUUID();
-  const response = await fetch(`${API_BASE_URL}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  // 프로젝트 필드를 그대로 유지하고 재시도에도 같은 request_id/body를 사용합니다.
+  const response = await fetchChatWithAuth(
+    `${API_BASE_URL}/chat`,
+    JSON.stringify({
       text,
       messages,
       request_id: requestId,
@@ -70,8 +71,8 @@ export async function requestProjectChatReply({
       project_next_action: projectNextAction ?? null,
       project_status: projectStatus ?? null,
       latest_checkpoint: latestCheckpoint ?? null,
-    }),
-  });
+    })
+  );
 
   if (!response.ok) {
     throw new Error(`프로젝트 API 응답 오류: ${response.status}`);

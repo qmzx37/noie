@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AuthGate } from "./src/features/auth/AuthGate";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -413,6 +414,11 @@ function createEmptySession(): ChatSession {
 }
 
 export default function App() {
+  // 기존 NOIE 앱의 상태/저장 로직은 안쪽에 그대로 두고 인증 gate만 감쌉니다.
+  return <AuthGate><NoieApp /></AuthGate>;
+}
+
+function NoieApp() {
   const { width } = useWindowDimensions();
   const isWideScreen = width >= 820;
   const scrollViewRef = useRef<ScrollView | null>(null);
