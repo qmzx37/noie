@@ -13,8 +13,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from agent.router import router as agent_router
+from auth_context import AuthPrincipal, auth_enabled, resolve_auth_principal
 from chat_storage_router import router as chat_storage_router
 from chat_persistence_service import (
+    AuthenticatedOwnershipError,
     RequestIdConflictError,
     RequestStillProcessingError,
     begin_chat_request,
@@ -1350,12 +1352,32 @@ def analyze_emotion(request: AnalyzeEmotionRequest) -> dict:
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
+def chat(
+    request: ChatRequest,
+    background_tasks: BackgroundTasks,
+    principal: AuthPrincipal | None = Depends(resolve_auth_principal),
+) -> dict:
+    # dependency가 향후 잘못된 None을 반환해도 Auth ON에서는 개발 사용자로 내려가지 않습니다.
+    if auth_enabled() and principal is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="인증이 필요합니다.")
     # DB에는 사용자가 보낸 원문을 그대로 저장하고 기존 OpenAI 처리에는 trim 값을 씁니다.
     original_text = request.text
     text = original_text.strip()
     try:
-        persistence_start = begin_chat_request(original_text, request.request_id)
+        if principal is None:
+            # Auth OFF의 기존 positional 호출 및 dev-user 동작은 그대로 유지합니다.
+            persistence_start = begin_chat_request(original_text, request.request_id)
+        else:
+            # 신원은 body가 아니라 서버 인증 dependency의 검증된 Principal에서만 가져옵니다.
+            persistence_start = begin_chat_request(
+                original_text, request.request_id, authenticated_user_id=principal.user_id,
+            )
+    except AuthenticatedOwnershipError as error:
+        # 사용자 존재/삭제 상태/DB 오류를 구분해 노출하지 않고 동일한 안전 응답을 반환합니다.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="인증된 사용자로 요청을 처리할 수 없습니다.",
+        ) from error
     except RequestIdConflictError as error:
         # 동일 UUID를 다른 요청에 재사용하거나 이전 처리가 실패한 경우 새 UUID가 필요합니다.
         raise HTTPException(
