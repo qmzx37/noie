@@ -6,6 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from auth_context import AuthPrincipal
+from auth_ownership import (
+    require_core_principal,
+    require_matching_user_id,
+    require_memory_owner,
+)
 
 from database import get_db
 from memory_extraction_service import (
@@ -64,9 +70,14 @@ def _database_error() -> HTTPException:
     response_model=MemoryResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def post_memory(data: MemoryCreate, db: Session = Depends(get_db)) -> MemoryResponse:
+def post_memory(data: MemoryCreate,
+                principal: AuthPrincipal | None = Depends(require_core_principal),
+                db: Session = Depends(get_db)) -> MemoryResponse:
     try:
-        return create_memory(db, data)
+        # owner만 Principal로 고정하고 기존 evidence/conversation 검증을 재사용합니다.
+        owner = require_matching_user_id(principal, data.user_id)
+        owned_data = data if principal is None else data.model_copy(update={"user_id": owner})
+        return create_memory(db, owned_data)
     except MemoryNotFoundError as error:
         raise _not_found() from error
     except MemoryEvidenceValidationError as error:
@@ -78,10 +89,11 @@ def post_memory(data: MemoryCreate, db: Session = Depends(get_db)) -> MemoryResp
 @router.get("/users/{user_id}/memories", response_model=list[MemoryResponse])
 def get_user_memories(
     user_id: UUID,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
     db: Session = Depends(get_db),
 ) -> list[MemoryResponse]:
     try:
-        return list_user_memories(db, user_id)
+        return list_user_memories(db, require_matching_user_id(principal, user_id))
     except MemoryNotFoundError as error:
         raise _not_found() from error
     except MemoryDatabaseError as error:
@@ -91,9 +103,12 @@ def get_user_memories(
 @router.get("/memories/{memory_id}", response_model=MemoryResponse)
 def get_memory_by_id(
     memory_id: UUID,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
     db: Session = Depends(get_db),
 ) -> MemoryResponse:
     try:
+        # evidence 원문까지 로드하기 전에 Memory 소유권을 확인합니다.
+        require_memory_owner(db, principal, memory_id)
         return get_memory(db, memory_id)
     except MemoryNotFoundError as error:
         raise _not_found() from error
@@ -101,12 +116,15 @@ def get_memory_by_id(
         raise _database_error() from error
 
 
-def _raise_extraction_error(error: Exception) -> None:
+def _raise_extraction_error(error: Exception, principal: AuthPrincipal | None = None) -> None:
     """추출 API의 내부 예외를 안정적인 HTTP 상태로 변환합니다."""
 
     if isinstance(error, MemoryExtractionNotFoundError):
         raise _not_found() from error
     if isinstance(error, MemoryExtractionAccessError):
+        # ON에서는 다른 사용자 message와 없는 message를 구분해서 노출하지 않습니다.
+        if principal is not None:
+            raise _not_found() from error
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="다른 사용자의 message에는 접근할 수 없습니다.",
@@ -126,16 +144,18 @@ def _raise_extraction_error(error: Exception) -> None:
 def post_extract_memory(
     message_id: UUID,
     data: MemoryExtractionRequest,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
 ) -> MemoryExtractionResponse:
     try:
-        return extract_memory_for_message(message_id, data.user_id)
+        # 서비스가 OpenAI/lease 획득 전에 conversation 소유권을 검사합니다.
+        return extract_memory_for_message(message_id, require_matching_user_id(principal, data.user_id))
     except (
         MemoryExtractionNotFoundError,
         MemoryExtractionAccessError,
         MemoryExtractionRoleError,
         MemoryExtractionDatabaseError,
     ) as error:
-        _raise_extraction_error(error)
+        _raise_extraction_error(error, principal)
 
 
 @router.get(
@@ -145,16 +165,17 @@ def post_extract_memory(
 def get_message_memory_extraction(
     message_id: UUID,
     user_id: UUID = Query(),
+    principal: AuthPrincipal | None = Depends(require_core_principal),
 ) -> MemoryExtractionResponse:
     try:
-        return get_memory_extraction(message_id, user_id)
+        return get_memory_extraction(message_id, require_matching_user_id(principal, user_id))
     except (
         MemoryExtractionNotFoundError,
         MemoryExtractionAccessError,
         MemoryExtractionRoleError,
         MemoryExtractionDatabaseError,
     ) as error:
-        _raise_extraction_error(error)
+        _raise_extraction_error(error, principal)
 
 
 @router.post(
@@ -163,11 +184,14 @@ def get_message_memory_extraction(
 )
 def post_memory_retrieval_preview(
     data: MemoryRetrievalPreviewRequest,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
 ) -> MemoryRetrievalPreviewResponse:
     """후보와 최종 선택을 개발자가 Swagger에서 함께 확인합니다."""
 
+    # mismatch는 기존 preview fallback의 넓은 except에서 삼키지 않도록 밖에서 검사합니다.
+    owner = require_matching_user_id(principal, data.user_id)
     try:
-        candidates, selected = retrieve_relevant_memories(data.user_id, data.query)
+        candidates, selected = retrieve_relevant_memories(owner, data.query)
         return MemoryRetrievalPreviewResponse(
             candidates=candidates,
             selected_memories=selected,

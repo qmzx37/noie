@@ -6,6 +6,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from auth_context import AuthPrincipal
+from auth_ownership import (
+    require_core_principal,
+    require_dev_user_creation,
+    require_matching_user_id,
+    require_conversation_owner,
+)
 
 from chat_storage_schemas import (
     ConversationCreate,
@@ -46,7 +53,10 @@ def _database_error() -> HTTPException:
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def post_user(data: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
+def post_user(data: UserCreate,
+              _dev_only: None = Depends(require_dev_user_creation),
+              db: Session = Depends(get_db)) -> UserResponse:
+    # ON 차단은 세션을 열기 전 dependency에서 수행하고 OFF의 생성 로직은 그대로 둡니다.
     try:
         return create_user(db, data)
     except StorageDatabaseError as error:
@@ -60,10 +70,14 @@ def post_user(data: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
 )
 def post_conversation(
     data: ConversationCreate,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
     db: Session = Depends(get_db),
 ) -> ConversationResponse:
     try:
-        return create_conversation(db, data)
+        # body 계약은 유지하되 실제 owner는 검증된 Principal에서 가져옵니다.
+        owner = require_matching_user_id(principal, data.user_id)
+        owned_data = data if principal is None else data.model_copy(update={"user_id": owner})
+        return create_conversation(db, owned_data)
     except StorageNotFoundError as error:
         raise _not_found() from error
     except StorageDatabaseError as error:
@@ -76,10 +90,11 @@ def post_conversation(
 )
 def get_user_conversations(
     user_id: UUID,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
     db: Session = Depends(get_db),
 ) -> list[ConversationResponse]:
     try:
-        return list_user_conversations(db, user_id)
+        return list_user_conversations(db, require_matching_user_id(principal, user_id))
     except StorageNotFoundError as error:
         raise _not_found() from error
     except StorageDatabaseError as error:
@@ -94,9 +109,12 @@ def get_user_conversations(
 def post_message(
     conversation_id: UUID,
     data: MessageCreate,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
     try:
+        # role 정책과 원문 저장은 기존 서비스에 맡기고 대화 소유권만 먼저 확인합니다.
+        require_conversation_owner(db, principal, conversation_id)
         return create_message(db, conversation_id, data)
     except StorageNotFoundError as error:
         raise _not_found() from error
@@ -110,9 +128,12 @@ def post_message(
 )
 def get_conversation_messages(
     conversation_id: UUID,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
     db: Session = Depends(get_db),
 ) -> list[MessageResponse]:
     try:
+        # 조회 전에 다른 사용자 대화를 안전한 404로 차단합니다.
+        require_conversation_owner(db, principal, conversation_id)
         return list_conversation_messages(db, conversation_id)
     except StorageNotFoundError as error:
         raise _not_found() from error
