@@ -8,14 +8,31 @@ import time
 def _emit(event, task_name, correlation, elapsed_ms=None):
     """고정된 이벤트/작업명만 출력하며 직렬화와 print 오류는 업무 함수로 전파하지 않습니다."""
     try:
-        if task_name not in {"memory", "agent"}:
+        # probe도 같은 최소 로그 형식을 사용하며 출력 즉시 flush합니다.
+        if task_name not in {"probe", "memory", "agent"}:
             return
         record = {"event": event, "task": task_name, "correlation": correlation}
         if elapsed_ms is not None:
             record["elapsed_ms"] = elapsed_ms
-        print("[noie] chat_bg " + json.dumps(record, ensure_ascii=True))
+        print("[noie] chat_bg " + json.dumps(record, ensure_ascii=True), flush=True)
     except Exception:
         pass
+
+
+def run_background_probe(*, correlation_source=None):
+    """외부 작업 없이 첫 background 진입/반환만 관측하며 실패를 뒤 작업에 전파하지 않습니다."""
+    correlation = None
+    try:
+        # 원본 UUID 대신 기존 Memory/Agent/Shadow와 같은 hash만 사용합니다.
+        correlation = hashlib.sha256(correlation_source.bytes).hexdigest()[:24]
+    except Exception:
+        pass
+    for event in ("started", "returned"):
+        try:
+            # 로그 helper 자체가 실패해도 뒤 background 작업은 계속됩니다.
+            _emit(event, "probe", correlation)
+        except Exception:
+            pass
 
 
 def run_observed_background(task_name, function, *args, correlation_source=None):

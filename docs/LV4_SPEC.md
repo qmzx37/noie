@@ -3,7 +3,7 @@
 ## Status / Purpose
 
 **Lv3/Lv4는 NOIE 내부 개발 단계 이름이며 공식 업계 레벨 표준이 아니다.**
-상태: Phase 1~5 Specialist와 Phase 6 독립 Collaboration Pipeline 구현. 기존 production runtime은 미연결.
+상태: Phase 1~5 Specialist, Phase 6 Collaboration Pipeline, Phase 7 Real Context Bridge 구현. production runtime은 미연결.
 기준: [LV3_BASELINE.md](LV3_BASELINE.md), Lv3 HEAD `d900cda`; Phase 1 시작 HEAD `4d1fbf5`.
 기존 runtime/prompt/schema/migration/UI/평가 기대값은 변경하지 않는다.
 
@@ -162,7 +162,7 @@ Phase 1은 `backend/agent/lv4/`에서 공통 Pydantic 계약과 ABC 인터페이
 공통 `run`은 입력/반환 schema 및 agent_name을 재검증한다. Registry는 register/get/list만 제공하며 실행하지 않는다.
 Evidence는 source_type/summary 및 선택적 evidence_ref/observed_at/interpretation/relevance로 제한한다.
 각 text 최대 500자, evidence 16개/risk 8개/후보 action 4개 제한은 Phase 1 최소화 정책이다.
-Action 후보는 type/intent/mode/summary뿐이다. typed arguments와 실제 Tool adapter는 Phase 6에서 승인 후 구현한다.
+Action 후보는 type/intent/mode/summary뿐이다. typed arguments와 Tool adapter는 후속 별도 승인 범위다.
 result_status는 구현했고 contract_version/run_id/as_of envelope는 후속 제안으로 남긴다.
 confidence=None은 unknown, bool/문자열/NaN/inf와 모든 중첩 extra field는 거부한다.
 Registry의 계약 검증은 신뢰된 Python 구현용이며 악성 코드 sandbox나 evidence 소유권 검증이 아니다.
@@ -303,10 +303,67 @@ Physical AI/Robotics는 미래 범위로, 별도의 물리 안전장치·사용�
 | 4 | Critic | unsupported claim/Memory 과대적용/일정/과추천/모순 구분, 명령 강요 없음 | read-only opinion 검토 |
 | 5 | Arbitrator | 충돌·보류·질문·절충 선택의 명확한 정책, 사용자 agency 평가 | 제한된 결과 조정, 직접 Tool 실행 없음 |
 | 6 | 독립 Collaboration Pipeline | 네 단계 순차 실행/최소 context/무추천·정보부족/실패 추적/DI 계약 성공 | 미연결 협업 계층만. /chat/Gateway/action/Executor 통합은 후속 별도 승인 |
-| 7 | Multi-Agent run observability | 구조화된 결과/근거/상태/지연/비용만, 비밀·hidden reasoning·전체 개인 context 없음 | 로그/조회 설계, 필요 DB 변경은 별도 승인 |
+| 7 | Real Context Bridge | 7개 source 최소화/unknown/장애/Place 의미/네 단계 연결 | read-only DI adapter. production/쓰기/외부 지도와 미연결 |
 | 8 | E2E / eval / regression | 품질·무추천·현재 의사·privacy·실패 격리·기존 domain/Memory 회귀, 변동 결과 공개 | 실제 OpenAI 평가/DB 격리 테스트/최종 보고 |
 
-단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 6은 독립 순차 협업 경계이며 Phase 7 이후와 production 통합은 미구현이다.
+단계마다 목적/완료 기준 충족 전 다음 구현을 시작하지 않는다. Phase 6~7은 독립 협업/read-only 경계이며 production 통합은 미구현이다.
+
+## Phase 7 Real Context Bridge v0.1
+
+Production Memory/Emotion/Body/Cognitive/Schedule/Relationship/Place read 결과
+-> Lv4ContextBridge -> Lv4CollaborationContext -> State -> Recommendation -> Critic -> Arbitrator.
+Place는 context/evidence provider이며 Agent가 아니다. /chat, Gateway/Executor, DB 쓰기/migration/UI는 미연결이다.
+
+`Lv4ContextBridge(ContextProviders(...)).build(user_id=..., current_utterance=..., reference_time=...)`
+는 `ContextBridgeResult(context, diagnostics, bridge_status)`를 반환한다. `pipeline.run(result.context)`로 연결한다.
+provider 계약은 `(user_id, current_utterance, reference_time)` -> 최소 dict/기존 read schema 목록이다.
+생성/import 시 자동 호출하지 않는다. 원문은 ShortText 최대 500자 범위에서 공백/줄바꿈 그대로이며 초과는 거부한다.
+`make_read_providers(session_factory=..., memory_provider=...)`에 세션/Memory를 명시적으로 주입한다.
+기존 목록 read와 활성 대화 helper를 재사용하고 source당 최대 25개 후보만 읽는다.
+Schedule은 기존 `_visible_schedules`에 진행 중/24시간 내 조건을 LIMIT 전에 추가한다.
+각 세션은 SET TRANSACTION READ ONLY이며 반환 전 닫는다. OpenAI 동안 transaction/lock을 유지하지 않는다.
+Memory callback은 기존 strict retrieval 결과만 주입한다. safe retrieval의 빈 fallback을 사용하지 않고 자동 OpenAI 검색도 하지 않는다.
+기존 후보 25 / threshold .55 / Top-K 4 / metric은 변경하지 않는다.
+
+| Source | 허용 필드 / 제한 |
+| --- | --- |
+| Memory | content(500자)/relevance/confidence/observed_at, 최대 4. 기존 관련성 helper/.55 사용. SelectedMemory의 미제공 시각/확신은 None. |
+| Emotion | F/A/D/J/C/G/T/R 및 confidence/observed_at. typed schema의 선택적 dominant_emotion도 허용. |
+| Body | fatigue/sleepiness/energy/hunger/physical_tension/discomfort 및 confidence/observed_at. |
+| Cognitive | focus/mental_load/motivation/uncertainty/clarity 및 confidence/observed_at. |
+| Schedule | title/start_at/end_at/relevance, 최대 3. 기본 2시간/오늘·내일 계획 24시간 내 또는 진행 중. |
+| Relationship | person_label/summary/record_kind/temporal_scope/confidence/relevance/observed_at, 최대 3. 질문에 명시된 label만. |
+| Place | place_name/kind/preference/occurred_at/created_at/confidence/relevance, 최대 3. DB confidence 없음은 None. |
+
+State는 최근 하나/120분 창이며 미래·오래된 관찰 제외, 시각 미상/없는 축은 None이다. unknown != 0, domain 간 추론은 없다.
+Schedule/Relationship/Place의 미제공 relevance=1.0은 구조적 필터 적용 표시이지 검색 확률/선호/confidence가 아니다.
+추천 불필요/확정 결정은 모든 provider를 생략한다. Place는 장소 질문에서만 조회한다.
+기존 recommendation_needed/question_topics/HOME_PATTERN과 작은 장소 matcher를 재사용한다.
+어디/카페/광안리 선택은 관련 Place만, 개발만 묻는 질문은 Place 조회 없이 처리한다.
+visit은 24시간, context는 120분 안의 관찰만 사용하며 미래 자료를 제외한다.
+preference는 기록된 like/dislike만 과거 근거로 유지한다. visit/context의 preference는 None이다.
+방문/동행/체류를 선호/감정/관계로 바꾸지 않는다. 현재 의사는 과거 선호보다 우선한다.
+
+Root와 RecommendationContext의 optional places(최대 3)를 pipeline이 연결한다.
+Recommendation reasoner에는 필터된 kind/name/preference/time을 place JSON evidence로 전달한다.
+장소 선택에서도 신선한 직접 State와 가까운 일정 근거를 참고하되 Place에서 상태를 추론하지 않는다.
+실제 참조 evidence만 opinion에 남고 reasoner 최소 context에는 raw Place bag을 중복하지 않는다.
+Critic은 opinion의 Place evidence로 방문->선호, unrelated/stale, 감정/관계 확대를 제한된 규칙으로 검사한다.
+CriticContext에 raw Place를 복제하지 않고 Arbitrator는 기존 의견만 받아 안전한 보류에 반영한다.
+선택적 Lv4 OpenAI adapter는 기존 최소 payload에 Place 목적 제한만 부가한다. Lv3 prompt는 변경하지 않는다.
+
+diagnostics는 loaded/empty/filtered/skipped/not_configured/failed를 구분한다.
+미설정/예외/계약 오류는 PARTIAL이고 정상 빈 결과는 COMPLETE일 수 있다. 실패 source만 비우고 다른 결과는 보존한다.
+호출자는 diagnostics도 보존/확인해야 한다. pipeline 결과만으로 provider 장애를 알 수 있다고 주장하지 않는다.
+COMPLETE는 관찰 충분/추천 성공이라는 뜻이 아니다. 예외 문자열/비밀/ID는 출력하지 않는다.
+Lv4에는 DB UUID/ORM/임의 metadata/전체 history/전체 Memory·Place/GPS를 보내지 않는다.
+user_id는 내부 ownership용이며 인증이 아니다. 외부 provider 권한 검증은 주입자 책임이다.
+
+검증은 fake provider/reasoner 회귀와 실제 PostgreSQL read-only smoke를 구분한다.
+실제 SELECT 1과 활성 사용자 한 명의 제한 조회가 성공했다. source는 빈 결과, Memory callback은 미설정이었다.
+DB write/OpenAI/개인 원문 출력은 없었다. 데이터 있는 경로/장애/의미 경계는 fake tests로 검증했다.
+한계: 최근 25개 밖의 관련 관계/장소 검색과 완전한 자연어 의미 검증은 보장하지 않는다.
+snapshot 일관성, 인증, timeout/retry, production 활성화와 외부 지도는 후속 범위다.
 
 ## Evaluation / Open Decisions
 

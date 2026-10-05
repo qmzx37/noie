@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
@@ -20,7 +21,7 @@ from chat_persistence_service import (
     mark_chat_request_failed,
 )
 from chat_agent_integration_service import prepare_chat_recommendation, run_chat_agent_integration
-from chat_background_observability import run_observed_background
+from chat_background_observability import run_background_probe, run_observed_background
 from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
@@ -1487,6 +1488,12 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
         response,
     )
     if chat_persisted and persistence_context and persistence_context.user_message_id:
+        # 명시적으로 켠 경우만 첫 진입 probe를 넣습니다. 기본값/잘못된 값은 OFF입니다.
+        if os.getenv("NOIE_CHAT_BG_PROBE_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+            background_tasks.add_task(
+                run_background_probe,
+                correlation_source=persistence_context.request_id or persistence_context.user_message_id,
+            )
         # 응답 생성은 기다리지 않고, 저장된 user 원문만 보수적으로 장기 기억 후보로 분석합니다.
         background_tasks.add_task(
             run_observed_background,
