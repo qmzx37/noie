@@ -146,7 +146,8 @@ class AuthPrincipalTests(unittest.TestCase):
         """인증 필드는 body에 없고 dependency도 UUID/header/query를 입력으로 받지 않습니다."""
         import inspect
         self.assertFalse({'user_id', 'authenticated_user_id', 'principal'} & set(ChatRequest.model_fields))
-        self.assertEqual(len(inspect.signature(auth.resolve_auth_principal).parameters), 0)
+        # Phase 10.2에서는 Authorization만 읽고 임의 user UUID는 입력으로 받지 않습니다.
+        self.assertEqual(set(inspect.signature(auth.resolve_auth_principal).parameters), {'authorization'})
 
 
 if __name__ == '__main__':
