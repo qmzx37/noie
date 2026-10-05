@@ -8,6 +8,7 @@ from .recommendation_specialist import prepare_evidence
 from .registry import SpecialistRegistry
 from .schemas import AgentOpinion, SpecialistInput
 from .specialist import SpecialistAgent
+from .failure_diagnostics import diagnose
 
 
 def _review_constraints(context: RecommendationContext, recommendation: AgentOpinion) -> CriticConstraints:
@@ -37,7 +38,7 @@ class Lv4CollaborationPipeline:
                 raise ValueError(f"{expected} 역할의 Specialist가 필요합니다.")
         self._agents = tuple(registry.get(name) for name in STAGES)
 
-    def run(self, request: Lv4CollaborationContext) -> Lv4CollaborationResult:
+    def run(self, request: Lv4CollaborationContext, *, failure_observer=None) -> Lv4CollaborationResult:
         """네 단계를 한 번씩 실행합니다. 실패는 partial result로 명시하고 후속 실행은 중단합니다."""
         if not isinstance(request, Lv4CollaborationContext):
             raise TypeError("Lv4CollaborationContext가 필요합니다.")
@@ -55,7 +56,7 @@ class Lv4CollaborationPipeline:
                     constraints = root.relevant_constraints
                     recommendation_context = RecommendationContext(current_utterance=root.current_utterance,
                         reference_time=root.reference_time, state_opinion=opinions["state_opinion"],
-                        memories=constraints.memories, schedules=constraints.schedules, relationships=constraints.relationships)
+                        memories=constraints.memories, schedules=constraints.schedules, relationships=constraints.relationships, places=root.places)
                     context = recommendation_context
                 elif stage == "critic":
                     context = CriticContext(current_utterance=root.current_utterance, reference_time=root.reference_time,
@@ -65,9 +66,12 @@ class Lv4CollaborationPipeline:
                     context = ArbitratorContext(current_utterance=root.current_utterance, reference_time=root.reference_time,
                         state_opinion=opinions["state_opinion"], recommendation_opinion=opinions["recommendation_opinion"], critic_opinion=opinions["critic_opinion"])
                 opinion = agent.run(context)
-            except Exception:
+            except Exception as error:
                 # 예외 메시지/traceback은 API 키나 내부 객체를 포함할 수 있어 결과/로그에 넣지 않습니다.
                 # 실패를 정상 opinion으로 위장하지 않으며 이전 실제 결과만 반환합니다.
+                # 명시적인 평가 observer에 안전한 코드만 전달합니다. 기존 결과 계약은 변경하지 않습니다.
+                if failure_observer is not None:
+                    failure_observer(diagnose(error, stage.upper()))
                 return Lv4CollaborationResult(**opinions, pipeline_status="FAILED", failed_stage=stage, failure_kind="exception")
             opinions[stage + "_opinion"] = opinion
             if opinion.result_status in {"ERROR", "NOT_RUN"}:

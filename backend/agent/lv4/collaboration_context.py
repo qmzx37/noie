@@ -7,6 +7,7 @@ from pydantic import AwareDatetime, Field, model_validator
 from .critic_context import CriticConstraints
 from .schemas import AgentOpinion, ContractModel, ShortText
 from .state_context import StateContext
+from .place_context import PlaceContext
 
 STAGES = ("state", "recommendation", "critic", "arbitrator")
 Stage = Literal["state", "recommendation", "critic", "arbitrator"]
@@ -19,6 +20,7 @@ class Lv4CollaborationContext(ContractModel):
     reference_time: AwareDatetime
     state_context: StateContext
     relevant_constraints: CriticConstraints = Field(default_factory=CriticConstraints)
+    places: list[PlaceContext] = Field(default_factory=list, max_length=3)
 
     @model_validator(mode="after")
     def validate_reference_time(self) -> "Lv4CollaborationContext":

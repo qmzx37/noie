@@ -26,6 +26,7 @@ from emotion_analyzer import analyze_with_rules
 from memory_router import router as memory_router
 from memory_extraction_service import run_memory_extraction_background
 from memory_retriever import retrieve_relevant_memories_safe
+from lv4_shadow_service import schedule_shadow
 from openai_analyzer import (
     fallback_chat_reply,
     generate_chat_reply_with_openai,
@@ -1497,6 +1498,8 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
             persistence_context.request_id,
             prepared_routing,
         )
+        # Lv4는 응답 저장 뒤의 관찰자입니다. 결과를 reply/Action에 사용하지 않고 duplicate 재사용은 위에서 반환합니다.
+        schedule_shadow(background_tasks, context=persistence_context, text=original_text, memories=relevant_memories)
     return response
 
 

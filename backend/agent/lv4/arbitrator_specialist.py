@@ -5,6 +5,7 @@ import re
 from .arbitrator_context import ArbitratorContext
 from .schemas import AgentOpinion, OpinionEvidence, OpinionRisk, SpecialistInput, SuggestedAction
 from .specialist import SpecialistAgent
+from .recommendation_specialist import unnecessary_relationship_question
 
 
 def _settled_intent(text: str) -> bool:
@@ -66,8 +67,15 @@ class ArbitratorSpecialist(SpecialistAgent):
             return finish("추가 추천 없이 현재 선택권을 유지합니다.", "NO_RECOMMENDATION")
         if rec.result_status == "NEEDS_INPUT" or rec.needs_user_input:
             use(rec, rec.evidence)
+            if critic is not None and critic.result_status not in {"ERROR", "NOT_RUN"} and unnecessary_relationship_question(request.current_utterance, rec.conclusion) and any(item.code == "unnecessary_relationship_clarification" for item in critic.risks) and any(
+                item.source_type == "utterance" and item.summary == request.current_utterance for item in critic.evidence) and any(
+                item.source_type == "opinion" and item.summary == rec.conclusion for item in critic.evidence):
+                # 지원 후보가 없으면 발명하지 않습니다. 불필요한 질문도 복제하지 않고 미해결 risk로 남깁니다.
+                risk("unnecessary_relationship_clarification", "필수 근거 없는 인물 탐색 질문을 제외했습니다. 지원할 후보는 아직 없습니다.")
+                return finish("임시 인물 표현을 그대로 유지하며 추가 관계 확인 질문은 하지 않습니다.", "NO_RECOMMENDATION")
             risk("required_input", "추천 의견이 선택에 꼭 필요한 추가 정보를 요청했습니다.")
-            return finish("추천을 조정하기 전에 필요한 정보를 확인해볼까요?", "NEEDS_INPUT")
+            # 이미 생성된 핵심 질문을 보존하고 suggested_actions에는 넣지 않습니다.
+            return finish(rec.conclusion, "NEEDS_INPUT")
 
         # Agent 이름/높은 confidence만으로 후보를 승인하지 않습니다.
         if not any(item.source_type == "utterance" and item.summary == request.current_utterance for item in rec.evidence):
@@ -90,7 +98,7 @@ class ArbitratorSpecialist(SpecialistAgent):
             or (item.source_type == "opinion" and item.evidence_ref == "recommendation" and item.summary in reviewed_text)]
         if critic is not None and critic.result_status not in {"ERROR", "NOT_RUN"} and review_sources:
             # 다른 요청의 지적을 이름만 보고 적용하지 않습니다. 비교할 대상 근거가 필요합니다.
-            supporting = [item for item in critic.evidence if item.source_type in {"state", "memory", "schedule", "relationship"} and (item.relevance is None or item.relevance >= 0.55) and (request.reference_time is None or item.observed_at is None or item.observed_at <= request.reference_time) and "현재 상태 종합에서 제외" not in item.summary]
+            supporting = [item for item in critic.evidence if item.source_type in {"state", "memory", "schedule", "relationship", "place"} and (item.relevance is None or item.relevance >= 0.55) and (request.reference_time is None or item.observed_at is None or item.observed_at <= request.reference_time) and "현재 상태 종합에서 제외" not in item.summary]
             # 인용한 오류 문장은 사실 근거가 아니라 검토 대상 해석으로 명시합니다.
             use(critic, [item.model_copy(update={"interpretation": True}) if item.source_type == "opinion" else item for item in review_sources] + supporting)
             review_codes = {item.code for item in critic.risks}
@@ -100,11 +108,17 @@ class ArbitratorSpecialist(SpecialistAgent):
             risk("review_unverified", "검토 의견의 근거/처리 결과를 확인하지 못했습니다. 자동 취소 근거로 쓰지 않습니다.")
 
         # 부족한 상태 자체는 질문 강제 사유가 아닙니다. 선택 판단에 필요한 미해결 충돌만 보류합니다.
+        if "missing_choice_input" in review_codes:
+            # 근거 있는 누락 지적만 보류합니다. 선택지나 대체 행동을 발명하지 않습니다.
+            return finish("비교하고 있는 두 선택지가 무엇인가요?", "NEEDS_INPUT", True)
+        # 시간 순서를 코드가 재작성하면 새 일정/소요를 발명할 수 있어, 원래 후보는 검토 대상으로만 보존합니다.
+        if review_codes & {"schedule_ordering", "unsupported_schedule_duration", "insufficient_temporal_info"}:
+            return finish("기존 후보의 준비·이동·일정 시각 근거를 먼저 확인해볼까요?", "NEEDS_INPUT", True)
         if review_codes & {"opinion_conflict", "insufficient_evidence", "additional_concerns"}:
             return finish("충돌한 근거를 확인한 뒤 기존 후보를 다시 비교해볼까요?", "NEEDS_INPUT", True)
         if "current_intent_violation" in review_codes:
             return finish("현재 원하시는 선택과 기존 후보의 충돌을 먼저 확인해볼까요?", "NEEDS_INPUT", True)
-        if review_codes & {"coercion", "guilt_pressure", "memory_overapplication", "relationship_overinterpretation"}:
+        if review_codes & {"coercion", "guilt_pressure", "memory_overapplication", "relationship_overinterpretation", "unrelated_relationship", "place_preference_inference", "place_cross_domain_inference", "unrelated_place", "stale_place_overapplication", "invalid_place_evidence"}:
             return finish("현재 의사에 맞는 비강제 후보로 원래 제안을 다시 검토해볼까요?", "NEEDS_INPUT", True)
 
         adjust_time = bool(review_codes & {"historical_risk", "schedule_conflict"})
@@ -141,6 +155,10 @@ class ArbitratorSpecialist(SpecialistAgent):
             return finish("기존 행동 후보를 지지할 근거를 확인해볼까요?", "NEEDS_INPUT", True)
 
         # 배제한 unsupported/과거 단정 근거는 최종 evidence로 가져오지 않습니다.
-        sources = [item for item in rec.evidence if item.source_type in {"schedule", "memory", "relationship"} and (item.relevance is None or item.relevance >= 0.55) and (request.reference_time is None or item.observed_at is None or item.observed_at <= request.reference_time)]
+        sources = [item for item in rec.evidence if item.source_type in {"schedule", "memory", "relationship", "place"} and (item.relevance is None or item.relevance >= 0.55) and (request.reference_time is None or item.observed_at is None or item.observed_at <= request.reference_time)]
         use(rec, sources)
-        return finish("기존 제안을 선택 후보로 정리했습니다. " + ("시간 범위를 조정해 다시 살펴볼 수 있습니다. " if adjust_time else "") + "최종 선택은 사용자에게 있습니다.", material_conflict=bool(review_codes & {"unsupported_inference", "schedule_conflict", "confidence_overstatement"}))
+        # 이유의 약한 우려는 후보 veto가 아닙니다. unsupported 이유는 최종 근거에 복제하지 않습니다.
+        caution = "관찰된 사건만으로 현재 관계나 갈등 상태를 확정하지 않습니다. " if "unsupported_relationship_rationale" in review_codes else "과거 관찰만으로 현재 관계나 갈등 상태를 확정하지 않습니다. " if "relationship_explanation_caution" in review_codes else ""
+        if review_codes & {"generic_choice_advice", "generic_primary_choice"}:
+            caution += "기존 후보는 선택지를 구체적으로 짚지 못한 일반론일 수 있습니다. "
+        return finish("기존 제안을 선택 후보로 정리했습니다. " + caution + ("시간 범위를 조정해 다시 살펴볼 수 있습니다. " if adjust_time else "") + "최종 선택은 사용자에게 있습니다.", material_conflict=bool(review_codes & {"unsupported_inference", "schedule_conflict", "confidence_overstatement"}))
