@@ -295,15 +295,103 @@ test("late 401 after account switch cannot retry as the new account or clear it"
   assert.equal(await session.getAccessToken(), "account-B");
 });
 
-test("no session preserves legacy request without Bearer; non-chat endpoints unchanged", async () => {
+test("no session preserves legacy POST without Bearer; helper endpoints use the current session", async () => {
   const h = harness();
   h.fetch(async () => response(200, {}));
   const api = h.load("src/noie/noieApi.ts");
   await api.requestChatReply("legacy", []);
-  await h.load("src/auth/authSession.ts").saveAuthSession(fresh());
   await api.extractDailyTraceCandidate("text", "2026-10-05");
   await api.generateTitle("text");
   h.calls.forEach((call) => assert.equal(call.options.headers.Authorization, undefined));
+  // 같은 기존 API들도 세션이 있으면 Bearer를 사용합니다.
+  await h.load("src/auth/authSession.ts").saveAuthSession(fresh());
+  await api.extractDailyTraceCandidate("text", "2026-10-05");
+  await api.generateTitle("text");
+  h.calls.slice(3).forEach((call) => assert.equal(call.options.headers.Authorization, "Bearer test-access"));
+});
+
+// 기존 채팅 20개 검사는 유지하고 제목/추출에서도 동일한 인증 안전성을 확인합니다.
+test("title and daily extraction retry once with identical body and rotated Bearer", async () => {
+  for (const endpoint of ["generate-title", "extract-daily-trace"]) {
+    const h = harness();
+    await h.load("src/auth/authSession.ts").saveAuthSession(fresh());
+    let count = 0;
+    const payload = endpoint === "generate-title" ? { title: "same title" } : { has_trace: false };
+    h.fetch(async (url) => url.includes("grant_type") ? response(200, tokenResponse())
+      : response(++count === 1 ? 401 : 200, payload));
+    const api = h.load("src/noie/noieApi.ts");
+    const result = endpoint === "generate-title" ? await api.generateTitle("same text")
+      : await api.extractDailyTraceCandidate("same text", "2026-10-05");
+    const requests = h.calls.filter((c) => c.url.endsWith(`/${endpoint}`));
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].options.body, requests[1].options.body);
+    assert.equal(requests[0].options.headers.Authorization, "Bearer test-access");
+    assert.equal(requests[1].options.headers.Authorization, "Bearer access-new");
+    assert.equal(h.calls.filter((c) => c.url.includes("grant_type")).length, 1);
+    assert.deepEqual(result, payload);
+    assert.equal(h.uuidCount(), 0);
+  }
+});
+
+test("helper endpoints repeated 401 or failed refresh require login without loops", async () => {
+  for (const endpoint of ["title", "daily"]) for (const refreshOk of [true, false]) {
+    const h = harness();
+    const session = h.load("src/auth/authSession.ts");
+    await session.saveAuthSession(fresh());
+    h.fetch(async (url) => url.includes("grant_type") ? response(refreshOk ? 200 : 401, tokenResponse()) : response(401));
+    const api = h.load("src/noie/noieApi.ts");
+    await assert.rejects(endpoint === "title" ? api.generateTitle("text")
+      : api.extractDailyTraceCandidate("text", "2026-10-05"), /다시 로그인/);
+    assert.equal(h.calls.filter((c) => !c.url.includes("grant_type")).length, refreshOk ? 2 : 1);
+    assert.equal(h.calls.filter((c) => c.url.includes("grant_type")).length, 1);
+    assert.equal(await session.loadAuthSession(), null);
+  }
+});
+
+test("helper endpoint late 401 cannot resend or clear a new account after logout", async () => {
+  for (const endpoint of ["title", "daily"]) {
+    const h = harness();
+    const session = h.load("src/auth/authSession.ts");
+    await session.saveAuthSession(fresh());
+    const wait = deferred();
+    h.fetch(() => wait.promise);
+    const api = h.load("src/noie/noieApi.ts");
+    const pending = endpoint === "title" ? api.generateTitle("old")
+      : api.extractDailyTraceCandidate("old", "2026-10-05");
+    const rejected = assert.rejects(pending, /다시 로그인/);
+    await new Promise(setImmediate);
+    await session.clearAuthSession();
+    await session.saveAuthSession({ ...fresh(), accessToken: "account-B" });
+    wait.resolve(response(401));
+    await rejected;
+    assert.equal(h.calls.length, 1);
+    assert.equal(await session.getAccessToken(), "account-B");
+  }
+});
+
+test("chat and title concurrent 401 coalesce refresh and preserve each original body", async () => {
+  const h = harness();
+  await h.load("src/auth/authSession.ts").saveAuthSession(fresh());
+  const late = deferred();
+  let count = 0;
+  h.fetch(async (url, options) => {
+    if (url.includes("grant_type")) return response(200, tokenResponse());
+    if (options.headers.Authorization === "Bearer test-access") return ++count === 1 ? response(401) : late.promise;
+    return response(200, url.endsWith("/chat") ? { reply: "ok" } : { title: "ok" });
+  });
+  const api = h.load("src/noie/noieApi.ts");
+  const chat = api.requestChatReply("same", []);
+  const title = api.generateTitle("same");
+  await chat;
+  late.resolve(response(401));
+  await title;
+  assert.equal(h.calls.filter((c) => c.url.includes("grant_type")).length, 1);
+  for (const endpoint of ["chat", "generate-title"]) {
+    const requests = h.calls.filter((c) => c.url.endsWith(`/${endpoint}`));
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].options.body, requests[1].options.body);
+  }
+  assert.equal(h.uuidCount(), 1);
 });
 
 test("a new invocation with identical text gets a distinct request_id", async () => {

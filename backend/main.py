@@ -6,7 +6,7 @@ import os
 import re
 from uuid import UUID
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text as sql_text
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from agent.router import router as agent_router
 from auth_context import AuthPrincipal, auth_enabled, resolve_auth_principal
+from auth_ownership import require_core_principal
 from chat_storage_router import router as chat_storage_router
 from chat_persistence_service import (
     AuthenticatedOwnershipError,
@@ -76,11 +77,17 @@ app.include_router(agent_router)
 
 
 @app.post("/internal/background-probe", include_in_schema=False)
-def background_endpoint_probe(request_id: UUID, background_tasks: BackgroundTasks) -> dict:
+def background_endpoint_probe(
+    request_id: UUID,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+) -> dict:
     """기본 OFF인 독립 진단입니다. DB/업무 처리는 하지 않고 기존 probe만 예약합니다."""
     # 명시적으로 켠 경우만 접근을 허용하고 API 문서에도 진단 경로를 노출하지 않습니다.
     if os.getenv("NOIE_BG_PROBE_ENDPOINT_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
         raise HTTPException(status_code=404, detail="Not Found")
+    # disabled 404를 먼저 보장한 뒤 기존 verifier/identity 경계로 인증합니다.
+    require_core_principal(resolve_auth_principal(authorization))
     background_tasks.add_task(run_background_probe, correlation_source=request_id)
     return {"status": "scheduled"}
 
@@ -1322,8 +1329,8 @@ def db_health(db: Session = Depends(get_db)) -> dict[str, str]:
     try:
         db.execute(sql_text("SELECT 1"))
     except SQLAlchemyError as error:
-        # 상세 연결 정보는 응답에 노출하지 않고 서버 로그에만 남깁니다.
-        print(f"[noie] DB health check failed: {error}")
+        # DB URL/SQL이 포함될 수 있는 예외 원문은 로그에도 남기지 않습니다.
+        print(f"[noie] DB health check failed: {type(error).__name__}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database connection failed.",
@@ -1333,7 +1340,11 @@ def db_health(db: Session = Depends(get_db)) -> dict[str, str]:
 
 
 @app.post("/generate-title", response_model=GenerateTitleResponse)
-def generate_title(request: GenerateTitleRequest) -> dict[str, str]:
+def generate_title(
+    request: GenerateTitleRequest,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
+) -> dict[str, str]:
+    # 접근 인증만 추가하고 제목 생성/fallback 계약은 유지합니다.
     text = request.text.strip()
 
     try:
@@ -1345,7 +1356,11 @@ def generate_title(request: GenerateTitleRequest) -> dict[str, str]:
 
 
 @app.post("/analyze-emotion", response_model=AnalyzeEmotionResponse)
-def analyze_emotion(request: AnalyzeEmotionRequest) -> dict:
+def analyze_emotion(
+    request: AnalyzeEmotionRequest,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
+) -> dict:
+    # 인증 뒤 기존 8축/저장 판단/perspective 분석을 그대로 실행합니다.
     text = request.text.strip()
     response, _source = analyze_text(text)
     return response
@@ -1551,7 +1566,11 @@ def chat(
 
 
 @app.post("/extract-daily-trace", response_model=ExtractDailyTraceResponse)
-def extract_daily_trace(request: ExtractDailyTraceRequest) -> dict:
+def extract_daily_trace(
+    request: ExtractDailyTraceRequest,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
+) -> dict:
+    # 인증 뒤 기존 추출/fallback/응답 검증을 그대로 실행합니다.
     text = request.text.strip()
     current_date = request.current_date.strip()
 

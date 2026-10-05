@@ -1,6 +1,9 @@
 """Orchestrator 판단을 수동 검증하기 위한 읽기 전용 API입니다."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from auth_context import AuthPrincipal
+from auth_ownership import require_core_principal
 
 from agent.orchestrator import orchestrate_with_openai
 from agent.action_router import router as action_router
@@ -34,9 +37,13 @@ router.include_router(relationship_event_router)
 
 
 @router.post("/orchestrate", response_model=OrchestratorResult)
-def post_orchestrate(request: OrchestratorRequest) -> OrchestratorResult:
+def post_orchestrate(
+    request: OrchestratorRequest,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
+) -> OrchestratorResult:
     """DB나 Tool을 변경하지 않고 routing 판단만 반환합니다."""
 
+    # 인증은 접근만 제한하며 기존 routing 판단이나 prompt를 변경하지 않습니다.
     try:
         return orchestrate_with_openai(request.text, request.relevant_memories)
     except Exception as error:
@@ -48,7 +55,11 @@ def post_orchestrate(request: OrchestratorRequest) -> OrchestratorResult:
 
 
 @router.post("/agent/tool-plan", response_model=ToolPlanResponse)
-def post_tool_plan(request: ToolPlanRequest) -> ToolPlanResponse:
+def post_tool_plan(
+    request: ToolPlanRequest,
+    principal: AuthPrincipal | None = Depends(require_core_principal),
+) -> ToolPlanResponse:
     """정책을 검증한 dry-run 계획만 만들고 Tool이나 DB는 실행하지 않습니다."""
 
+    # 인증된 접근에도 Gateway의 dry-run/confirmation 정책은 그대로 적용됩니다.
     return create_tool_plan(request)

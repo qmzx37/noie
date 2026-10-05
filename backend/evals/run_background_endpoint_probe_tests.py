@@ -28,7 +28,8 @@ class BackgroundEndpointProbeTests(unittest.TestCase):
             registered.append((function, args, kwargs))
             return original(tasks, function, *args, **kwargs)
 
-        with patch.dict(os.environ):
+        # 이 기존 dispatch 검사는 개발 모드이며 인증 정책은 별도 Access 검사에서 검증합니다.
+        with patch.dict(os.environ, {'NOIE_AUTH_ENABLED': 'false'}):
             os.environ.pop('NOIE_BG_PROBE_ENDPOINT_ENABLED', None)
             if value is not None:
                 os.environ['NOIE_BG_PROBE_ENDPOINT_ENABLED'] = value
@@ -87,7 +88,8 @@ class BackgroundEndpointProbeTests(unittest.TestCase):
         self.assertEqual(calls, {'os.getenv',
             "os.getenv('NOIE_BG_PROBE_ENDPOINT_ENABLED', '').strip",
             "os.getenv('NOIE_BG_PROBE_ENDPOINT_ENABLED', '').strip().lower",
-            'HTTPException', 'background_tasks.add_task'})
+            'HTTPException', 'background_tasks.add_task',
+            'require_core_principal', 'resolve_auth_principal'})
         route = next(route for route in main.app.routes if route.path == '/internal/background-probe')
         self.assertEqual(route.dependant.dependencies, [])
         self.assertFalse(route.include_in_schema)

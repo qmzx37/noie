@@ -20,7 +20,7 @@ export async function requestChatReply(
 ) {
   // 한 번 만든 UUID는 이 HTTP 요청 본문에 고정되어 네트워크 재전송에도 재사용됩니다.
   const requestId = randomUUID();
-  // Bearer/401 처리는 이 두 /chat 요청에만 적용하며 body는 한 번만 생성합니다.
+  // 공통 Bearer/401 처리를 사용하며 body는 한 번만 생성합니다.
   const response = await fetchChatWithAuth(
     `${API_BASE_URL}/chat`,
     JSON.stringify({
@@ -85,14 +85,14 @@ export async function extractDailyTraceCandidate(
   text: string,
   currentDate: string
 ) {
-  const response = await fetch(`${API_BASE_URL}/extract-daily-trace`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  // 채팅과 동일한 인증/refresh 경계를 사용하고 재시도에도 원래 body를 유지합니다.
+  const response = await fetchChatWithAuth(
+    `${API_BASE_URL}/extract-daily-trace`,
+    JSON.stringify({
       text,
       current_date: currentDate,
-    }),
-  });
+    })
+  );
 
   if (!response.ok) {
     return null;
@@ -102,11 +102,11 @@ export async function extractDailyTraceCandidate(
 }
 
 export async function generateTitle(text: string) {
-  const response = await fetch(`${API_BASE_URL}/generate-title`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
+  // 제목 요청도 같은 인증 helper를 사용합니다. 제목/fallback 응답 처리는 유지합니다.
+  const response = await fetchChatWithAuth(
+    `${API_BASE_URL}/generate-title`,
+    JSON.stringify({ text })
+  );
 
   if (!response.ok) {
     throw new Error(`제목 API 응답 오류: ${response.status}`);
