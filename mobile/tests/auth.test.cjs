@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
+const crypto = require("node:crypto");
 const root = path.resolve(__dirname, "..");
 const authKey = "noie_auth_session_v1";
 const fresh = () => ({ accessToken: "test-access", refreshToken: "test-refresh", expiresAt: Date.now() / 1000 + 3600 });
@@ -12,12 +13,16 @@ const tokenResponse = (suffix = "new") => ({ access_token: `access-${suffix}`, r
 const response = (status, data = {}) => ({ ok: status >= 200 && status < 300, status, json: async () => data });
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 
-function harness({ configured = true, configOverrides = {}, initial = {}, storageFailure = false } = {}) {
+function harness({ configured = true, configOverrides = {}, initial = {}, storageFailure = false, platform = "web" } = {}) {
   const data = new Map(Object.entries(initial));
   const cache = new Map();
   const calls = [];
+  const oauthCalls = [];
   let uuidCount = 0;
   let fetchImpl = async () => { throw new Error("Unexpected network attempt"); };
+  // 기존 회귀의 계정 준비는 fake ready입니다. onboarding 음성 검사에서는 명시적으로 바꿉니다.
+  let bootstrapImpl = async () => response(200, { status: "ready" });
+  let oauthImpl = async () => { throw new Error("Unexpected browser attempt"); };
   const storage = {
     getItem: async (key) => data.get(key) ?? null,
     setItem: async (key, value) => { if (storageFailure) throw new Error("secret storage detail"); data.set(key, value); },
@@ -33,7 +38,26 @@ function harness({ configured = true, configOverrides = {}, initial = {}, storag
     }).outputText;
     const localRequire = (name) => {
       if (name === "@react-native-async-storage/async-storage") return storage;
-      if (name === "expo-crypto") return { randomUUID: () => `00000000-0000-4000-8000-${String(++uuidCount).padStart(12, "0")}` };
+      if (name === "expo-crypto") return {
+        randomUUID: () => `00000000-0000-4000-8000-${String(++uuidCount).padStart(12, "0")}`,
+        getRandomBytesAsync: async (count) => crypto.randomBytes(count),
+        digestStringAsync: async (_, input) => crypto.createHash("sha256").update(input).digest("base64"),
+        CryptoDigestAlgorithm: { SHA256: "SHA-256" }, CryptoEncoding: { BASE64: "base64" },
+      };
+      if (name === "react-native") return { Platform: { OS: platform } };
+      if (name === "expo-linking") return {
+        createURL: (pathname) => platform === "web" ? "https://example.test/" : `noie://${pathname}`,
+        parse: (uri) => {
+          const params = new URL(uri).searchParams;
+          return { queryParams: Object.fromEntries([...new Set(params.keys())].map((key) => {
+            const values = params.getAll(key); return [key, values.length === 1 ? values[0] : values];
+          })) };
+        },
+      };
+      if (name === "expo-web-browser") return {
+        maybeCompleteAuthSession: () => ({ type: "success" }),
+        openAuthSessionAsync: async (...args) => { oauthCalls.push(args); return oauthImpl(...args); },
+      };
       if (name.endsWith("constants/authConfig")) return configured
         ? { SUPABASE_URL: "https://example.supabase.co", SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test", ...configOverrides }
         : { SUPABASE_URL: "", SUPABASE_PUBLISHABLE_KEY: "" };
@@ -45,12 +69,16 @@ function harness({ configured = true, configOverrides = {}, initial = {}, storag
     };
     vm.runInNewContext(output, {
       module, exports: module.exports, require: localRequire, Date, Set, Promise, Number,
-      fetch: async (url, options) => { calls.push({ url, options }); return fetchImpl(url, options); },
+      fetch: async (url, options) => {
+        calls.push({ url, options });
+        return url.endsWith("/auth/bootstrap") ? bootstrapImpl(url, options) : fetchImpl(url, options);
+      },
       console: { log: () => { throw new Error("Auth must not log"); } },
     }, { filename });
     return module.exports;
   }
-  return { load, data, calls, storage, fetch: (fn) => { fetchImpl = fn; }, uuidCount: () => uuidCount };
+  return { load, data, calls, oauthCalls, storage, fetch: (fn) => { fetchImpl = fn; },
+    bootstrap: (fn) => { bootstrapImpl = fn; }, oauth: (fn) => { oauthImpl = fn; }, uuidCount: () => uuidCount };
 }
 
 test("session persists only allowed fields; logout retains NOIE data and storage key list", async () => {
@@ -434,4 +462,201 @@ test("login UI/auth gate contracts do not refactor old App or shared styles", ()
     compilerOptions: { removeComments: true, jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS },
   }).outputText;
   assert.doesNotMatch(executable, /require\([^)]*appStyles|console\.log|AsyncStorage\.clear/);
+});
+
+// onboarding은 토큰을 임시로 저장하지 않습니다. 실제 service 대신 HTTP/browser mock만 사용합니다.
+test("password login waits for bootstrap before session persistence and gate notification", async () => {
+  const h = harness();
+  const session = h.load("src/auth/authSession.ts");
+  const observed = [];
+  session.subscribeAuthSession((next) => observed.push(next));
+  h.fetch(async () => response(200, tokenResponse()));
+  const wait = deferred();
+  h.bootstrap(() => wait.promise);
+  const pending = h.load("src/auth/supabaseAuth.ts").signInWithPassword("a", "b");
+  await new Promise(setImmediate);
+  assert.equal(h.data.has(authKey), false);
+  assert.equal(observed.length, 0);
+  assert.equal(h.calls[1].options.headers.Authorization, "Bearer access-new");
+  assert.equal(h.calls[1].options.body, undefined);
+  wait.resolve(response(200, { status: "ready" }));
+  await pending;
+  assert.equal(observed.length, 1);
+  assert.equal(await session.getAccessToken(), "access-new");
+});
+
+test("signup confirmation response sends only credentials and stores no session/password", async () => {
+  for (const payload of [{ id: "user-id", email: "private" }, { user: { id: "user-id" }, session: null }]) {
+    const h = harness();
+    h.fetch(async () => response(200, payload));
+    const result = await h.load("src/auth/supabaseAuth.ts").signUpWithPassword(" a@example.test ", " password123 ");
+    assert.equal(result, "confirmation_required");
+    assert.equal(h.calls.length, 1);
+    assert.match(h.calls[0].url, /\/auth\/v1\/signup$/);
+    assert.equal(h.calls[0].options.headers.apikey, "sb_publishable_test");
+    assert.equal(h.calls[0].options.body, JSON.stringify({ email: "a@example.test", password: " password123 " }));
+    assert.equal(h.data.size, 0);
+  }
+});
+
+test("immediate signup bootstraps and stores only safe Supabase session fields", async () => {
+  const h = harness();
+  h.fetch(async () => response(200, { ...tokenResponse(), user: { email: "private" }, provider_token: "private" }));
+  assert.equal(await h.load("src/auth/supabaseAuth.ts").signUpWithPassword("a@example.test", "password123"), "ready");
+  assert.equal(h.calls.length, 2);
+  assert.match(h.calls[1].url, /\/auth\/bootstrap$/);
+  const stored = h.data.get(authKey);
+  assert.doesNotMatch(stored, /password|private|provider/);
+  assert.deepEqual(Object.keys(JSON.parse(stored)).sort(), ["accessToken", "expiresAt", "refreshToken"]);
+});
+
+test("signup input validation and malformed/error responses stay safe", async () => {
+  const h = harness();
+  const auth = h.load("src/auth/supabaseAuth.ts");
+  for (const [email, password] of [["", "password123"], ["a", ""], ["a", "short"], ["a", "        "]]) {
+    await assert.rejects(auth.signUpWithPassword(email, password));
+  }
+  assert.equal(h.calls.length, 0);
+  for (const mode of ["http", "network", "json", "partial", "empty"]) {
+    h.fetch(async () => {
+      if (mode === "network") throw new Error("RAW_SECRET");
+      if (mode === "json") return { ok: true, json: async () => { throw new Error("RAW_SECRET"); } };
+      return response(mode === "http" ? 400 : 200, mode === "partial" ? { access_token: "RAW_SECRET" } : {});
+    });
+    await assert.rejects(auth.signUpWithPassword("a@example.test", "password123"), (error) => {
+      assert.doesNotMatch(error.message, /RAW_SECRET/); return true;
+    });
+    assert.equal(h.data.has(authKey), false);
+  }
+});
+
+test("login and signup bootstrap failure never publish app session or raw server details", async () => {
+  for (const signup of [false, true]) for (const mode of ["http", "network", "json", "status"]) {
+    const h = harness();
+    h.fetch(async () => response(200, tokenResponse()));
+    h.bootstrap(async () => {
+      if (mode === "network") throw new Error("RAW_DATABASE_TOKEN");
+      if (mode === "json") return { ok: true, json: async () => { throw new Error("RAW_DATABASE_TOKEN"); } };
+      return response(mode === "http" ? 403 : 200, { status: "RAW_DATABASE_TOKEN" });
+    });
+    const auth = h.load("src/auth/supabaseAuth.ts");
+    await assert.rejects(signup ? auth.signUpWithPassword("a", "password123") : auth.signInWithPassword("a", "b"), (error) => {
+      assert.doesNotMatch(error.message, /RAW_DATABASE_TOKEN/); return true;
+    });
+    assert.equal(h.data.has(authKey), false);
+    assert.equal(await h.load("src/auth/authSession.ts").loadAuthSession(), null);
+  }
+});
+
+test("logout fences late bootstrap success and failure without clearing newer account", async () => {
+  for (const success of [true, false]) {
+    const h = harness();
+    const session = h.load("src/auth/authSession.ts");
+    h.fetch(async () => response(200, tokenResponse()));
+    const wait = deferred();
+    h.bootstrap(() => wait.promise);
+    const pending = h.load("src/auth/supabaseAuth.ts").signInWithPassword("a", "b");
+    const rejected = assert.rejects(pending);
+    await new Promise(setImmediate);
+    await session.clearAuthSession();
+    await session.saveAuthSession({ ...fresh(), accessToken: "account-B" });
+    wait.resolve(response(success ? 200 : 503, { status: "ready" }));
+    await rejected;
+    assert.equal(await session.getAccessToken(), "account-B");
+  }
+});
+
+test("Google web/native PKCE success exchanges code before bootstrap and storage", async () => {
+  for (const platform of ["web", "ios", "android"]) {
+    const h = harness({ platform });
+    const google = h.load("src/auth/googleAuth.ts");
+    h.oauth(async (_, redirect) => ({ type: "success", url: `${redirect}?code=verified-code` }));
+    h.fetch(async () => response(200, { ...tokenResponse(), provider_token: "DO_NOT_STORE" }));
+    assert.equal(await google.signInWithGoogle(), "ready");
+    const [authorize, redirect] = h.oauthCalls[0];
+    const params = new URL(authorize).searchParams;
+    assert.equal(params.get("provider"), "google");
+    assert.equal(params.get("redirect_to"), redirect);
+    assert.equal(params.get("code_challenge_method"), "s256");
+    assert.equal(redirect, platform === "web" ? "https://example.test/" : "noie://auth/callback");
+    const body = JSON.parse(h.calls[0].options.body);
+    assert.match(body.code_verifier, /^[0-9a-f]{64}$/);
+    assert.equal(body.auth_code, "verified-code");
+    assert.equal(params.get("code_challenge"), crypto.createHash("sha256").update(body.code_verifier).digest("base64url"));
+    assert.equal(authorize.includes(body.code_verifier), false);
+    assert.match(h.calls[0].url, /grant_type=pkce$/);
+    assert.match(h.calls[1].url, /\/auth\/bootstrap$/);
+    assert.equal(h.calls[1].options.headers.Authorization, "Bearer access-new");
+    assert.doesNotMatch(h.data.get(authKey), /DO_NOT_STORE|verified-code|code_verifier/);
+  }
+});
+
+test("Google cancel/dismiss leave no app session and perform no HTTP", async () => {
+  for (const type of ["cancel", "dismiss"]) {
+    const h = harness();
+    h.oauth(async () => ({ type }));
+    assert.equal(await h.load("src/auth/googleAuth.ts").signInWithGoogle(), "cancelled");
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.data.size, 0);
+  }
+});
+
+test("Google wrong redirect, duplicate code, implicit tokens and provider errors are rejected", async () => {
+  for (const uri of ["https://attacker.test/?code=x", "https://example.test/?code=a&code=b",
+    "https://example.test/#access_token=RAW_SECRET", "https://example.test/?error=RAW_SECRET",
+    "https://example.test/?code=x#error_description=RAW_SECRET", "https://example.test/"]) {
+    const h = harness();
+    h.oauth(async () => ({ type: "success", url: uri }));
+    await assert.rejects(h.load("src/auth/googleAuth.ts").signInWithGoogle(), (error) => {
+      assert.doesNotMatch(error.message, /RAW_SECRET|attacker/); return true;
+    });
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.data.size, 0);
+  }
+});
+
+test("Google exchange, browser and bootstrap failures expose no raw errors/session", async () => {
+  for (const mode of ["browser", "exchange", "parse", "bootstrap"]) {
+    const h = harness();
+    h.oauth(async (_, redirect) => {
+      if (mode === "browser") throw new Error("RAW_OAUTH_SECRET");
+      return { type: "success", url: `${redirect}?code=valid` };
+    });
+    h.fetch(async () => mode === "parse" ? { ok: true, json: async () => { throw new Error("RAW_OAUTH_SECRET"); } }
+      : response(mode === "exchange" ? 400 : 200, tokenResponse()));
+    if (mode === "bootstrap") h.bootstrap(async () => response(403, { secret: "RAW_OAUTH_SECRET" }));
+    await assert.rejects(h.load("src/auth/googleAuth.ts").signInWithGoogle(), (error) => {
+      assert.doesNotMatch(error.message, /RAW_OAUTH_SECRET/); return true;
+    });
+    assert.equal(h.data.has(authKey), false);
+  }
+});
+
+test("Google logout fence and concurrent browser guard preserve newer session", async () => {
+  const h = harness();
+  const session = h.load("src/auth/authSession.ts");
+  const wait = deferred();
+  h.oauth(() => wait.promise);
+  const google = h.load("src/auth/googleAuth.ts");
+  const pending = google.signInWithGoogle();
+  const rejected = assert.rejects(pending);
+  await new Promise(setImmediate);
+  await assert.rejects(google.signInWithGoogle(), /이미 진행/);
+  await session.clearAuthSession();
+  await session.saveAuthSession({ ...fresh(), accessToken: "account-B" });
+  wait.resolve({ type: "success", url: "https://example.test/?code=valid" });
+  await rejected;
+  assert.equal(h.calls.length, 0);
+  assert.equal(await session.getAccessToken(), "account-B");
+});
+
+test("existing fresh startup avoids bootstrap; UI confirmation and Google controls are present", async () => {
+  const h = harness({ initial: { [authKey]: JSON.stringify(fresh()) } });
+  assert.equal((await h.load("src/auth/supabaseAuth.ts").getValidAuthSession()).accessToken, "test-access");
+  assert.equal(h.calls.length, 0);
+  const login = fs.readFileSync(path.join(root, "src/features/auth/LoginFeature.tsx"), "utf8");
+  assert.match(login, /password !== passwordConfirm/);
+  assert.match(login, /이메일을 확인한 뒤 로그인해 주세요/);
+  assert.match(login, /Google로 계속하기/);
+  assert.match(login, /setPasswordConfirm\(""\)/);
 });

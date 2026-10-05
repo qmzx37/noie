@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from agent.router import router as agent_router
 from auth_context import AuthPrincipal, auth_enabled, resolve_auth_principal
 from auth_ownership import require_core_principal
+from auth_bootstrap_router import router as auth_bootstrap_router
 from chat_storage_router import router as chat_storage_router
 from chat_persistence_service import (
     AuthenticatedOwnershipError,
@@ -74,6 +75,8 @@ app.add_middleware(
 app.include_router(chat_storage_router)
 app.include_router(memory_router)
 app.include_router(agent_router)
+# 일반 Principal은 읽기 전용으로 유지하고 신규 계정 생성은 이 전용 경로에만 둡니다.
+app.include_router(auth_bootstrap_router)
 
 
 @app.post("/internal/background-probe", include_in_schema=False)
