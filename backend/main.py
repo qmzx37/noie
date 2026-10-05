@@ -20,6 +20,7 @@ from chat_persistence_service import (
     mark_chat_request_failed,
 )
 from chat_agent_integration_service import prepare_chat_recommendation, run_chat_agent_integration
+from chat_background_observability import run_observed_background
 from database import get_db
 from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
@@ -1488,15 +1489,21 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> dict:
     if chat_persisted and persistence_context and persistence_context.user_message_id:
         # 응답 생성은 기다리지 않고, 저장된 user 원문만 보수적으로 장기 기억 후보로 분석합니다.
         background_tasks.add_task(
+            run_observed_background,
+            "memory",
             run_memory_extraction_background,
             persistence_context.user_message_id,
+            correlation_source=persistence_context.request_id or persistence_context.user_message_id,
         )
         # 응답 저장 후 Agent를 실행해 실패나 지연이 기존 chat 결과를 깨뜨리지 않게 합니다.
         background_tasks.add_task(
+            run_observed_background,
+            "agent",
             run_chat_agent_integration,
             persistence_context.user_message_id,
             persistence_context.request_id,
             prepared_routing,
+            correlation_source=persistence_context.request_id or persistence_context.user_message_id,
         )
         # Lv4는 응답 저장 뒤의 관찰자입니다. 결과를 reply/Action에 사용하지 않고 duplicate 재사용은 위에서 반환합니다.
         schedule_shadow(background_tasks, context=persistence_context, text=original_text, memories=relevant_memories)
