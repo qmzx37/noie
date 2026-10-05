@@ -52,6 +52,10 @@ class RequestStillProcessingError(Exception):
     """동일 요청이 다른 서버 작업에서 아직 처리 중일 때 발생합니다."""
 
 
+class AuthenticatedOwnershipError(Exception):
+    """검증된 사용자 문맥을 안전하게 확정하지 못했습니다. 개발 사용자로 대체하지 않습니다."""
+
+
 _DUPLICATE_WAIT_SECONDS = 60.0
 _DUPLICATE_POLL_SECONDS = 0.2
 
@@ -63,8 +67,30 @@ def _configured_uuid(name: str) -> UUID | None:
     return UUID(value) if value else None
 
 
-def _resolve_context(db) -> ChatPersistenceContext:
-    """환경변수 ID를 우선 사용하고 없으면 개발용 활성 데이터를 bootstrap합니다."""
+def _resolve_context(db, authenticated_user_id: UUID | None = None) -> ChatPersistenceContext:
+    """인증 계층의 UUID를 우선하고, 없을 때만 기존 개발용 선택/bootstrap을 사용합니다."""
+
+    if authenticated_user_id is not None:
+        # 이 인자는 request body가 아니라 미래 인증 계층이 검증한 UUID만 받는 내부 경계입니다.
+        if not isinstance(authenticated_user_id, UUID):
+            raise AuthenticatedOwnershipError
+        user = db.scalar(select(User).where(
+            User.id == authenticated_user_id, User.deleted_at.is_(None),
+        ))
+        if user is None:
+            raise AuthenticatedOwnershipError
+        conversation = db.scalar(
+            select(Conversation).where(
+                Conversation.user_id == authenticated_user_id,
+                Conversation.deleted_at.is_(None),
+            ).order_by(Conversation.created_at.desc(), Conversation.id.desc()).limit(1)
+        )
+        if conversation is None:
+            conversation = create_conversation(db, ConversationCreate(
+                user_id=authenticated_user_id,
+                title=os.getenv("NOIE_DEV_CONVERSATION_TITLE", "NOIE 개발 대화"),
+            ))
+        return ChatPersistenceContext(authenticated_user_id, conversation.id)
 
     configured_user_id = _configured_uuid("NOIE_DEV_USER_ID")
     configured_conversation_id = _configured_uuid("NOIE_DEV_CONVERSATION_ID")
@@ -146,6 +172,8 @@ def _request_hash(content: str) -> str:
 def _wait_for_existing_request(
     request_id: UUID,
     request_hash: str,
+    *,
+    authenticated_user_id: UUID | None = None,
 ) -> ChatPersistenceStart:
     """동시에 들어온 동일 요청이 끝날 때까지 짧게 기다린 뒤 결과를 재사용합니다."""
 
@@ -156,12 +184,22 @@ def _wait_for_existing_request(
             if record is None:
                 time.sleep(_DUPLICATE_POLL_SECONDS)
                 continue
+            if authenticated_user_id is not None:
+                # 전역 request UUID가 같아도 다른 사용자의 cached 결과는 절대 반환하지 않습니다.
+                owner = db.scalar(select(Conversation.user_id).join(User, User.id == Conversation.user_id).where(
+                    Conversation.id == record.conversation_id,
+                    Conversation.user_id == authenticated_user_id,
+                    Conversation.deleted_at.is_(None),
+                    User.deleted_at.is_(None),
+                ))
+                if owner != authenticated_user_id:
+                    raise AuthenticatedOwnershipError
             if record.request_hash != request_hash:
                 raise RequestIdConflictError
             if record.status == "completed" and record.response is not None:
                 return ChatPersistenceStart(
                     context=ChatPersistenceContext(
-                        user_id=None,
+                        user_id=authenticated_user_id,
                         conversation_id=record.conversation_id,
                         request_id=record.request_id,
                         user_message_id=record.user_message_id,
@@ -178,17 +216,22 @@ def _wait_for_existing_request(
 def begin_chat_request(
     content: str,
     request_id: UUID | None,
+    *,
+    authenticated_user_id: UUID | None = None,
 ) -> ChatPersistenceStart:
     """요청을 선점하고 사용자 원문을 OpenAI 호출 전에 한 번만 저장합니다."""
 
     if SessionLocal is None:
+        # 실제 인증 경로는 DB 검증 없이 저장을 건너뛰어 성공한 것처럼 진행하지 않습니다.
+        if authenticated_user_id is not None:
+            raise AuthenticatedOwnershipError
         print("[noie] chat persistence skipped: DATABASE_URL is not configured")
         return ChatPersistenceStart(context=None)
 
     request_hash = _request_hash(content)
     try:
         with SessionLocal() as db:
-            context = _resolve_context(db)
+            context = _resolve_context(db, authenticated_user_id=authenticated_user_id)
 
             # request_id가 없는 구버전 클라이언트는 기존 저장 동작을 그대로 유지합니다.
             if request_id is None:
@@ -217,7 +260,9 @@ def begin_chat_request(
                 db.flush()
             except IntegrityError:
                 db.rollback()
-                return _wait_for_existing_request(request_id, request_hash)
+                return _wait_for_existing_request(
+                    request_id, request_hash, authenticated_user_id=authenticated_user_id,
+                )
 
             user_message = Message(
                 conversation_id=context.conversation_id,
@@ -239,9 +284,12 @@ def begin_chat_request(
                     user_message_id=user_message.id,
                 )
             )
-    except (RequestIdConflictError, RequestStillProcessingError):
+    except (RequestIdConflictError, RequestStillProcessingError, AuthenticatedOwnershipError):
         raise
     except Exception as error:
+        if authenticated_user_id is not None:
+            # 인증된 사용자 검증/저장 오류는 fail closed합니다. 외부에 DB 오류 원문을 전달하지 않습니다.
+            raise AuthenticatedOwnershipError from error
         # 저장 장애가 기존 채팅 기능까지 막지 않도록 request_id 저장만 건너뜁니다.
         print(f"[noie] user message persistence failed: {type(error).__name__}")
         return ChatPersistenceStart(context=None)
