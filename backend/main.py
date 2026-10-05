@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from uuid import UUID
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,6 +71,16 @@ app.add_middleware(
 app.include_router(chat_storage_router)
 app.include_router(memory_router)
 app.include_router(agent_router)
+
+
+@app.post("/internal/background-probe", include_in_schema=False)
+def background_endpoint_probe(request_id: UUID, background_tasks: BackgroundTasks) -> dict:
+    """기본 OFF인 독립 진단입니다. DB/업무 처리는 하지 않고 기존 probe만 예약합니다."""
+    # 명시적으로 켠 경우만 접근을 허용하고 API 문서에도 진단 경로를 노출하지 않습니다.
+    if os.getenv("NOIE_BG_PROBE_ENDPOINT_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        raise HTTPException(status_code=404, detail="Not Found")
+    background_tasks.add_task(run_background_probe, correlation_source=request_id)
+    return {"status": "scheduled"}
 
 
 def to_level(score: float) -> str:
