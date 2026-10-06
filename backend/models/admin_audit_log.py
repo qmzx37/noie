@@ -16,7 +16,8 @@ class AdminAuditLog(Base):
     __table_args__ = (
         CheckConstraint("actor_kind IN ('user', 'operator')", name="ck_admin_audit_logs_actor_kind"),
         CheckConstraint("outcome IN ('success', 'denied', 'not_found', 'failed')", name="ck_admin_audit_logs_outcome"),
-        CheckConstraint("action IN ('admin_summary.read', 'break_glass.create', 'break_glass.revoke', 'memory.break_glass_read', 'conversation.break_glass_read', 'audit_log.read', 'admin_grant.provision', 'admin_grant.revoke', 'owner.memory.read', 'owner.conversation.read', 'owner.record.read')", name="ck_admin_audit_logs_action"),
+        # 0020은 계정 삭제 사건만 추가합니다. 사용자 원문이나 외부 identity는 감사에 넣지 않습니다.
+        CheckConstraint("action IN ('admin_summary.read', 'break_glass.create', 'break_glass.revoke', 'memory.break_glass_read', 'conversation.break_glass_read', 'audit_log.read', 'admin_grant.provision', 'admin_grant.revoke', 'owner.memory.read', 'owner.conversation.read', 'owner.record.read', 'account.delete.request', 'account.delete.purge')", name="ck_admin_audit_logs_action"),
         CheckConstraint("reason_code IS NULL OR reason_code IN ('user_support_request', 'security_incident', 'account_recovery', 'other')", name="ck_admin_audit_logs_reason"),
         Index("ix_admin_audit_logs_created_at_id", "created_at", "id"),
         Index("ix_admin_audit_logs_actor_created_at", "actor_user_id", "created_at"),

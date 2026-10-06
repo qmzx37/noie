@@ -34,6 +34,7 @@ from daily_trace_analyzer import extract_daily_trace_with_openai
 from emotion_analyzer import analyze_with_rules
 from memory_router import router as memory_router
 from admin_router import router as admin_router
+from account_router import router as account_router
 from memory_extraction_service import run_memory_extraction_background
 from memory_retriever import retrieve_relevant_memories_safe
 from lv4_shadow_service import schedule_shadow
@@ -83,6 +84,7 @@ app.add_middleware(
 app.include_router(chat_storage_router)
 app.include_router(memory_router)
 app.include_router(admin_router)
+app.include_router(account_router)
 app.include_router(agent_router)
 # 일반 Principal은 읽기 전용으로 유지하고 신규 계정 생성은 이 전용 경로에만 둡니다.
 app.include_router(auth_bootstrap_router)

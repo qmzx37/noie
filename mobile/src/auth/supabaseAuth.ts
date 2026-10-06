@@ -101,11 +101,16 @@ export async function signUpWithPassword(email: string, password: string): Promi
 
 // 회전되는 refresh token은 동시에 한 번만 사용합니다. 다른 세션과는 공유하지 않습니다.
 export function refreshAuthSession(session: AuthSession): Promise<AuthSession> {
-  const revision = getAuthSessionRevision();
+  return refreshAuthCredential(session.refreshToken, getAuthSessionRevision());
+}
+
+// Native 재시작은 access token 없이 refresh 자격증명으로 같은 회전/coalescing 경로에 들어옵니다.
+export function refreshAuthCredential(refreshToken: string, revision: number): Promise<AuthSession> {
+  if (revision !== getAuthSessionRevision()) return Promise.reject(new Error(LOGIN_REQUIRED_MESSAGE));
   if (refreshInFlight?.revision === revision) return refreshInFlight.promise;
   const promise = (async () => {
     try {
-      const next = await requestToken("refresh_token", { refresh_token: session.refreshToken });
+      const next = await requestToken("refresh_token", { refresh_token: refreshToken });
       await saveAuthSession(next, revision, true);
       if ((await loadAuthSession())?.accessToken !== next.accessToken) throw new Error(LOGIN_REQUIRED_MESSAGE);
       return next;

@@ -266,12 +266,7 @@ import {
   normalizeDailyTraces,
   normalizeProjects,
 } from "./src/noie/normalize";
-import {
-  loadStringValue,
-  removeStorageValue,
-  saveJsonValue,
-  saveStringValue,
-} from "./src/noie/storage";
+import { AccountNamespace, createAccountStorage } from "./src/noie/accountStorage";
 import {
   getNextTodayMeOrder,
   getTodayMeProjects,
@@ -414,11 +409,16 @@ function createEmptySession(): ChatSession {
 }
 
 export default function App() {
-  // 기존 NOIE 앱의 상태/저장 로직은 안쪽에 그대로 두고 인증 gate만 감쌉니다.
-  return <AuthGate><NoieApp /></AuthGate>;
+  // 인증된 계정이 바뀌면 React 상태도 새로 생성합니다. token refresh에는 key가 유지됩니다.
+  return <AuthGate>{(accountNamespace) =>
+    <NoieApp key={accountNamespace} accountNamespace={accountNamespace} />
+  }</AuthGate>;
 }
 
-function NoieApp() {
+function NoieApp({ accountNamespace }: { accountNamespace: AccountNamespace }) {
+  // 각 instance는 mount 당시 namespace를 고정합니다. 모든 기존 저장/초기화 호출이 이 경계를 사용합니다.
+  const [accountStorage] = useState(() => createAccountStorage(accountNamespace));
+  const { loadStringValue, removeStorageValue, saveJsonValue, saveStringValue } = accountStorage;
   const { width } = useWindowDimensions();
   const isWideScreen = width >= 820;
   const scrollViewRef = useRef<ScrollView | null>(null);

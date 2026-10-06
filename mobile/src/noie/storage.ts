@@ -11,8 +11,9 @@ export async function loadJsonValue<T>(key: string, fallback: T): Promise<T> {
       return fallback;
     }
     return JSON.parse(rawValue) as T;
-  } catch (error) {
-    console.log("[noie] storage parse failed", { key, error });
+  } catch {
+    // 파싱 오류에 대화 원문이나 account key가 섞일 수 있으므로 상세 값은 출력하지 않습니다.
+    console.log("[noie] storage parse failed");
     return fallback;
   }
 }

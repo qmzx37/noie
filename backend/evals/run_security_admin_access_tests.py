@@ -393,6 +393,16 @@ class AdminAccessTests(unittest.TestCase):
         with patch.object(migration, "op", op):
             migration.upgrade()
         self.assertEqual(migration.down_revision, "20261005_0018")
+        # 0019는 변경하지 않습니다. 0020 적용 후 최종 CHECK와 모델을 비교합니다.
+        lifecycle = importlib.import_module("migrations.versions.20261006_0020_add_account_deletion_audit")
+        def drop_check(name, table, **kwargs):
+            target = schema.tables[table]
+            target.constraints.remove(next(c for c in target.constraints if c.name == name))
+        op.drop_constraint.side_effect = drop_check
+        op.create_check_constraint.side_effect = lambda name, table, condition: schema.tables[table].append_constraint(CheckConstraint(condition, name=name))
+        with patch.object(lifecycle, "op", op):
+            lifecycle.upgrade()
+        self.assertEqual(lifecycle.down_revision, migration.revision)
         models = (AdminGrant, AdminBreakGlassSession, AdminAuditLog)
         def columns(table):
             return [(c.name, str(c.type.compile(dialect=dialect())), c.nullable,
