@@ -1,6 +1,9 @@
 """Alembic과 애플리케이션이 모든 DB 모델을 한 번에 불러오는 모듈입니다."""
 
 from models.agent_action import AgentAction
+from models.admin_grant import AdminGrant
+from models.admin_break_glass_session import AdminBreakGlassSession
+from models.admin_audit_log import AdminAuditLog
 from models.auth_identity import AuthIdentity
 from models.chat_request import ChatRequestRecord
 from models.conversation import Conversation
@@ -20,6 +23,9 @@ from models.recommendation import Recommendation
 from models.relationship_event import RelationshipEvent
 
 __all__ = [
+    "AdminGrant",
+    "AdminBreakGlassSession",
+    "AdminAuditLog",
     "AgentAction",
     "AuthIdentity",
     "ChatRequestRecord",
