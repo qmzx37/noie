@@ -6,9 +6,10 @@ import os
 import re
 from uuid import UUID
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from security_config import CORS_HEADERS, CORS_METHODS, api_docs_options, cors_allowed_origins
+from security_rate_limit import PreAuthRateLimitMiddleware
 from sqlalchemy import text as sql_text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -66,6 +67,8 @@ app = FastAPI(
     **api_docs_options(),
 )
 
+# 순수 ASGI guard를 CORS 안쪽에 둬 429 응답에도 기존 CORS 정책이 적용되게 합니다.
+app.add_middleware(PreAuthRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     # 환경변수로 확인된 origin만 허용합니다. CORS는 JWT/소유권을 대체하지 않습니다.
@@ -88,13 +91,14 @@ def background_endpoint_probe(
     request_id: UUID,
     background_tasks: BackgroundTasks,
     authorization: str | None = Header(default=None),
+    request: Request = None,
 ) -> dict:
     """기본 OFF인 독립 진단입니다. DB/업무 처리는 하지 않고 기존 probe만 예약합니다."""
     # 명시적으로 켠 경우만 접근을 허용하고 API 문서에도 진단 경로를 노출하지 않습니다.
     if os.getenv("NOIE_BG_PROBE_ENDPOINT_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
         raise HTTPException(status_code=404, detail="Not Found")
     # disabled 404를 먼저 보장한 뒤 기존 verifier/identity 경계로 인증합니다.
-    require_core_principal(resolve_auth_principal(authorization))
+    require_core_principal(resolve_auth_principal(authorization, request=request))
     background_tasks.add_task(run_background_probe, correlation_source=request_id)
     return {"status": "scheduled"}
 

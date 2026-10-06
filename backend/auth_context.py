@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
+from security_rate_limit import enforce_user_limit
 
 
 @dataclass(frozen=True)
@@ -43,9 +44,12 @@ def auth_enabled() -> bool:
 
 def resolve_auth_principal(
     authorization: Annotated[str | None, Header()] = None,
+    request: Request = None,
 ) -> AuthPrincipal | None:
     """OFF는 개발 경로, ON은 verified token -> 기존 local user 매핑만 허용합니다."""
     if not auth_enabled():
+        # 개발 OFF에서도 HTTP 요청에는 peer 비용 제한을 적용하고 기존 직접 호출은 보존합니다.
+        enforce_user_limit(request, None)
         return None
     from supabase_auth_verifier import TokenVerificationError, verify_supabase_token
     from auth_identity_service import IdentityMappingError, resolve_identity_principal
@@ -59,7 +63,10 @@ def resolve_auth_principal(
         # token/claim/SDK 오류를 응답이나 로그로 출력하지 않습니다.
         raise HTTPException(status_code=401, detail="인증이 필요합니다.", headers={"WWW-Authenticate": "Bearer"}) from None
     try:
-        return resolve_identity_principal(identity)
+        principal = resolve_identity_principal(identity)
     except IdentityMappingError:
         # unmapped/inactive/DB 장애 모두 fallback 없이 같은 안전 응답으로 숨깁니다.
         raise HTTPException(status_code=403, detail="인증된 사용자로 요청을 처리할 수 없습니다.") from None
+    # 인증 오류는 기존 401/403 그대로입니다. 검증된 local Principal만 비용 bucket authority입니다.
+    enforce_user_limit(request, principal.user_id)
+    return principal

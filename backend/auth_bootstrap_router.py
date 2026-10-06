@@ -2,7 +2,8 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from security_rate_limit import enforce_bootstrap_limit
 from sqlalchemy.orm import Session
 
 from auth_bootstrap_service import BootstrapError, bootstrap_auth_identity
@@ -15,15 +16,19 @@ router = APIRouter(tags=['auth'])
 
 def require_bootstrap_identity(
     authorization: Annotated[str | None, Header()] = None,
+    request: Request = None,
 ) -> VerifiedAuthIdentity:
     """Auth OFF에서도 JWT 검증을 생략하지 않습니다. 기존 Principal mapping은 요구하지 않습니다."""
     parts = authorization.split() if isinstance(authorization, str) else []
     if len(parts) != 2 or parts[0].lower() != 'bearer':
         raise HTTPException(401, '인증이 필요합니다.', headers={'WWW-Authenticate': 'Bearer'})
     try:
-        return verify_supabase_token(parts[1])
+        identity = verify_supabase_token(parts[1])
     except TokenVerificationError:
         raise HTTPException(401, '인증이 필요합니다.', headers={'WWW-Authenticate': 'Bearer'}) from None
+    # JWT 성공 뒤, bootstrap DB 쓰기 dependency/업무 실행 전에 제한합니다.
+    enforce_bootstrap_limit(request, identity.provider, identity.subject)
+    return identity
 
 
 @router.post('/auth/bootstrap')

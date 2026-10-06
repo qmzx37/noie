@@ -59,3 +59,17 @@ def api_docs_options() -> dict[str, str | None]:
         "redoc_url": "/redoc" if enabled else None,
         "openapi_url": "/openapi.json" if enabled else None,
     }
+
+
+def rate_limit_enabled() -> bool:
+    """인증 정책처럼 명시적인 개발용 OFF만 허용합니다. 오타는 제한을 끄지 않습니다."""
+    return os.getenv("NOIE_RATE_LIMIT_ENABLED", "").strip().lower() not in {"false", "0", "no", "off"}
+
+
+def rate_limit_number(name: str, default: int, maximum: int = 10000) -> int:
+    """0/음수/극단값/파싱 오류는 unlimited가 아니라 안전한 기본값을 사용합니다."""
+    value = os.getenv(name, "").strip()
+    if not re.fullmatch(r"[0-9]{1,5}", value):
+        return default
+    number = int(value)
+    return number if 1 <= number <= maximum else default

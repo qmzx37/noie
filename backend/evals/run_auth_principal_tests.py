@@ -147,7 +147,12 @@ class AuthPrincipalTests(unittest.TestCase):
         import inspect
         self.assertFalse({'user_id', 'authenticated_user_id', 'principal'} & set(ChatRequest.model_fields))
         # Phase 10.2에서는 Authorization만 읽고 임의 user UUID는 입력으로 받지 않습니다.
-        self.assertEqual(set(inspect.signature(auth.resolve_auth_principal).parameters), {'authorization'})
+        # Request는 FastAPI 내부 객체이지 client user_id/body/query 입력이 아닙니다.
+        parameters = inspect.signature(auth.resolve_auth_principal).parameters
+        self.assertEqual(set(parameters), {'authorization', 'request'})
+        from fastapi import Request
+        self.assertIs(parameters['request'].annotation, Request)
+        self.assertIsNone(parameters['request'].default)
 
 
 if __name__ == '__main__':
