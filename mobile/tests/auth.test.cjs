@@ -15,7 +15,7 @@ const deferred = () => { let resolve; const promise = new Promise((r) => { resol
 
 // 실제 인증 대신 작은 React 렌더 mock으로 UI 이벤트와 기존 핸들러 연결을 검증합니다.
 function loginUI({ google = async () => "cancelled", kakao = async () => "cancelled",
-  signup = async () => "confirmation_required" } = {}) {
+  naver = async () => "cancelled", signup = async () => "confirmation_required", password = async () => {} } = {}) {
   const values = [];
   const refs = [];
   const calls = [];
@@ -42,8 +42,9 @@ function loginUI({ google = async () => "cancelled", kakao = async () => "cancel
       if (id === "react-native-svg") return { __esModule: true, default: "Svg", Path: "Path" };
       if (id === "./GoogleMark") return load("GoogleMark.tsx");
       if (id === "./KakaoMark") return load("KakaoMark.tsx");
+      if (id === "./NaverMark") return load("NaverMark.tsx");
       if (id.endsWith("supabaseAuth")) return {
-        signInWithPassword: async (...args) => calls.push(["login", ...args]),
+        signInWithPassword: async (...args) => { calls.push(["login", ...args]); return password(); },
         signUpWithPassword: async (...args) => { calls.push(["signup", ...args]); return signup(); },
       };
       if (id.endsWith("googleAuth")) return {
@@ -51,6 +52,9 @@ function loginUI({ google = async () => "cancelled", kakao = async () => "cancel
       };
       if (id.endsWith("kakaoAuth")) return {
         signInWithKakao: async () => { calls.push(["kakao"]); return kakao(); },
+      };
+      if (id.endsWith("naverAuth")) return {
+        signInWithNaver: async () => { calls.push(["naver"]); return naver(); },
       };
       throw new Error(`Unexpected UI dependency: ${id}`);
     };
@@ -903,6 +907,168 @@ test("Kakao late bootstrap cannot replace a newer account and unknown providers 
   await assert.rejects(invalid.load("src/auth/socialAuth.ts").signInWithSocialProvider("unknown"));
   assert.equal(invalid.oauthCalls.length, 0);
   assert.equal(invalid.calls.length, 0);
+});
+
+// Naver는 기존 공통 엔진을 사용하되 custom 식별자, 안내 문구와 guard를 별도로 검증합니다.
+test("Naver button keeps shared busy guard and safe cancellation/failure notices", async () => {
+  const wait = deferred();
+  const ui = loginUI({ naver: () => wait.promise });
+  const buttons = () => ui.nodes(ui.render()).filter((node) => node.type === "TouchableOpacity");
+  const naver = buttons()[4];
+  assert.equal(naver.props.accessibilityLabel, "네이버로 로그인");
+  assert.equal(naver.props.style[0].width, 52);
+  assert.equal(naver.props.style[0].height, 52);
+  assert.equal(naver.props.style[0].backgroundColor, "#03C75A");
+  assert.equal(naver.props.style[0].borderRadius, 26);
+  naver.props.onPress();
+  buttons()[0].props.onPress();
+  buttons()[2].props.onPress();
+  buttons()[3].props.onPress();
+  naver.props.onPress();
+  assert.deepEqual(ui.calls, [["naver"]]);
+  assert.ok(buttons().every((node) => node.props.disabled));
+  assert.equal(buttons()[4].props.accessibilityState.busy, true);
+  assert.ok(ui.nodes(ui.render()).filter((node) => node.type === "TextInput").every((node) => !node.props.editable));
+  wait.resolve("cancelled");
+  await new Promise(setImmediate);
+  assert.ok(ui.nodes(ui.render()).some((node) => node.children.includes("네이버 로그인을 취소했습니다.")));
+  const failure = loginUI({ naver: async () => { throw new Error("RAW_OIDC_SECRET"); } });
+  failure.nodes(failure.render()).find((node) => node.props.accessibilityLabel === "네이버로 로그인").props.onPress();
+  await new Promise(setImmediate);
+  const alert = failure.nodes(failure.render()).find((node) => node.props.accessibilityRole === "alert");
+  assert.equal(alert.children[0], "네이버 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요.");
+});
+
+test("password submission prevents Naver from starting", async () => {
+  const wait = deferred();
+  const ui = loginUI({ password: () => wait.promise });
+  let nodes = ui.nodes(ui.render());
+  const inputs = nodes.filter((node) => node.type === "TextInput");
+  inputs[0].props.onChangeText("dev@example.test");
+  inputs[1].props.onChangeText("test-password");
+  nodes = ui.nodes(ui.render());
+  const buttons = nodes.filter((node) => node.type === "TouchableOpacity");
+  buttons[0].props.onPress();
+  buttons[4].props.onPress();
+  assert.equal(ui.calls.length, 1);
+  assert.equal(ui.calls[0][0], "login");
+  wait.resolve();
+  await new Promise(setImmediate);
+});
+
+test("Naver uses custom:naver and PKCE; email-free session waits for bootstrap", async () => {
+  for (const platform of ["web", "ios", "android"]) {
+    const h = harness({ platform });
+    const wait = deferred();
+    h.oauth(async (_, redirect) => ({ type: "success", url: `${redirect}?code=naver-code` }));
+    h.fetch(async () => response(200, { ...tokenResponse("naver"), user: { email: null }, provider_token: "SECRET" }));
+    h.bootstrap(() => wait.promise);
+    const pending = h.load("src/auth/naverAuth.ts").signInWithNaver();
+    await new Promise(setImmediate);
+    assert.equal(h.data.has(authKey), false);
+    const [authorize, redirect] = h.oauthCalls[0];
+    const params = new URL(authorize).searchParams;
+    assert.equal(params.get("provider"), "custom:naver");
+    assert.equal(params.get("redirect_to"), redirect);
+    assert.equal(params.get("code_challenge_method"), "s256");
+    assert.equal(redirect, platform === "web" ? "https://example.test/" : "noie://auth/callback");
+    const body = JSON.parse(h.calls[0].options.body);
+    assert.match(body.code_verifier, /^[0-9a-f]{64}$/);
+    assert.equal(body.auth_code, "naver-code");
+    assert.equal(params.get("code_challenge"), crypto.createHash("sha256").update(body.code_verifier).digest("base64url"));
+    assert.equal(authorize.includes(body.code_verifier), false);
+    assert.match(h.calls[0].url, /grant_type=pkce$/);
+    assert.match(h.calls[1].url, /\/auth\/bootstrap$/);
+    assert.equal(h.calls[1].options.headers.Authorization, "Bearer access-naver");
+    wait.resolve(response(200, { status: "ready" }));
+    assert.equal(await pending, "ready");
+    assert.doesNotMatch(h.data.get(authKey), /SECRET|naver-code|email|code_verifier/);
+    assert.equal(h.data.get(authKey).includes(body.code_verifier), false);
+  }
+});
+
+test("Naver cancel/dismiss and unsafe callbacks never exchange tokens", async () => {
+  for (const type of ["cancel", "dismiss"]) {
+    const h = harness();
+    h.oauth(async () => ({ type }));
+    assert.equal(await h.load("src/auth/naverAuth.ts").signInWithNaver(), "cancelled");
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.data.size, 0);
+  }
+  for (const url of ["https://attacker.test/?code=x", "https://example.test/?code=a&code=b",
+    "https://example.test/#access_token=RAW_SECRET", "https://example.test/?error=RAW_SECRET",
+    "https://example.test/?code=x#error_description=RAW_SECRET", "https://example.test/"]) {
+    const h = harness();
+    h.oauth(async () => ({ type: "success", url }));
+    await assert.rejects(h.load("src/auth/naverAuth.ts").signInWithNaver(), (error) => {
+      assert.equal(error.message, "네이버 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요."); return true;
+    });
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.data.size, 0);
+  }
+});
+
+test("Naver failures preserve safe errors and no app session", async () => {
+  for (const mode of ["browser", "exchange", "parse", "bootstrap"]) {
+    const h = harness();
+    h.oauth(async (_, redirect) => {
+      if (mode === "browser") throw new Error("RAW_OIDC_SECRET");
+      return { type: "success", url: `${redirect}?code=valid` };
+    });
+    h.fetch(async () => mode === "parse" ? { ok: true, json: async () => { throw new Error("RAW_OIDC_SECRET"); } }
+      : response(mode === "exchange" ? 400 : 200, tokenResponse()));
+    if (mode === "bootstrap") h.bootstrap(async () => response(403, { secret: "RAW_OIDC_SECRET" }));
+    await assert.rejects(h.load("src/auth/naverAuth.ts").signInWithNaver(), (error) => {
+      assert.equal(error.message, "네이버 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요."); return true;
+    });
+    assert.equal(h.data.has(authKey), false);
+  }
+});
+
+test("all social provider pairs share one guard and Naver alias is rejected", async () => {
+  for (const first of ["google", "kakao", "naver"]) {
+    const h = harness();
+    const wait = deferred();
+    h.oauth(() => wait.promise);
+    const signIn = {
+      google: h.load("src/auth/googleAuth.ts").signInWithGoogle,
+      kakao: h.load("src/auth/kakaoAuth.ts").signInWithKakao,
+      naver: h.load("src/auth/naverAuth.ts").signInWithNaver,
+    };
+    const pending = signIn[first]();
+    await new Promise(setImmediate);
+    for (const other of Object.keys(signIn)) await assert.rejects(signIn[other](), /이미 진행/);
+    assert.equal(h.oauthCalls.length, 1);
+    wait.resolve({ type: "cancel" });
+    assert.equal(await pending, "cancelled");
+    h.oauth(async () => ({ type: "dismiss" }));
+    assert.equal(await signIn.naver(), "cancelled");
+  }
+  const h = harness();
+  await assert.rejects(h.load("src/auth/socialAuth.ts").signInWithSocialProvider("naver"));
+  assert.equal(h.oauthCalls.length, 0);
+});
+
+test("Naver late callback/bootstrap cannot replace a newer account", async () => {
+  for (const stage of ["callback", "bootstrap"]) {
+    const h = harness();
+    const session = h.load("src/auth/authSession.ts");
+    const wait = deferred();
+    h.oauth(stage === "callback" ? () => wait.promise
+      : async (_, redirect) => ({ type: "success", url: `${redirect}?code=valid` }));
+    h.fetch(async () => response(200, tokenResponse()));
+    if (stage === "bootstrap") h.bootstrap(() => wait.promise);
+    const pending = h.load("src/auth/naverAuth.ts").signInWithNaver();
+    const rejected = assert.rejects(pending);
+    await new Promise(setImmediate);
+    await session.clearAuthSession();
+    await session.saveAuthSession({ ...fresh(), accessToken: "account-B" });
+    wait.resolve(stage === "callback" ? { type: "success", url: "https://example.test/?code=valid" }
+      : response(200, { status: "ready" }));
+    await rejected;
+    assert.equal(await session.getAccessToken(), "account-B");
+    if (stage === "callback") assert.equal(h.calls.length, 0);
+  }
 });
 
 test("existing fresh startup avoids bootstrap; UI confirmation and Google controls are present", async () => {

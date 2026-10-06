@@ -4,8 +4,10 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView, Scroll
 import { signInWithPassword, signUpWithPassword } from "../../auth/supabaseAuth";
 import { signInWithGoogle } from "../../auth/googleAuth";
 import { signInWithKakao } from "../../auth/kakaoAuth";
+import { signInWithNaver } from "../../auth/naverAuth";
 import { GoogleMark } from "./GoogleMark";
 import { KakaoMark } from "./KakaoMark";
+import { NaverMark } from "./NaverMark";
 
 // 비밀번호는 입력 중 메모리에만 두고 저장소/로그에는 남기지 않습니다.
 export function LoginFeature({ initialError = "" }: { initialError?: string }) {
@@ -46,18 +48,21 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
     }
   }
 
-  async function socialLogin(provider: "google" | "kakao") {
+  async function socialLogin(provider: "google" | "kakao" | "custom:naver") {
     // 같은 버튼 guard를 재사용하여 password/OAuth 흐름의 동시 시작을 막습니다.
     if (submitting.current) return;
     submitting.current = true;
     setLoading(true);
     setError("");
     setNotice("");
+    // 서버 provider 식별자와 사용자용 한국어 안내 이름을 혼동하지 않습니다.
+    const name = provider === "google" ? "Google" : provider === "kakao" ? "카카오" : "네이버";
     try {
-      const result = await (provider === "google" ? signInWithGoogle() : signInWithKakao());
-      if (result === "cancelled") setNotice(`${provider === "google" ? "Google" : "카카오"} 로그인을 취소했습니다.`);
+      const result = await (provider === "google" ? signInWithGoogle()
+        : provider === "kakao" ? signInWithKakao() : signInWithNaver());
+      if (result === "cancelled") setNotice(`${name} 로그인을 취소했습니다.`);
     } catch {
-      setError(`${provider === "google" ? "Google" : "카카오"} 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요.`);
+      setError(`${name} 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요.`);
     } finally {
       setPassword("");
       setPasswordConfirm("");
@@ -107,7 +112,7 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
               <Text style={styles.dividerText}>{signup ? "간편 가입" : "간편 로그인"}</Text>
               <View style={styles.dividerLine} />
             </View>
-            {/* 두 버튼은 같은 제출 guard를 공유하며 실제 구현된 provider만 표시합니다. */}
+            {/* 모든 소셜 버튼은 기존 password/OAuth 제출 guard를 공유합니다. */}
             <View style={styles.socialButtons}>
               <TouchableOpacity style={[styles.googleButton, loading && styles.disabled]} disabled={loading}
                 accessibilityRole="button" accessibilityLabel="Google로 로그인"
@@ -118,6 +123,11 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
                 accessibilityRole="button" accessibilityLabel="카카오로 로그인"
                 accessibilityState={{ disabled: loading, busy: loading }} onPress={() => void socialLogin("kakao")}>
                 <KakaoMark />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.naverButton, loading && styles.disabled]} disabled={loading}
+                accessibilityRole="button" accessibilityLabel="네이버로 로그인"
+                accessibilityState={{ disabled: loading, busy: loading }} onPress={() => void socialLogin("custom:naver")}>
+                <NaverMark />
               </TouchableOpacity>
             </View>
           </View>
@@ -157,4 +167,7 @@ const styles = StyleSheet.create({
   // Google과 동일한 터치 영역과 간격을 유지하는 Kakao 전용 브랜드 색상입니다.
   kakaoButton: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: "#FEE500",
     backgroundColor: "#FEE500", alignItems: "center", justifyContent: "center" },
+  // 기존 row/gap과 동일한 52px 터치 영역을 유지합니다.
+  naverButton: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: "#03C75A",
+    backgroundColor: "#03C75A", alignItems: "center", justifyContent: "center" },
 });

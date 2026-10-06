@@ -5,9 +5,9 @@ import { Platform } from "react-native";
 import { getAuthSessionRevision } from "./authSession";
 import { completeSignIn, sessionFromResponse, supabaseAuthConfig } from "./supabaseAuth";
 
-// 허용한 두 provider만 사용하며, browser/PKCE 시도 guard는 provider 간에도 공유합니다.
-export type SocialProvider = "google" | "kakao";
-const PROVIDER_NAMES: Record<SocialProvider, string> = { google: "Google", kakao: "카카오" };
+// provider 식별자는 표시 이름과 분리하고, 모든 provider가 같은 PKCE 시도 guard를 공유합니다.
+export type SocialProvider = "google" | "kakao" | "custom:naver";
+const PROVIDER_NAMES: Record<SocialProvider, string> = { google: "Google", kakao: "카카오", "custom:naver": "네이버" };
 let oauthInFlight = false;
 
 // 웹 callback도 동일한 앱을 로드합니다. 라이브러리의 origin/redirect 검사를 끄지 않습니다.
@@ -20,7 +20,9 @@ export function socialRedirectUri(): string {
 
 export async function signInWithSocialProvider(provider: SocialProvider): Promise<"ready" | "cancelled"> {
   // TypeScript 밖의 호출도 알 수 없는 provider를 authorize URL에 넣지 못하게 합니다.
-  if (provider !== "google" && provider !== "kakao") throw new Error("지원하지 않는 로그인 방식입니다.");
+  if (provider !== "google" && provider !== "kakao" && provider !== "custom:naver") {
+    throw new Error("지원하지 않는 로그인 방식입니다.");
+  }
   const name = PROVIDER_NAMES[provider];
   const safeError = `${name} 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요.`;
   if (oauthInFlight) throw new Error(`${name} 로그인이 이미 진행 중입니다.`);
