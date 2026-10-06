@@ -16,6 +16,7 @@ from memory_schemas import (
     MemoryReconciliationDecision,
 )
 from memory_service import create_memory_in_transaction
+from memory_privacy import automatic_memory_allowed
 from models.memory import Memory, MemoryEvidence
 from models.memory_extraction import MemoryExtraction
 
@@ -66,7 +67,7 @@ def find_reconciliation_candidates(
                     "importance": memory.importance,
                     "confidence": memory.confidence,
                 }
-                for memory in memories
+                for memory in memories if automatic_memory_allowed(memory.content)
             ]
     except SQLAlchemyError as error:
         raise MemoryReconciliationDatabaseError from error
@@ -101,6 +102,9 @@ def apply_reconciliation(
 ) -> MemoryExtraction:
     """조정 행동과 extraction 감사를 하나의 짧은 transaction으로 확정합니다."""
 
+    # 직접 service 호출도 private 후보/reason을 저장하지 못하도록 짧은 최종 gate를 둡니다.
+    if not all(automatic_memory_allowed(value) for value in (candidate.content, candidate.reason, decision.reason)):
+        raise MemoryReconciliationValidationError
     validate_reconciliation_decision(decision, candidates)
     if SessionLocal is None:
         raise MemoryReconciliationDatabaseError
@@ -134,6 +138,8 @@ def apply_reconciliation(
                     .with_for_update()
                 )
                 if matched_memory is None:
+                    raise MemoryReconciliationValidationError
+                if not automatic_memory_allowed(matched_memory.content):
                     raise MemoryReconciliationValidationError
 
             memory_data = MemoryCreate(

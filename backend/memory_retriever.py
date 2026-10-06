@@ -19,7 +19,8 @@ from memory_schemas import (
 )
 from models.memory import Memory
 from models.user import User
-from openai_analyzer import extract_output_text, print_openai_error
+from openai_analyzer import extract_output_text
+from memory_privacy import automatic_memory_allowed
 
 
 load_dotenv()
@@ -84,7 +85,7 @@ def fetch_memory_candidates(user_id: UUID) -> list[MemoryRetrievalCandidate]:
                     importance=memory.importance,
                     confidence=memory.confidence,
                 )
-                for memory in memories
+                for memory in memories if automatic_memory_allowed(memory.content)
             ]
     except MemoryRetrievalNotFoundError:
         raise
@@ -98,7 +99,9 @@ def select_relevant_memories(
 ) -> list[dict[str, Any]]:
     """OpenAI가 후보 중 관련 있는 ID만 최대 4개 선택하게 합니다."""
 
-    if not candidates:
+    # legacy/수동 Memory도 content를 기준으로 검사하며 metadata의 분류를 신뢰하지 않습니다.
+    candidates = [candidate for candidate in candidates if automatic_memory_allowed(candidate.content)]
+    if not candidates or not automatic_memory_allowed(query):
         return []
 
     candidate_ids = [str(candidate.memory_id) for candidate in candidates]
@@ -174,7 +177,7 @@ superseded/invalid Memory는 후보에 제공되지 않는다.
         )
         return json.loads(extract_output_text(response))["selected_memories"]
     except Exception as error:
-        print_openai_error(error)
+        print(f"[noie] memory selection failed: {type(error).__name__}")
         raise
 
 
@@ -193,6 +196,8 @@ def resolve_selected_memories(
             raise MemoryRetrievalValidationError from error
         if memory_id not in by_id:
             raise MemoryRetrievalValidationError
+        if not automatic_memory_allowed(by_id[memory_id].content):
+            continue
         relevance = float(item.get("relevance", 0.0))
         if relevance < MIN_RELEVANCE:
             continue
@@ -200,7 +205,8 @@ def resolve_selected_memories(
             memory_id=memory_id,
             content=by_id[memory_id].content,
             relevance=relevance,
-            reason=str(item.get("reason", "")),
+            # 모델이 reason에 query의 민감정보를 복사한 경우 고정 문구만 반환합니다.
+            reason=str(item.get("reason", "")) if automatic_memory_allowed(str(item.get("reason", ""))) else "Relevant memory.",
         )
         previous = resolved.get(memory_id)
         if previous is None or selected.relevance > previous.relevance:
@@ -219,7 +225,7 @@ def retrieve_relevant_memories(
 ) -> tuple[list[MemoryRetrievalCandidate], list[SelectedMemory]]:
     """후보 조회와 관련성 선택을 묶은 교체 가능한 retrieval 진입점입니다."""
 
-    candidates = fetch_memory_candidates(user_id)
+    candidates = [candidate for candidate in fetch_memory_candidates(user_id) if automatic_memory_allowed(candidate.content)]
     raw_selected = select_relevant_memories(query, candidates)
     return candidates, resolve_selected_memories(raw_selected, candidates)
 

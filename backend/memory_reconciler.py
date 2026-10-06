@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from memory_schemas import MemoryExtractionDecision, MemoryReconciliationDecision
-from openai_analyzer import extract_output_text, print_openai_error
+from openai_analyzer import extract_output_text
+from memory_privacy import automatic_memory_allowed
 
 
 load_dotenv()
@@ -46,6 +47,10 @@ def reconcile_memory_candidate(
 ) -> MemoryReconciliationDecision:
     """후보 목록 안의 ID만 선택할 수 있는 동적 JSON schema로 판단합니다."""
 
+    # legacy sensitive Memory를 비교 모델에 보내는 별도 복제 경로도 닫습니다.
+    existing_memories = [memory for memory in existing_memories if automatic_memory_allowed(memory["content"])]
+    if not automatic_memory_allowed(candidate.content) or not automatic_memory_allowed(candidate.reason):
+        raise ValueError("Blocked by memory privacy policy.")
     if not existing_memories:
         return MemoryReconciliationDecision(
             action="new",
@@ -108,5 +113,5 @@ def reconcile_memory_candidate(
         raw["matched_memory_id"] = raw.get("matched_memory_id") or None
         return MemoryReconciliationDecision.model_validate(raw)
     except Exception as error:
-        print_openai_error(error)
+        print(f"[noie] memory reconciliation failed: {type(error).__name__}")
         raise

@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from memory_schemas import MemoryCreate
+from memory_privacy import PrivacyClass, classify_memory_text
 from models.conversation import Conversation
 from models.memory import Memory, MemoryEvidence
 from models.message import Message
@@ -74,6 +75,9 @@ def create_memory_in_transaction(
                 "다른 사용자의 메시지는 evidence로 연결할 수 없습니다."
             )
 
+    # explicit manual sensitive 저장은 유지하되 secret은 명시 요청이어도 Memory로 복제하지 않습니다.
+    if classify_memory_text(data.content) == PrivacyClass.RESTRICTED_SECRET:
+        raise MemoryEvidenceValidationError("Credential/secret은 Memory에 저장할 수 없습니다.")
     memory = Memory(
         user_id=data.user_id,
         supersedes_memory_id=supersedes_memory_id,

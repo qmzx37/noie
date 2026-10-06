@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from database import SessionLocal
 from memory_extractor import EXTRACTOR_VERSION, extract_memory_with_openai
+from memory_privacy import automatic_memory_allowed, blocked_memory_decision, validate_auto_decision
 from memory_reconciler import reconcile_memory_candidate
 from memory_reconciliation_service import (
     apply_reconciliation,
@@ -285,10 +286,16 @@ def extract_memory_for_message(
         raise MemoryExtractionDatabaseError
 
     try:
-        decision = extract_memory_with_openai(original_content)
+        # lease/소유권 확인은 유지하고 세션을 닫은 뒤 privacy 검사합니다. 원문은 삭제하지 않습니다.
+        if not automatic_memory_allowed(original_content):
+            return _complete_without_memory(extraction_id, attempt_count, blocked_memory_decision())
+        # mock/향후 extractor가 prompt 정책을 무시해도 service에서 최종 검사합니다.
+        decision = validate_auto_decision(extract_memory_with_openai(original_content))
         if decision.should_remember:
             candidates = find_reconciliation_candidates(user_id, decision.kind)
             reconciliation = reconcile_memory_candidate(decision, candidates)
+            if not automatic_memory_allowed(reconciliation.reason):
+                return _complete_without_memory(extraction_id, attempt_count, blocked_memory_decision())
             return apply_reconciliation(
                 extraction_id=extraction_id,
                 user_id=user_id,

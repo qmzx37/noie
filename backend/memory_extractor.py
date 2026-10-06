@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from memory_schemas import MemoryExtractionDecision
-from openai_analyzer import extract_output_text, print_openai_error
+from openai_analyzer import extract_output_text
+from memory_privacy import automatic_memory_allowed, blocked_memory_decision, validate_auto_decision
 
 
 load_dotenv()
@@ -36,6 +37,11 @@ MEMORY_EXTRACTION_PROMPT = """
 - 오늘 한 사소한 행동이나 순간적 감정은 저장하지 않는다.
 - 사용자가 말하지 않은 성격, 정신 상태, 진단, 미래를 추론하지 않는다.
 - 일시적 감정을 영구 성향으로 바꾸지 않는다.
+- password/token/API key/private key/금융 credential은 요청해도 기억하지 않는다.
+- 개인의 건강/성생활/종교/정치/노조/범죄/상세 재정/정확한 주소는 자동 장기 기억하지 않는다.
+- 다른 사람의 민감정보도 기억하지 않으며 성격/성향으로 우회 추론하지 않는다.
+- 병원 앱, 정치 뉴스 서비스, 비밀번호 관리 기능 개발 같은 일반 프로젝트는 민감 개인 진술과 구분한다.
+- reason에도 credential이나 민감 원문을 복사하지 않는다.
 - 한 번의 행동을 반복 습관으로 확대하지 않는다.
 - content는 사용자의 표현보다 강하게 단정하지 않는 짧은 한국어 문장으로 쓴다.
 - "오늘 공부하기 싫다"를 "사용자는 공부를 싫어한다"로 저장하면 안 된다.
@@ -88,6 +94,9 @@ MEMORY_EXTRACTION_SCHEMA = {
 def extract_memory_with_openai(text: str) -> MemoryExtractionDecision:
     """원문 한 건을 분석하고 schema 검증을 통과한 판단만 반환합니다."""
 
+    # 직접 helper 호출도 명백한 secret/sensitive 원문을 extraction 모델로 재전송하지 않습니다.
+    if not automatic_memory_allowed(text):
+        return blocked_memory_decision()
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다.")
@@ -120,7 +129,8 @@ def extract_memory_with_openai(text: str) -> MemoryExtractionDecision:
         if decision.should_remember:
             if not decision.content.strip():
                 raise ValueError("기억 생성 판단에 content 또는 kind가 없습니다.")
-        return decision
+        return validate_auto_decision(decision)
     except Exception as error:
-        print_openai_error(error)
+        # SDK/validation 예외에는 입력이 포함될 수 있어 Memory 경로는 오류 종류만 출력합니다.
+        print(f"[noie] memory extraction failed: {type(error).__name__}")
         raise
