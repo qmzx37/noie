@@ -13,6 +13,103 @@ const tokenResponse = (suffix = "new") => ({ access_token: `access-${suffix}`, r
 const response = (status, data = {}) => ({ ok: status >= 200 && status < 300, status, json: async () => data });
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 
+// 실제 인증 대신 작은 React 렌더 mock으로 UI 이벤트와 기존 핸들러 연결을 검증합니다.
+function loginUI({ google = async () => "cancelled", signup = async () => "confirmation_required" } = {}) {
+  const values = [];
+  const refs = [];
+  const calls = [];
+  let cursor = 0;
+  let refCursor = 0;
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
+    Fragment: "Fragment",
+    useState: (initial) => { const i = cursor++; if (!(i in values)) values[i] = initial;
+      return [values[i], (value) => { values[i] = value; }]; },
+    useRef: (initial) => { const i = refCursor++; return refs[i] ||= { current: initial }; },
+  };
+  function load(name) {
+    const module = { exports: {} };
+    const output = ts.transpileModule(fs.readFileSync(path.join(root, "src/features/auth", name), "utf8"), {
+      compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+      reportDiagnostics: true,
+    });
+    assert.equal((output.diagnostics || []).length, 0);
+    const requireMock = (id) => {
+      if (id === "react") return react;
+      if (id === "react-native") return new Proxy({ StyleSheet: { create: (x) => x }, Platform: { OS: "web" } },
+        { get: (target, key) => target[key] || key });
+      if (id === "react-native-svg") return { __esModule: true, default: "Svg", Path: "Path" };
+      if (id === "./GoogleMark") return load("GoogleMark.tsx");
+      if (id.endsWith("supabaseAuth")) return {
+        signInWithPassword: async (...args) => calls.push(["login", ...args]),
+        signUpWithPassword: async (...args) => { calls.push(["signup", ...args]); return signup(); },
+      };
+      if (id.endsWith("googleAuth")) return {
+        signInWithGoogle: async () => { calls.push(["google"]); return google(); },
+      };
+      throw new Error(`Unexpected UI dependency: ${id}`);
+    };
+    vm.runInNewContext(output.outputText, { require: requireMock, module, exports: module.exports });
+    return module.exports;
+  }
+  const { LoginFeature } = load("LoginFeature.tsx");
+  function render() { cursor = 0; refCursor = 0; return LoginFeature({}); }
+  function nodes(tree) {
+    if (!tree || typeof tree !== "object") return [];
+    return [tree, ...tree.children.flatMap(nodes)];
+  }
+  return { render, nodes, calls, mark: load("GoogleMark.tsx").GoogleMark };
+}
+
+test("polished auth UI preserves password/signup wiring and confirmation validation", async () => {
+  const ui = loginUI();
+  const find = (type) => ui.nodes(ui.render()).filter((node) => node.type === type);
+  let inputs = find("TextInput");
+  inputs[0].props.onChangeText("dev@example.test");
+  inputs[1].props.onChangeText("test-password");
+  find("TouchableOpacity")[0].props.onPress();
+  await new Promise(setImmediate);
+  assert.deepEqual(ui.calls[0], ["login", "dev@example.test", "test-password"]);
+  find("TouchableOpacity")[1].props.onPress();
+  inputs = find("TextInput");
+  assert.equal(inputs.length, 3);
+  inputs[1].props.onChangeText("test-password");
+  inputs[2].props.onChangeText("different-password");
+  find("TouchableOpacity")[0].props.onPress();
+  assert.equal(ui.calls.length, 1);
+  assert.ok(ui.nodes(ui.render()).some((node) => node.children.includes("비밀번호가 일치하지 않습니다.")));
+  find("TextInput")[2].props.onChangeText("test-password");
+  find("TouchableOpacity")[0].props.onPress();
+  await new Promise(setImmediate);
+  assert.equal(ui.calls[1][0], "signup");
+  assert.equal(find("TextInput").length, 2);
+  assert.ok(ui.nodes(ui.render()).some((node) => node.children.includes("이메일을 확인한 뒤 로그인해 주세요.")));
+});
+
+test("Google icon preserves cancellation notice, busy state and shared submission guard", async () => {
+  const pending = deferred();
+  const ui = loginUI({ google: () => pending.promise });
+  const buttons = () => ui.nodes(ui.render()).filter((node) => node.type === "TouchableOpacity");
+  let google = buttons()[2];
+  assert.equal(google.props.accessibilityLabel, "Google로 로그인");
+  assert.equal(google.props.style[0].width, 52);
+  assert.equal(google.props.style[0].borderRadius, 26);
+  google.props.onPress();
+  buttons()[0].props.onPress();
+  google.props.onPress();
+  assert.equal(ui.calls.length, 1);
+  assert.ok(buttons().every((node) => node.props.disabled));
+  assert.equal(buttons()[2].props.accessibilityState.busy, true);
+  pending.resolve("cancelled");
+  await new Promise(setImmediate);
+  assert.ok(ui.nodes(ui.render()).some((node) => node.children.includes("Google 로그인을 취소했습니다.")));
+  assert.equal(buttons()[2].props.disabled, false);
+  const mark = ui.mark();
+  assert.equal(mark.type, "Svg");
+  assert.equal(mark.children.length, 4);
+  assert.equal(new Set(mark.children.map((node) => node.props.fill)).size, 4);
+});
+
 function harness({ configured = true, configOverrides = {}, initial = {}, storageFailure = false, platform = "web" } = {}) {
   const data = new Map(Object.entries(initial));
   const cache = new Map();
@@ -657,6 +754,6 @@ test("existing fresh startup avoids bootstrap; UI confirmation and Google contro
   const login = fs.readFileSync(path.join(root, "src/features/auth/LoginFeature.tsx"), "utf8");
   assert.match(login, /password !== passwordConfirm/);
   assert.match(login, /이메일을 확인한 뒤 로그인해 주세요/);
-  assert.match(login, /Google로 계속하기/);
+  assert.match(login, /accessibilityLabel="Google로 로그인"/);
   assert.match(login, /setPasswordConfirm\(""\)/);
 });

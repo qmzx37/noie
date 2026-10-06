@@ -3,6 +3,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView, Scroll
   StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { signInWithPassword, signUpWithPassword } from "../../auth/supabaseAuth";
 import { signInWithGoogle } from "../../auth/googleAuth";
+import { GoogleMark } from "./GoogleMark";
 
 // 비밀번호는 입력 중 메모리에만 두고 저장소/로그에는 남기지 않습니다.
 export function LoginFeature({ initialError = "" }: { initialError?: string }) {
@@ -92,17 +93,25 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
             <TouchableOpacity style={[styles.button, loading && styles.disabled]} disabled={loading}
               accessibilityRole="button" accessibilityState={{ disabled: loading, busy: loading }}
               onPress={() => void login()}>
-              {loading ? <ActivityIndicator color="#151619" /> : <Text style={styles.buttonText}>{signup ? "회원가입" : "로그인"}</Text>}
+              {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.buttonText}>{signup ? "회원가입" : "로그인"}</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={styles.switchMode} disabled={loading} accessibilityRole="button"
               onPress={() => { setSignup(!signup); setError(""); setNotice(""); setPassword(""); setPasswordConfirm(""); }}>
-              <Text style={styles.switchText}>{signup ? "이미 계정이 있나요? 로그인" : "계정이 없나요? 회원가입"}</Text>
+              <Text style={styles.switchText}>{signup ? "이미 계정이 있나요? 로그인" : "회원가입"}</Text>
             </TouchableOpacity>
-            <View style={styles.divider} />
-            <TouchableOpacity style={[styles.googleButton, loading && styles.disabled]} disabled={loading}
-              accessibilityRole="button" accessibilityState={{ disabled: loading }} onPress={() => void googleLogin()}>
-              <Text style={styles.googleText}>Google로 계속하기</Text>
-            </TouchableOpacity>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>{signup ? "간편 가입" : "간편 로그인"}</Text>
+              <View style={styles.dividerLine} />
+            </View>
+            {/* 실제 구현된 Google만 표시하며, 인증 호출은 기존 함수를 유지합니다. */}
+            <View style={styles.socialButtons}>
+              <TouchableOpacity style={[styles.googleButton, loading && styles.disabled]} disabled={loading}
+                accessibilityRole="button" accessibilityLabel="Google로 로그인"
+                accessibilityState={{ disabled: loading, busy: loading }} onPress={() => void googleLogin()}>
+                <GoogleMark />
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -114,23 +123,27 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#101114" },
   fill: { flex: 1 },
-  content: { flexGrow: 1, justifyContent: "center", padding: 24 },
-  form: { width: "100%", maxWidth: 400, alignSelf: "center" },
-  brand: { fontSize: 36, fontWeight: "700", color: "#f3f4f6", marginBottom: 10 },
-  heading: { fontSize: 20, fontWeight: "600", color: "#bfc4cb", marginBottom: 28 },
-  label: { fontSize: 13, color: "#bfc4cb", marginBottom: 8 },
-  input: { minHeight: 48, borderWidth: 1, borderColor: "#34373e", borderRadius: 8,
-    backgroundColor: "#1a1c21", color: "#f3f4f6", paddingHorizontal: 14, paddingVertical: 12,
+  content: { flexGrow: 1, justifyContent: "center", padding: 20 },
+  // 카드 폭은 화면 안에 맞추고, 키보드 표시 시에도 기존 ScrollView로 입력에 접근합니다.
+  form: { width: "100%", maxWidth: 420, alignSelf: "center", backgroundColor: "#ffffff",
+    borderRadius: 8, padding: 28, borderWidth: 1, borderColor: "#e7e9ed" },
+  brand: { fontSize: 36, fontWeight: "700", color: "#17191d", textAlign: "center", marginBottom: 8 },
+  heading: { fontSize: 20, fontWeight: "600", color: "#404650", textAlign: "center", marginBottom: 32 },
+  label: { fontSize: 13, fontWeight: "500", color: "#404650", marginBottom: 8 },
+  input: { minHeight: 48, borderWidth: 1, borderColor: "#dce0e6", borderRadius: 6,
+    backgroundColor: "#ffffff", color: "#17191d", paddingHorizontal: 14, paddingVertical: 12,
     fontSize: 16, marginBottom: 20 },
-  error: { fontSize: 13, lineHeight: 20, color: "#e8a5a5", marginBottom: 16 },
-  button: { minHeight: 48, borderRadius: 8, backgroundColor: "#eef0f3", alignItems: "center", justifyContent: "center" },
-  buttonText: { color: "#151619", fontSize: 15, fontWeight: "600" },
+  error: { fontSize: 13, lineHeight: 20, color: "#b42318", marginBottom: 16 },
+  button: { minHeight: 48, borderRadius: 6, backgroundColor: "#17191d", alignItems: "center", justifyContent: "center" },
+  buttonText: { color: "#ffffff", fontSize: 15, fontWeight: "600" },
   disabled: { opacity: 0.6 },
-  notice: { fontSize: 13, lineHeight: 20, color: "#bfc4cb", marginBottom: 16 },
+  notice: { fontSize: 13, lineHeight: 20, color: "#5f6672", marginBottom: 16 },
   switchMode: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: 8 },
-  switchText: { fontSize: 13, color: "#bfc4cb" },
-  divider: { height: 1, backgroundColor: "#34373e", marginVertical: 16 },
-  googleButton: { minHeight: 48, borderRadius: 8, borderWidth: 1, borderColor: "#34373e",
-    backgroundColor: "#1a1c21", alignItems: "center", justifyContent: "center" },
-  googleText: { fontSize: 15, fontWeight: "600", color: "#f3f4f6" },
+  switchText: { fontSize: 13, fontWeight: "500", color: "#535b68" },
+  divider: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 20, marginBottom: 24 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: "#e7e9ed" },
+  dividerText: { fontSize: 12, color: "#737b87" },
+  socialButtons: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "center" },
+  googleButton: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: "#dce0e6",
+    backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
 });
