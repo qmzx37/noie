@@ -35,8 +35,10 @@ class VerifiedAuthIdentity:
 
 
 def auth_enabled() -> bool:
-    """명시적 ON 값만 허용합니다. 미설정/잘못된 값은 기존 개발 모드입니다."""
-    return os.getenv("NOIE_AUTH_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    """명시적인 개발용 OFF 값만 인증을 끕니다. 누락/오타는 안전하게 ON입니다."""
+    # 호스팅 환경을 추측하지 않고, 개발자가 정확히 지정한 OFF 값만 허용합니다.
+    # production에 OFF가 명시되면 여전히 개발 모드이므로 배포 설정 검증이 필요합니다.
+    return os.getenv("NOIE_AUTH_ENABLED", "").strip().lower() not in {"false", "0", "no", "off"}
 
 
 def resolve_auth_principal(

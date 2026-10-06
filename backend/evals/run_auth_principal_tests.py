@@ -45,8 +45,8 @@ class AuthPrincipalTests(unittest.TestCase):
             auth.AuthPrincipal(str(identity))
 
     def test_off_values_return_none(self):
-        """미설정/잘못된 값은 기존 dev 모드이며 Principal이 없습니다."""
-        for value in (None, '', 'false', '0', 'off', 'no', 'enabled', 'true!'):
+        """명시적인 OFF 값만 기존 dev 모드를 허용하며 Principal이 없습니다."""
+        for value in ('false', '0', 'off', 'no', ' FALSE ', ' No '):
             with self.subTest(value=value), patch.dict(os.environ):
                 os.environ.pop('NOIE_AUTH_ENABLED', None)
                 if value is not None:
