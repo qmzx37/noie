@@ -14,7 +14,8 @@ const response = (status, data = {}) => ({ ok: status >= 200 && status < 300, st
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 
 // 실제 인증 대신 작은 React 렌더 mock으로 UI 이벤트와 기존 핸들러 연결을 검증합니다.
-function loginUI({ google = async () => "cancelled", signup = async () => "confirmation_required" } = {}) {
+function loginUI({ google = async () => "cancelled", kakao = async () => "cancelled",
+  signup = async () => "confirmation_required" } = {}) {
   const values = [];
   const refs = [];
   const calls = [];
@@ -40,12 +41,16 @@ function loginUI({ google = async () => "cancelled", signup = async () => "confi
         { get: (target, key) => target[key] || key });
       if (id === "react-native-svg") return { __esModule: true, default: "Svg", Path: "Path" };
       if (id === "./GoogleMark") return load("GoogleMark.tsx");
+      if (id === "./KakaoMark") return load("KakaoMark.tsx");
       if (id.endsWith("supabaseAuth")) return {
         signInWithPassword: async (...args) => calls.push(["login", ...args]),
         signUpWithPassword: async (...args) => { calls.push(["signup", ...args]); return signup(); },
       };
       if (id.endsWith("googleAuth")) return {
         signInWithGoogle: async () => { calls.push(["google"]); return google(); },
+      };
+      if (id.endsWith("kakaoAuth")) return {
+        signInWithKakao: async () => { calls.push(["kakao"]); return kakao(); },
       };
       throw new Error(`Unexpected UI dependency: ${id}`);
     };
@@ -58,8 +63,40 @@ function loginUI({ google = async () => "cancelled", signup = async () => "confi
     if (!tree || typeof tree !== "object") return [];
     return [tree, ...tree.children.flatMap(nodes)];
   }
-  return { render, nodes, calls, mark: load("GoogleMark.tsx").GoogleMark };
+  return { render, nodes, calls, mark: load("GoogleMark.tsx").GoogleMark,
+    kakaoMark: load("KakaoMark.tsx").KakaoMark };
 }
+
+test("Kakao icon calls Kakao auth, shares busy guard and preserves safe cancel/error messages", async () => {
+  const wait = deferred();
+  const ui = loginUI({ kakao: () => wait.promise });
+  const buttons = () => ui.nodes(ui.render()).filter((node) => node.type === "TouchableOpacity");
+  const kakao = buttons()[3];
+  assert.equal(kakao.props.accessibilityLabel, "카카오로 로그인");
+  assert.equal(kakao.props.style[0].width, 52);
+  assert.equal(kakao.props.style[0].height, 52);
+  assert.equal(kakao.props.style[0].borderRadius, 26);
+  assert.equal(kakao.props.style[0].backgroundColor, "#FEE500");
+  assert.equal(ui.kakaoMark().type, "Svg");
+  kakao.props.onPress();
+  buttons()[2].props.onPress();
+  buttons()[0].props.onPress();
+  kakao.props.onPress();
+  assert.deepEqual(ui.calls, [["kakao"]]);
+  assert.ok(buttons().every((node) => node.props.disabled));
+  assert.ok(ui.nodes(ui.render()).filter((node) => node.type === "TextInput").every((node) => !node.props.editable));
+  assert.equal(buttons()[3].props.accessibilityState.busy, true);
+  wait.resolve("cancelled");
+  await new Promise(setImmediate);
+  assert.ok(ui.nodes(ui.render()).some((node) => node.children.includes("카카오 로그인을 취소했습니다.")));
+  assert.equal(buttons()[3].props.disabled, false);
+  const failure = loginUI({ kakao: async () => { throw new Error("RAW_KAKAO_SECRET"); } });
+  failure.nodes(failure.render()).find((node) => node.props.accessibilityLabel === "카카오로 로그인").props.onPress();
+  await new Promise(setImmediate);
+  const error = failure.nodes(failure.render()).find((node) => node.props.accessibilityRole === "alert");
+  assert.equal(error.children[0], "카카오 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요.");
+  assert.doesNotMatch(error.children[0], /RAW_KAKAO_SECRET/);
+});
 
 test("polished auth UI preserves password/signup wiring and confirmation validation", async () => {
   const ui = loginUI();
@@ -745,6 +782,127 @@ test("Google logout fence and concurrent browser guard preserve newer session", 
   await rejected;
   assert.equal(h.calls.length, 0);
   assert.equal(await session.getAccessToken(), "account-B");
+});
+
+// Kakao도 Google과 동일한 PKCE/callback/bootstrap 계약을 독립적으로 검증합니다.
+test("Kakao web/native PKCE bootstraps without email and stores only safe session fields", async () => {
+  for (const platform of ["web", "ios", "android"]) {
+    const h = harness({ platform });
+    const wait = deferred();
+    h.oauth(async (_, redirect) => ({ type: "success", url: `${redirect}?code=kakao-code` }));
+    h.fetch(async () => response(200, { ...tokenResponse("kakao"), user: { id: "subject", email: null },
+      provider_token: "DO_NOT_STORE" }));
+    h.bootstrap(() => wait.promise);
+    const pending = h.load("src/auth/kakaoAuth.ts").signInWithKakao();
+    await new Promise(setImmediate);
+    assert.equal(h.data.has(authKey), false);
+    const [authorize, redirect] = h.oauthCalls[0];
+    const params = new URL(authorize).searchParams;
+    assert.equal(params.get("provider"), "kakao");
+    assert.equal(params.get("redirect_to"), redirect);
+    assert.equal(params.get("code_challenge_method"), "s256");
+    assert.equal(redirect, platform === "web" ? "https://example.test/" : "noie://auth/callback");
+    const body = JSON.parse(h.calls[0].options.body);
+    assert.match(body.code_verifier, /^[0-9a-f]{64}$/);
+    assert.equal(body.auth_code, "kakao-code");
+    assert.equal(params.get("code_challenge"), crypto.createHash("sha256").update(body.code_verifier).digest("base64url"));
+    assert.equal(authorize.includes(body.code_verifier), false);
+    assert.match(h.calls[0].url, /\/auth\/v1\/token\?grant_type=pkce$/);
+    assert.match(h.calls[1].url, /\/auth\/bootstrap$/);
+    assert.equal(h.calls[1].options.headers.Authorization, "Bearer access-kakao");
+    wait.resolve(response(200, { status: "ready" }));
+    assert.equal(await pending, "ready");
+    const stored = h.data.get(authKey);
+    assert.doesNotMatch(stored, /DO_NOT_STORE|kakao-code|code_verifier|email|subject/);
+    assert.equal(stored.includes(body.code_verifier), false);
+    assert.deepEqual(Object.keys(JSON.parse(stored)).sort(), ["accessToken", "expiresAt", "refreshToken"]);
+  }
+});
+
+test("Kakao cancel/dismiss do not exchange tokens or publish a session", async () => {
+  for (const type of ["cancel", "dismiss"]) {
+    const h = harness();
+    h.oauth(async () => ({ type }));
+    assert.equal(await h.load("src/auth/kakaoAuth.ts").signInWithKakao(), "cancelled");
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.data.size, 0);
+  }
+});
+
+test("Kakao rejects wrong redirects, duplicate codes, implicit tokens and provider errors safely", async () => {
+  for (const uri of ["https://attacker.test/?code=x", "https://example.test/?code=a&code=b",
+    "https://example.test/#access_token=RAW_SECRET", "https://example.test/?error=RAW_SECRET",
+    "https://example.test/?code=x#error_description=RAW_SECRET", "https://example.test/"]) {
+    const h = harness();
+    h.oauth(async () => ({ type: "success", url: uri }));
+    await assert.rejects(h.load("src/auth/kakaoAuth.ts").signInWithKakao(),
+      /카카오 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요./);
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.data.size, 0);
+  }
+});
+
+test("Kakao browser/exchange/parse/bootstrap failures never expose raw errors or save a session", async () => {
+  for (const mode of ["browser", "exchange", "parse", "bootstrap"]) {
+    const h = harness();
+    h.oauth(async (_, redirect) => {
+      if (mode === "browser") throw new Error("RAW_KAKAO_SECRET");
+      return { type: "success", url: `${redirect}?code=valid` };
+    });
+    h.fetch(async () => mode === "parse" ? { ok: true, json: async () => { throw new Error("RAW_KAKAO_SECRET"); } }
+      : response(mode === "exchange" ? 400 : 200, tokenResponse()));
+    if (mode === "bootstrap") h.bootstrap(async () => response(403, { secret: "RAW_KAKAO_SECRET" }));
+    await assert.rejects(h.load("src/auth/kakaoAuth.ts").signInWithKakao(), (error) => {
+      assert.equal(error.message, "카카오 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요."); return true;
+    });
+    assert.equal(h.data.has(authKey), false);
+  }
+});
+
+test("Google and Kakao share one OAuth guard and logout fences late Kakao callbacks", async () => {
+  for (const first of ["google", "kakao"]) {
+    const h = harness();
+    const session = h.load("src/auth/authSession.ts");
+    const wait = deferred();
+    h.oauth(() => wait.promise);
+    const google = h.load("src/auth/googleAuth.ts").signInWithGoogle;
+    const kakao = h.load("src/auth/kakaoAuth.ts").signInWithKakao;
+    const pending = (first === "google" ? google : kakao)();
+    const rejected = assert.rejects(pending);
+    await new Promise(setImmediate);
+    await assert.rejects((first === "google" ? kakao : google)(), /이미 진행/);
+    assert.equal(h.oauthCalls.length, 1);
+    await session.clearAuthSession();
+    await session.saveAuthSession({ ...fresh(), accessToken: "account-B" });
+    wait.resolve({ type: "success", url: "https://example.test/?code=valid" });
+    await rejected;
+    assert.equal(h.calls.length, 0);
+    assert.equal(await session.getAccessToken(), "account-B");
+    // 종료된 시도의 guard는 해제되어 다음 provider의 정상 취소도 가능합니다.
+    h.oauth(async () => ({ type: "cancel" }));
+    assert.equal(await (first === "google" ? kakao : google)(), "cancelled");
+  }
+});
+
+test("Kakao late bootstrap cannot replace a newer account and unknown providers never start OAuth", async () => {
+  const h = harness();
+  const session = h.load("src/auth/authSession.ts");
+  const wait = deferred();
+  h.oauth(async (_, redirect) => ({ type: "success", url: `${redirect}?code=valid` }));
+  h.fetch(async () => response(200, tokenResponse()));
+  h.bootstrap(() => wait.promise);
+  const pending = h.load("src/auth/kakaoAuth.ts").signInWithKakao();
+  const rejected = assert.rejects(pending);
+  await new Promise(setImmediate);
+  await session.clearAuthSession();
+  await session.saveAuthSession({ ...fresh(), accessToken: "account-B" });
+  wait.resolve(response(200, { status: "ready" }));
+  await rejected;
+  assert.equal(await session.getAccessToken(), "account-B");
+  const invalid = harness();
+  await assert.rejects(invalid.load("src/auth/socialAuth.ts").signInWithSocialProvider("unknown"));
+  assert.equal(invalid.oauthCalls.length, 0);
+  assert.equal(invalid.calls.length, 0);
 });
 
 test("existing fresh startup avoids bootstrap; UI confirmation and Google controls are present", async () => {

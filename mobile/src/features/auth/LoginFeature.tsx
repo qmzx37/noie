@@ -3,7 +3,9 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView, Scroll
   StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { signInWithPassword, signUpWithPassword } from "../../auth/supabaseAuth";
 import { signInWithGoogle } from "../../auth/googleAuth";
+import { signInWithKakao } from "../../auth/kakaoAuth";
 import { GoogleMark } from "./GoogleMark";
+import { KakaoMark } from "./KakaoMark";
 
 // 비밀번호는 입력 중 메모리에만 두고 저장소/로그에는 남기지 않습니다.
 export function LoginFeature({ initialError = "" }: { initialError?: string }) {
@@ -44,7 +46,7 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
     }
   }
 
-  async function googleLogin() {
+  async function socialLogin(provider: "google" | "kakao") {
     // 같은 버튼 guard를 재사용하여 password/OAuth 흐름의 동시 시작을 막습니다.
     if (submitting.current) return;
     submitting.current = true;
@@ -52,9 +54,10 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
     setError("");
     setNotice("");
     try {
-      if (await signInWithGoogle() === "cancelled") setNotice("Google 로그인을 취소했습니다.");
+      const result = await (provider === "google" ? signInWithGoogle() : signInWithKakao());
+      if (result === "cancelled") setNotice(`${provider === "google" ? "Google" : "카카오"} 로그인을 취소했습니다.`);
     } catch {
-      setError("Google 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요.");
+      setError(`${provider === "google" ? "Google" : "카카오"} 로그인에 실패했습니다. 설정과 연결 상태를 확인해 주세요.`);
     } finally {
       setPassword("");
       setPasswordConfirm("");
@@ -104,12 +107,17 @@ export function LoginFeature({ initialError = "" }: { initialError?: string }) {
               <Text style={styles.dividerText}>{signup ? "간편 가입" : "간편 로그인"}</Text>
               <View style={styles.dividerLine} />
             </View>
-            {/* 실제 구현된 Google만 표시하며, 인증 호출은 기존 함수를 유지합니다. */}
+            {/* 두 버튼은 같은 제출 guard를 공유하며 실제 구현된 provider만 표시합니다. */}
             <View style={styles.socialButtons}>
               <TouchableOpacity style={[styles.googleButton, loading && styles.disabled]} disabled={loading}
                 accessibilityRole="button" accessibilityLabel="Google로 로그인"
-                accessibilityState={{ disabled: loading, busy: loading }} onPress={() => void googleLogin()}>
+                accessibilityState={{ disabled: loading, busy: loading }} onPress={() => void socialLogin("google")}>
                 <GoogleMark />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.kakaoButton, loading && styles.disabled]} disabled={loading}
+                accessibilityRole="button" accessibilityLabel="카카오로 로그인"
+                accessibilityState={{ disabled: loading, busy: loading }} onPress={() => void socialLogin("kakao")}>
+                <KakaoMark />
               </TouchableOpacity>
             </View>
           </View>
@@ -146,4 +154,7 @@ const styles = StyleSheet.create({
   socialButtons: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "center" },
   googleButton: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: "#dce0e6",
     backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  // Google과 동일한 터치 영역과 간격을 유지하는 Kakao 전용 브랜드 색상입니다.
+  kakaoButton: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: "#FEE500",
+    backgroundColor: "#FEE500", alignItems: "center", justifyContent: "center" },
 });
