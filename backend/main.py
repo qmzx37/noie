@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from security_config import CORS_HEADERS, CORS_METHODS, api_docs_options, cors_allowed_origins
 from sqlalchemy import text as sql_text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -61,14 +62,17 @@ app = FastAPI(
     title="noie",
     description="noie emotion analysis chat MVP.",
     version="0.1.0",
+    # 문서 노출은 startup 설정입니다. 기본/오타는 OFF이며 업무 인증과는 별개입니다.
+    **api_docs_options(),
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # 환경변수로 확인된 origin만 허용합니다. CORS는 JWT/소유권을 대체하지 않습니다.
+    allow_origins=cors_allowed_origins(),
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=CORS_METHODS,
+    allow_headers=CORS_HEADERS,
 )
 
 # 원본 채팅 CRUD는 main.py와 분리된 라우터에서 관리합니다.
