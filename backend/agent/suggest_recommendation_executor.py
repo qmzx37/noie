@@ -10,6 +10,7 @@ from agent.executor_registry import ExecutorContext, ExecutorResult
 from agent.recommendation_schemas import RecommendationArguments
 from agent.tool_policy import CONFIDENCE_THRESHOLDS
 from database import SessionLocal
+from account_write_guard import require_active_account_for_write
 from models.agent_action import AgentAction
 from models.recommendation import Recommendation
 from models.conversation import Conversation
@@ -32,6 +33,8 @@ def suggest_recommendation_executor(
         raise RecommendationExecutionError
     try:
         with SessionLocal() as db:
+            # 삭제와 같은 User 행을 먼저 보호한 뒤 Action/domain을 잠그고 저장합니다.
+            require_active_account_for_write(db, UUID(context.user_id))
             action = db.scalar(select(AgentAction).where(
                 AgentAction.action_id == UUID(context.action_id), AgentAction.user_id == UUID(context.user_id),
             ).with_for_update())

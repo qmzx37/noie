@@ -9,6 +9,9 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from database import SessionLocal
+from account_write_guard import AccountWriteRejected, require_active_account_for_write
+from models.message import Message
+from models.conversation import Conversation
 from memory_reconciler import RECONCILER_VERSION
 from memory_schemas import (
     MemoryCreate,
@@ -111,6 +114,14 @@ def apply_reconciliation(
 
     try:
         with SessionLocal() as db:
+            # NEW뿐 아니라 REINFORCE/SUPERSEDE/evidence도 동일한 User-first 경계로 보호합니다.
+            require_active_account_for_write(db, user_id)
+            source_id = db.scalar(select(Message.id).join(Conversation).where(
+                Message.id == message_id, Message.role == "user", Message.user_id == user_id,
+                Conversation.user_id == user_id, Conversation.deleted_at.is_(None),
+            ))
+            if source_id is None:
+                raise MemoryReconciliationValidationError
             extraction = db.scalar(
                 select(MemoryExtraction)
                 .where(MemoryExtraction.id == extraction_id)
@@ -118,6 +129,8 @@ def apply_reconciliation(
             )
             if extraction is None:
                 raise MemoryReconciliationDatabaseError
+            if extraction.message_id != message_id:
+                raise MemoryReconciliationValidationError
             # lease가 만료되어 새 worker가 시작됐다면 이전 worker의 결과를 반영하지 않습니다.
             if (
                 extraction.status != "processing"
@@ -195,6 +208,8 @@ def apply_reconciliation(
             db.commit()
             db.refresh(extraction)
             return extraction
+    except AccountWriteRejected as error:
+        raise MemoryReconciliationValidationError from error
     except MemoryReconciliationValidationError:
         raise
     except SQLAlchemyError as error:

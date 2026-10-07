@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from account_write_guard import AccountWriteRejected, lock_account_for_write, require_active_account_for_write
 
 from chat_storage_schemas import ConversationCreate, MessageCreate, UserCreate
 from chat_storage_service import (
@@ -232,6 +233,12 @@ def begin_chat_request(
     try:
         with SessionLocal() as db:
             context = _resolve_context(db, authenticated_user_id=authenticated_user_id)
+            # bootstrap의 commit 이후 새 쓰기 transaction에서 원래 소유자를 다시 보호합니다.
+            try:
+                require_active_account_for_write(db, context.user_id)
+            except Exception as error:
+                # 검사 장애도 삭제 거부와 동일하게 종료합니다. dev 응답 fallback으로 우회하지 않습니다.
+                raise AuthenticatedOwnershipError from error
 
             # request_id가 없는 구버전 클라이언트는 기존 저장 동작을 그대로 유지합니다.
             if request_id is None:
@@ -261,7 +268,8 @@ def begin_chat_request(
             except IntegrityError:
                 db.rollback()
                 return _wait_for_existing_request(
-                    request_id, request_hash, authenticated_user_id=authenticated_user_id,
+                    # 개발 모드 duplicate도 최초 선택한 local 계정 밖으로 결과를 돌려주지 않습니다.
+                    request_id, request_hash, authenticated_user_id=context.user_id,
                 )
 
             user_message = Message(
@@ -284,6 +292,9 @@ def begin_chat_request(
                     user_message_id=user_message.id,
                 )
             )
+    except AccountWriteRejected as error:
+        # 개발 경로도 이미 확인한 계정이 삭제됐다면 다른 사용자로 fallback하지 않습니다.
+        raise AuthenticatedOwnershipError from error
     except (RequestIdConflictError, RequestStillProcessingError, AuthenticatedOwnershipError):
         raise
     except Exception as error:
@@ -300,14 +311,28 @@ def complete_chat_request(
     content: str,
     source: str,
     response: dict[str, Any],
+    *,
+    reject_unsafe_response: bool = False,
 ) -> bool:
     """최종 assistant 원문과 재사용할 API 응답을 한 transaction으로 완료합니다."""
 
-    if context is None or SessionLocal is None:
+    if context is None:
+        return False
+    if SessionLocal is None:
+        if reject_unsafe_response:
+            raise AuthenticatedOwnershipError
         return False
 
     try:
         with SessionLocal() as db:
+            # 외부 응답 생성은 끝났습니다. User -> request 순서로 잠그고 같은 transaction에서 저장합니다.
+            require_active_account_for_write(db, context.user_id)
+            owner = db.scalar(select(Conversation.user_id).where(
+                Conversation.id == context.conversation_id,
+                Conversation.deleted_at.is_(None),
+            ))
+            if owner != context.user_id:
+                raise AccountWriteRejected("account_write_rejected")
             if context.request_id is None:
                 create_message(
                     db,
@@ -323,7 +348,11 @@ def complete_chat_request(
                 .with_for_update()
             )
             if record is None or record.status == "completed":
+                if reject_unsafe_response:
+                    raise AccountWriteRejected("account_write_rejected")
                 return False
+            if record.conversation_id != context.conversation_id or record.user_message_id != context.user_message_id:
+                raise AccountWriteRejected("account_write_rejected")
 
             assistant_message = Message(
                 conversation_id=context.conversation_id,
@@ -343,9 +372,11 @@ def complete_chat_request(
             db.commit()
             return True
     except Exception as error:
-        # DB 저장 실패가 사용자에게 반환할 기존 응답을 깨뜨리지 않게 합니다.
+        # 실패 상태만 기록하며, 검사 실패 후 생성 결과를 성공 응답으로 전달하지 않습니다.
         print(f"[noie] assistant message persistence failed: {type(error).__name__}")
         mark_chat_request_failed(context)
+        if reject_unsafe_response:
+            raise AuthenticatedOwnershipError from error
         return False
 
 
@@ -357,7 +388,16 @@ def mark_chat_request_failed(context: ChatPersistenceContext | None) -> None:
 
     try:
         with SessionLocal() as db:
-            record = db.get(ChatRequestRecord, context.request_id)
+            # 실패 정리도 User -> request 순서입니다. 비활성 계정에는 상태만 바꾸며 payload는 쓰지 않습니다.
+            lock_account_for_write(db, context.user_id)
+            # 취소 상태도 원래 소유자가 일치할 때만 변경합니다. 잘못된 context는 타인 요청을 건드리지 않습니다.
+            owner = db.scalar(select(Conversation.user_id).where(Conversation.id == context.conversation_id))
+            if owner != context.user_id:
+                return
+            record = db.scalar(select(ChatRequestRecord).where(
+                ChatRequestRecord.request_id == context.request_id,
+                ChatRequestRecord.conversation_id == context.conversation_id,
+            ).with_for_update())
             if record is not None and record.status == "processing":
                 record.status = "failed"
                 db.commit()

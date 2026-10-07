@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from uuid import UUID
+from account_write_guard import bound_lifecycle_lock_wait
 
 from sqlalchemy import delete, or_, select, text, update
 
@@ -59,6 +60,8 @@ def deactivate_account(db, principal):
         raise AccountLifecycleError("UNAUTHENTICATED")
     try:
         validate_inventory()
+        # User-first 저장 잠금과 만나는 삭제 경계도 무한 대기하지 않습니다.
+        bound_lifecycle_lock_wait(db)
         # 동시 OWNER 두 명의 삭제가 서로를 '다른 OWNER'로 보는 경쟁을 직렬화합니다.
         # CLI의 명시적 권한 재배치는 별도 운영 권한이며 이 HTTP 잠금을 우회하는 자동 경로가 아닙니다.
         if db.get_bind().dialect.name == "postgresql":
@@ -145,6 +148,8 @@ def purge_deleted_account(db, user_id: UUID):
     """Phase B: 삭제 계정만 한 transaction으로 purge합니다. 재호출은 안전하게 no-op입니다."""
     try:
         validate_inventory()
+        # purge도 동일한 User 잠금 전에 transaction-local 대기 한도를 설정합니다.
+        bound_lifecycle_lock_wait(db)
         user = db.scalar(select(User).where(User.id == user_id)
             .with_for_update().execution_options(populate_existing=True))
         if user is None:

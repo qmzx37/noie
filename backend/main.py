@@ -1544,12 +1544,13 @@ def chat(
     }
 
     # 최종 응답과 assistant 원문을 함께 완료해 중복 요청이 같은 결과를 재사용하게 합니다.
-    chat_persisted = complete_chat_request(
-        persistence_context,
-        reply,
-        reply_source,
-        response,
-    )
+    # 삭제/검사 오류로 저장이 거부되면 reply와 checkpoint를 반환하거나 후속 작업을 예약하지 않습니다.
+    try:
+        chat_persisted = complete_chat_request(
+            persistence_context, reply, reply_source, response, reject_unsafe_response=True,
+        )
+    except AuthenticatedOwnershipError as error:
+        raise HTTPException(status_code=403, detail="채팅 저장 권한을 확인할 수 없습니다.") from error
     if chat_persisted and persistence_context and persistence_context.user_message_id:
         # 명시적으로 켠 경우만 첫 진입 probe를 넣습니다. 기본값/잘못된 값은 OFF입니다.
         if os.getenv("NOIE_CHAT_BG_PROBE_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:

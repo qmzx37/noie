@@ -314,6 +314,12 @@ class MemoryPrivacyTests(unittest.TestCase):
             state = MemoryExtraction(id=uuid4(), message_id=self.ma.id, status="processing",
                                      attempt_count=attempts, lease_expires_at=expires)
             db = Mock()
+            # guard를 mock으로 제거하지 않고 활성 User 컬럼 조회와 no_autoflush를 재현합니다.
+            from contextlib import nullcontext
+            from types import SimpleNamespace
+            db.no_autoflush = nullcontext()
+            db.get_bind.return_value.dialect.name = "sqlite"
+            db.execute.return_value.one_or_none.return_value = SimpleNamespace(id=self.a.id, deleted_at=None)
             db.scalar.return_value = state
             factory = Mock()
             factory.return_value.__enter__ = Mock(return_value=db)

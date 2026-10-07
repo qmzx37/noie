@@ -9,6 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from account_write_guard import AccountWriteRejected, require_active_account_for_write
 
 from agent.action_schemas import ConfirmationRequest, PersistActionPlanRequest
 from models.agent_action import AgentAction
@@ -58,9 +59,11 @@ class ActionDatabaseError(Exception):
 
 
 def _validate_owner_context(db: Session, data: PersistActionPlanRequest) -> None:
-    user = db.scalar(select(User.id).where(User.id == data.user_id, User.deleted_at.is_(None)))
-    if user is None:
-        raise ActionValidationError("활성 사용자를 찾을 수 없습니다.")
+    # LLM 호출 후의 계획/인자 저장도 개인정보 쓰기이므로 User 잠금을 commit까지 유지합니다.
+    try:
+        require_active_account_for_write(db, data.user_id)
+    except AccountWriteRejected as error:
+        raise ActionValidationError("활성 사용자를 찾을 수 없습니다.") from error
 
     if data.conversation_id is not None:
         conversation = db.scalar(
@@ -219,6 +222,8 @@ def _transition_confirmation(
     reject: bool,
 ) -> AgentAction:
     try:
+        # 승인/거절도 User -> Action 순서를 지켜 purge와 잠금 순서가 뒤집히지 않습니다.
+        require_active_account_for_write(db, data.user_id)
         row = db.scalar(
             select(AgentAction)
             .where(AgentAction.action_id == action_id, AgentAction.user_id == data.user_id)

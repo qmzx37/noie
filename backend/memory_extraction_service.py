@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from database import SessionLocal
+from account_write_guard import AccountWriteRejected, require_active_account_for_write
 from memory_extractor import EXTRACTOR_VERSION, extract_memory_with_openai
 from memory_privacy import automatic_memory_allowed, blocked_memory_decision, validate_auto_decision
 from memory_reconciler import reconcile_memory_candidate
@@ -133,6 +134,8 @@ def _acquire_processing_lease(
                 message, user_id = _get_owned_user_message(
                     db, message_id, expected_user_id
                 )
+                # User -> extraction 순서이며 commit 뒤 외부 호출에는 잠금을 가져가지 않습니다.
+                require_active_account_for_write(db, user_id)
                 extraction = db.scalar(
                     select(MemoryExtraction)
                     .where(
@@ -198,6 +201,24 @@ def _acquire_processing_lease(
     raise MemoryExtractionDatabaseError
 
 
+def _guard_extraction_write(db, extraction_id: UUID) -> None:
+    """원래 extraction의 message 소유자를 찾아 User부터 보호합니다. 재가입 사용자는 찾지 않습니다."""
+    with db.no_autoflush:
+        owner = db.scalar(
+            select(Conversation.user_id).join(Message, Message.conversation_id == Conversation.id)
+            .join(MemoryExtraction, MemoryExtraction.message_id == Message.id)
+            .where(MemoryExtraction.id == extraction_id, Message.role == "user",
+                   Conversation.deleted_at.is_(None), Message.user_id == Conversation.user_id)
+        )
+    if owner is None:
+        db.rollback()
+        raise MemoryExtractionNotFoundError
+    try:
+        require_active_account_for_write(db, owner)
+    except AccountWriteRejected as error:
+        raise MemoryExtractionNotFoundError from error
+
+
 def _mark_failed(
     extraction_id: UUID,
     expected_attempt_count: int,
@@ -207,6 +228,8 @@ def _mark_failed(
 
     try:
         with SessionLocal() as db:
+            # 삭제된 계정에는 실패 응답 경유로 기존 private 결과를 반환하지도 않습니다.
+            _guard_extraction_write(db, extraction_id)
             extraction = db.scalar(
                 select(MemoryExtraction)
                 .where(MemoryExtraction.id == extraction_id)
@@ -241,6 +264,8 @@ def _complete_without_memory(
 
     try:
         with SessionLocal() as db:
+            # should_remember=False의 reason 역시 개인 결과이므로 같은 저장 경계를 사용합니다.
+            _guard_extraction_write(db, extraction_id)
             extraction = db.scalar(
                 select(MemoryExtraction)
                 .where(MemoryExtraction.id == extraction_id)

@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import Select, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from account_write_guard import AccountWriteRejected, require_active_account_for_write
 
 from chat_storage_schemas import ConversationCreate, MessageCreate, UserCreate
 from models.conversation import Conversation
@@ -66,12 +67,8 @@ def create_user(db: Session, data: UserCreate) -> User:
 def create_conversation(db: Session, data: ConversationCreate) -> Conversation:
     """활성 사용자인지 확인한 뒤 대화방을 생성합니다."""
 
-    user = _read_one(
-        db,
-        select(User).where(User.id == data.user_id, User.deleted_at.is_(None)),
-    )
-    if user is None:
-        raise StorageNotFoundError("활성 사용자를 찾을 수 없습니다.")
+    # User 검증부터 대화 생성 commit까지 하나의 보호 transaction입니다.
+    _guard_storage_write(db, data.user_id)
 
     return _save(
         db,
@@ -115,6 +112,17 @@ def _get_active_conversation(db: Session, conversation_id: UUID) -> Conversation
     return conversation
 
 
+def _guard_storage_write(db: Session, user_id: UUID) -> None:
+    """서비스의 기존 오류 계약을 유지하면서 삭제 이후 쓰기를 차단합니다."""
+    try:
+        require_active_account_for_write(db, user_id)
+    except AccountWriteRejected as error:
+        raise StorageNotFoundError("활성 사용자를 찾을 수 없습니다.") from error
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise StorageDatabaseError from error
+
+
 def create_message(
     db: Session,
     conversation_id: UUID,
@@ -123,6 +131,12 @@ def create_message(
 ) -> Message:
     """role에 맞는 user_id를 연결하고 content 원문을 그대로 저장합니다."""
 
+    # 캐시된 Conversation을 신뢰하지 않고 원래 소유자를 조회한 뒤 User를 먼저 잠급니다.
+    with db.no_autoflush:
+        owner = db.scalar(select(Conversation.user_id).where(Conversation.id == conversation_id))
+    if owner is None:
+        raise StorageNotFoundError("활성 대화를 찾을 수 없습니다.")
+    _guard_storage_write(db, owner)
     conversation = _get_active_conversation(db, conversation_id)
     message_user_id = conversation.user_id if data.role == "user" else None
 

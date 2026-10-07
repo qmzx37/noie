@@ -18,6 +18,7 @@ from agent.tool_gateway import create_tool_plan
 from agent.tool_schemas import GatewayAction, ToolPlanRequest
 from agent.schedule_schemas import CreateScheduleArguments
 from database import SessionLocal
+from account_write_guard import require_active_account_for_write
 from memory_retriever import retrieve_relevant_memories_safe
 from models.conversation import Conversation
 from models.message import Message
@@ -122,6 +123,8 @@ def prepare_chat_recommendation(
                 user_id=user_id, conversation_id=conversation_id, message_id=message_id, plans=[plan],
             ))[0]
             # 생성에 실제 사용한 스냅샷을 한 번만 기록합니다. 재시도는 최초 인자/근거를 보존합니다.
+            # persist_action_plan은 이미 commit했으므로 context 저장 transaction에서 다시 보호합니다.
+            require_active_account_for_write(db, user_id)
             locked = db.scalar(select(AgentAction).where(AgentAction.id == saved.id).with_for_update())
             if "recommendation_context" not in locked.metadata_:
                 locked.metadata_ = {**locked.metadata_, "recommendation_context": context.model_dump(mode="json") if context else {},

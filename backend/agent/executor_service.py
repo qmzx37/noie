@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from agent.executor_registry import ExecutorContext, ExecutorResult, get_executor
 from database import SessionLocal
+from account_write_guard import lock_account_for_write, require_active_account_for_write
 from models.agent_action import AgentAction
 
 
@@ -94,6 +95,8 @@ def _acquire_lease(action_id: UUID, user_id: UUID) -> tuple[AgentAction, Lease |
 
     try:
         with SessionLocal() as db:
+            # lease를 얻기 전에 원래 계정을 보호하며, 외부 executor 호출 전 commit으로 해제합니다.
+            require_active_account_for_write(db, user_id)
             action = db.scalar(
                 select(AgentAction)
                 .where(AgentAction.action_id == action_id, AgentAction.user_id == user_id)
@@ -145,11 +148,17 @@ def _finish_success(lease: Lease, result: ExecutorResult) -> tuple[AgentAction, 
         raise ExecutorDatabaseError
     try:
         with SessionLocal() as db:
+            # inactive 상태도 User-first 잠금 안에서 최소 실패 상태만 기록할 수 있습니다.
+            active = lock_account_for_write(db, lease.user_id)
             action = db.scalar(
-                select(AgentAction).where(AgentAction.action_id == lease.action_id).with_for_update()
+                select(AgentAction).where(
+                    AgentAction.action_id == lease.action_id, AgentAction.user_id == lease.user_id,
+                ).with_for_update()
             )
             if action is None:
                 raise ExecutorDatabaseError
+            if not active:
+                return _cancel_inactive_attempt(db, action, lease), True
             if action.status != "processing" or action.attempt_count != lease.attempt_count:
                 return action, True
             action.status = "completed"
@@ -171,11 +180,17 @@ def _finish_failure(lease: Lease, error: Exception) -> tuple[AgentAction, bool]:
         raise ExecutorDatabaseError
     try:
         with SessionLocal() as db:
+            # 실패 처리에서도 다른 계정으로 재연결하거나 결과 payload를 복구하지 않습니다.
+            active = lock_account_for_write(db, lease.user_id)
             action = db.scalar(
-                select(AgentAction).where(AgentAction.action_id == lease.action_id).with_for_update()
+                select(AgentAction).where(
+                    AgentAction.action_id == lease.action_id, AgentAction.user_id == lease.user_id,
+                ).with_for_update()
             )
             if action is None:
                 raise ExecutorDatabaseError
+            if not active:
+                return _cancel_inactive_attempt(db, action, lease), True
             if action.status != "processing" or action.attempt_count != lease.attempt_count:
                 return action, True
             action.status = "failed"
@@ -190,6 +205,21 @@ def _finish_failure(lease: Lease, error: Exception) -> tuple[AgentAction, bool]:
         raise ExecutorDatabaseError from database_error
 
 
+def _cancel_inactive_attempt(db, action: AgentAction, lease: Lease) -> AgentAction:
+    """현재 attempt의 상태만 취소합니다. 새 행이나 개인정보를 추가하지 않습니다."""
+    if action.status == "processing" and action.attempt_count == lease.attempt_count:
+        action.status = "failed"
+        action.result = None
+        action.error_message = "account_inactive"
+        action.lease_expires_at = None
+        action.completed_at = None
+        db.commit()
+        db.refresh(action)
+    # 호출자에게 기존 payload를 돌려주지 않는 표식이며 DB에는 저장하지 않습니다.
+    action._account_write_rejected = True
+    return action
+
+
 def execute_action(action_id: UUID, user_id: UUID) -> ExecutionOutcome:
     """lease 밖에서 executor를 호출하고 결과를 fencing과 함께 반영합니다."""
 
@@ -200,6 +230,9 @@ def execute_action(action_id: UUID, user_id: UUID) -> ExecutionOutcome:
     executor = get_executor(lease.tool_name)
     if executor is None:
         action, fenced = _finish_failure(lease, NotImplementedError())
+        # 미등록 도구의 실패 경로에서도 삭제된 계정의 기존 arguments/result를 반환하지 않습니다.
+        if getattr(action, "_account_write_rejected", False):
+            raise ExecutorNotFoundError
         return ExecutionOutcome(action=action, executor_called=False, fenced=fenced)
 
     context = ExecutorContext(
@@ -214,7 +247,11 @@ def execute_action(action_id: UUID, user_id: UUID) -> ExecutionOutcome:
             result = ExecutorResult.model_validate(result)
         result = _validate_result_for_storage(result)
         action, fenced = _finish_success(lease, result)
+        if getattr(action, "_account_write_rejected", False):
+            raise ExecutorNotFoundError
         return ExecutionOutcome(action=action, executor_called=True, fenced=fenced)
     except Exception as error:
         action, fenced = _finish_failure(lease, error)
+        if getattr(action, "_account_write_rejected", False):
+            raise ExecutorNotFoundError from error
         return ExecutionOutcome(action=action, executor_called=True, fenced=fenced)

@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from agent.daily_life_schemas import DailyTraceArguments
 from agent.executor_registry import ExecutorContext, ExecutorResult
 from database import SessionLocal
+from account_write_guard import require_active_account_for_write
 from models.agent_action import AgentAction
 from models.conversation import Conversation
 from models.daily_life_event import DailyLifeEvent
@@ -30,6 +31,8 @@ def record_daily_trace_executor(
         raise RecordDailyTraceError
     try:
         with SessionLocal() as db:
+            # 삭제와 같은 User 행을 먼저 보호한 뒤 Action/domain을 잠그고 저장합니다.
+            require_active_account_for_write(db, UUID(context.user_id))
             action = db.scalar(select(AgentAction).where(AgentAction.action_id == UUID(context.action_id), AgentAction.user_id == UUID(context.user_id)).with_for_update())
             if action is None or action.tool_name != "record_daily_trace" or action.status != "processing" or action.attempt_count != context.attempt_count:
                 raise RecordDailyTraceError

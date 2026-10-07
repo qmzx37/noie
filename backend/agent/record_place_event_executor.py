@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from agent.place_schemas import RecordPlaceEventArguments
 from agent.executor_registry import ExecutorContext, ExecutorResult
 from database import SessionLocal
+from account_write_guard import require_active_account_for_write
 from models.agent_action import AgentAction
 from models.conversation import Conversation
 from models.message import Message
@@ -32,6 +33,8 @@ def record_place_event_executor(
         raise RecordPlaceEventError
     try:
         with SessionLocal() as db:
+            # 삭제와 같은 User 행을 먼저 보호한 뒤 Action/domain을 잠그고 저장합니다.
+            require_active_account_for_write(db, UUID(context.user_id))
             # 외부 OpenAI 호출은 이미 끝났습니다. 이 lock은 DB 저장 동안만 유지합니다.
             action = db.scalar(select(AgentAction).where(
                 AgentAction.action_id == UUID(context.action_id),

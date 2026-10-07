@@ -3,7 +3,7 @@
 import inspect
 import os
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -28,6 +28,10 @@ class ChatOwnershipTests(unittest.TestCase):
 
     def session(self, db):
         """실제 connection 없이 서비스의 context manager 계약만 재현합니다."""
+        # 새 User-first guard가 실제로 실행되도록 DB double에 컬럼 조회/no_autoflush 계약을 추가합니다.
+        db.no_autoflush = nullcontext()
+        db.get_bind.return_value.dialect.name = "sqlite"
+        db.execute.return_value.one_or_none.return_value = SimpleNamespace(id=self.owner, deleted_at=None)
         factory = Mock()
         factory.return_value.__enter__ = Mock(return_value=db)
         factory.return_value.__exit__ = Mock(return_value=False)

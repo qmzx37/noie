@@ -10,6 +10,7 @@ from agent.cognitive_state_schemas import RecordCognitiveStateArguments
 from agent.executor_registry import ExecutorContext, ExecutorResult
 from agent.tool_policy import CONFIDENCE_THRESHOLDS
 from database import SessionLocal
+from account_write_guard import require_active_account_for_write
 from models.agent_action import AgentAction
 from models.cognitive_state_event import CognitiveStateEvent
 from models.conversation import Conversation
@@ -32,6 +33,8 @@ def record_cognitive_state_executor(
         raise RecordCognitiveStateError
     try:
         with SessionLocal() as db:
+            # 삭제와 같은 User 행을 먼저 보호한 뒤 Action/domain을 잠그고 저장합니다.
+            require_active_account_for_write(db, UUID(context.user_id))
             # OpenAI는 이 transaction 밖에서 이미 호출되었습니다.
             action = db.scalar(select(AgentAction).where(
                 AgentAction.action_id == UUID(context.action_id),

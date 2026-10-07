@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from agent.emotion_schemas import EmotionRecordArguments
 from agent.executor_registry import ExecutorContext, ExecutorResult
 from database import SessionLocal
+from account_write_guard import require_active_account_for_write
 from models.agent_action import AgentAction
 from models.conversation import Conversation
 from models.emotion_event import EmotionEvent
@@ -49,6 +50,8 @@ def record_emotion_executor(
         raise RecordEmotionDatabaseError
     try:
         with SessionLocal() as db:
+            # 삭제와 같은 User 행을 먼저 보호한 뒤 Action/domain을 잠그고 저장합니다.
+            require_active_account_for_write(db, UUID(context.user_id))
             action = db.scalar(
                 select(AgentAction)
                 .where(

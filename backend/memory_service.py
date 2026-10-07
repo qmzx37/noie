@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
+from account_write_guard import AccountWriteRejected, require_active_account_for_write
 
 from memory_schemas import MemoryCreate
 from memory_privacy import PrivacyClass, classify_memory_text
@@ -50,11 +51,11 @@ def create_memory_in_transaction(
 ) -> Memory:
     """검증과 INSERT만 수행하고 commit은 호출자가 결정하도록 둡니다."""
 
-    user = db.scalar(
-        select(User).where(User.id == data.user_id, User.deleted_at.is_(None))
-    )
-    if user is None:
-        raise MemoryNotFoundError("활성 사용자를 찾을 수 없습니다.")
+    # 조회와 INSERT 사이에 삭제가 commit되지 않도록 호출자의 transaction 끝까지 보호합니다.
+    try:
+        require_active_account_for_write(db, data.user_id)
+    except AccountWriteRejected as error:
+        raise MemoryNotFoundError("활성 사용자를 찾을 수 없습니다.") from error
 
     # Message.user_id가 NULL인 assistant/system 원문도 있으므로 conversation 소유자를 봅니다.
     evidence_rows = db.execute(
