@@ -1,6 +1,9 @@
 """기존 prompt/추천 JSON Schema를 재사용하는 선택적 Responses adapter입니다."""
 
 import json
+
+# 일반/중첩/후속 호출 모두 동일한 요청별 자원 예산을 통과합니다.
+from resource_budget import budgeted_client
 import os
 
 from openai import OpenAI
@@ -14,6 +17,7 @@ from openai_analyzer import extract_output_text
 from .recommendation_context import RecommendationContext
 from .recommendation_specialist import RecommendationDecision, required_choice_question
 from .schemas import ContractModel, OpinionEvidence, ShortText
+from .behavior_adapter import behavior_fields
 
 # 이번 Gate의 유일한 생성 지시 추가입니다. 기존 purpose 회귀 지문은 유지하되 전체 prompt는 변경됩니다.
 CHOICE_CONTRACT = "\n명시적 선택 도움 요청에 명확한 선택지 둘 이상과 현재 state/일정/직접 선호 등 충분한 판단 근거가 있으면 primary_action은 그중 하나를 이름으로 짚은 구체적 선택 후보여야 한다. 일반 시작 조언이나 중요도 되묻기로 대체하지 말고 짧은 근거와 필요시 대안 하나만 제시하며 최종 선택권은 사용자에게 둔다. 필수 대상/안전 정보가 부족하면 승자를 강제하지 않고 기존 NEEDS_INPUT, 결정 완료나 추천 불필요는 NO_RECOMMENDATION 계약을 유지한다."
@@ -60,6 +64,25 @@ class OpenAIRecommendationAdapter:
         purpose += " 비교할 대상 자체가 없거나 하나가 빠졌다면 일반론 대신 핵심 질문 하나만 input_question에 담고 needs_user_input=true, needs_action=false, actions=[]로 반환한다. 질문을 recommendation action으로 만들지 않는다. 선택지가 충분하고 개인 상태만 일부 unknown이면 조건부 후보를 제시할 수 있으며 질문을 강제하지 않는다."
         # Phase 8.3의 단 한 번의 의미 보완입니다. 앞의 Lv3 일반 시작 규칙보다 이 Suggest 목적이 우선합니다.
         purpose += " 사용자가 구체적인 후보를 제시했다면 '중요한 하나부터' 같은 일반론 대신 그 후보를 이름으로 짚고 선택 기준 또는 작은 시작 행동을 제시한다. 확인되지 않은 개인 상태는 조건으로만 표현한다. 관계의 명칭이 없어도 만남/대화 선택에 답할 수 있으면 친구 여부나 현재 관계를 추가 질문하지 않는다. 임시 인물 표현은 그대로 쓰고 실명/친밀도/지속 만남을 묻지 않는다. 단 인물 구분이 현재 요청에 필수이면 가장 필요한 질문 하나만 한다. 과거 한번 싸움은 현재 나쁜 관계나 미해결 갈등이 아니며 rationale에서도 감정 정리/관계 회복이 필요하다고 확정하지 않는다. 현재 긍정 진술을 우선한다. 명시적 선택 질문은 뒤의 상태 보고만으로 무추천으로 바꾸지 않는다. 선택지가 충분하면 주 후보와 필요시 대안 하나로 답하고 우선순위 결정을 다시 사용자에게 떠넘기지 않는다."
+        # 승인된 Behavior 필드만 전송합니다. raw evidence와 Message UUID는 내부에 남깁니다.
+        behavior_context = []
+        standard_evidence = []
+        for item in evidence:
+            if (item.evidence_ref or "").startswith("behavior_"):
+                fields = behavior_fields(item)
+                if fields is not None and len(behavior_context) < 4:
+                    behavior_context.append({"ref": item.evidence_ref, **fields})
+            else:
+                standard_evidence.append(item.model_dump(mode="json"))
+        payload = {"current_user_utterance": context.current_utterance,
+                   "reference_time": context.reference_time.isoformat(),
+                   "state_opinion": context.state_opinion.model_dump(mode="json", exclude={"evidence", "suggested_actions"}) if context.state_opinion else None,
+                   "recommendation_evidence": standard_evidence}
+        # 기존 purpose 지시는 그대로 둡니다. Behavior가 없는 호출에는 이 추가 지시도 없습니다.
+        behavior_instruction = ""
+        if behavior_context:
+            payload["behavior_observations"] = behavior_context
+            behavior_instruction = " behavior_observations는 사용자 보고의 해석이며 현실 수행 검증이 아니다. performed=했다고 보고, ongoing=하고 있다고 보고, intended=하려는 의도, desired=욕구, not_performed=하지 않았다고 보고, candidate=선택 후보다. intended/desired/candidate를 performed로 승격하지 않는다. confidence 미제공은 unknown이며 발명하지 않는다. 관찰 시점은 실제 활동 시각이 아니다. ref는 이번 호출의 로컬 참조이며 내부 provenance를 답변에 노출하지 않는다."
         client = self._client
         owned_client = client is None
         if client is None:
@@ -70,9 +93,11 @@ class OpenAIRecommendationAdapter:
         # Phase 8.4: 프롬프트/검증 동작은 그대로 두고 실패한 경계만 붙입니다.
         boundary, failure_code = "OpenAI adapter", "adapter_call_failed"
         try:
+            # SDK 호출 경계만 감싸고 기존 purpose AST와 incomplete 진단은 보존합니다.
+            client = budgeted_client(client)
             response = client.responses.create(
                 model=os.getenv("OPENAI_AGENT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4.1-mini")),
-                input=[{"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT + purpose}, {"role": "user", "content": json.dumps({"current_user_utterance": context.current_utterance, "reference_time": context.reference_time.isoformat(), "state_opinion": context.state_opinion.model_dump(mode="json", exclude={"evidence", "suggested_actions"}) if context.state_opinion else None, "recommendation_evidence": [item.model_dump(mode="json") for item in evidence]}, ensure_ascii=False)}],
+                input=[{"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT + purpose + behavior_instruction}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
                 text={"format": {"type": "json_schema", "name": "noie_lv4_recommendation", "schema": schema, "strict": True}},
             )
             boundary, failure_code = "Structured Output parsing", "response_incomplete"
