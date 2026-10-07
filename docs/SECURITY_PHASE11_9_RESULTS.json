@@ -1,0 +1,1200 @@
+{
+  "phase": "11.9",
+  "commit_sha": "e779520967c51e9051556f198a285c1538af15f3",
+  "verdict": "SECURITY_11_9_FINDINGS",
+  "release_approved": false,
+  "environment": {
+    "type": "local in-process FastAPI/synthetic FK-enabled SQLite; committed HEAD archive and working tree separately",
+    "python": "3.14",
+    "postgresql": "NOT_RUN: no separately authorized test DB",
+    "dotenv": "disabled before app imports; load_dotenv replaced with no-op",
+    "credentials": "NOIE/Supabase/OpenAI/DB/mobile config env cleared; no secrets recorded",
+    "network": "External socket connect/connect_ex/sendto and HTTPX transports blocked; Windows asyncio internal loopback socketpair allowed; psycopg connections blocked",
+    "baseline_fixture_auth": "Explicit dev OFF for legacy fixtures; security cases explicitly ON; rate-limiter tests explicitly enable enforcement",
+    "requests_per_scenario_max": 100,
+    "concurrency_max": 8,
+    "node_dependencies": "Existing C:/noie/mobile/node_modules reused through archive-only junction; no clean install performed",
+    "archive": "git archive HEAD only, no untracked files/.env copied; new audit runner/tests executed against archive as external harness"
+  },
+  "tests": {
+    "working_tree": {
+      "total": 801,
+      "passed": 795,
+      "failures": 6,
+      "errors": 0,
+      "existing_regression_total": 786,
+      "existing_regression_passed": 786
+    },
+    "archive_existing": {
+      "total": 446,
+      "passed": 439,
+      "import_errors": 7,
+      "failures": 0,
+      "errors": [
+        {
+          "test": "unittest.loader._FailedTest.run_auth_principal_tests",
+          "status": "ERROR",
+          "error_type": "ImportError"
+        },
+        {
+          "test": "unittest.loader._FailedTest.run_background_endpoint_probe_tests",
+          "status": "ERROR",
+          "error_type": "ImportError"
+        },
+        {
+          "test": "unittest.loader._FailedTest.run_chat_background_observability_tests",
+          "status": "ERROR",
+          "error_type": "ImportError"
+        },
+        {
+          "test": "unittest.loader._FailedTest.run_chat_background_probe_tests",
+          "status": "ERROR",
+          "error_type": "ImportError"
+        },
+        {
+          "test": "unittest.loader._FailedTest.run_security_rate_limit_tests",
+          "status": "ERROR",
+          "error_type": "ImportError"
+        },
+        {
+          "test": "unittest.loader._FailedTest.run_shadow_dispatch_tail_tests",
+          "status": "ERROR",
+          "error_type": "ImportError"
+        },
+        {
+          "test": "unittest.loader._FailedTest.run_supabase_auth_tests",
+          "status": "ERROR",
+          "error_type": "ImportError"
+        }
+      ]
+    },
+    "new_attacks": {
+      "total": 15,
+      "passed": 9,
+      "failures": 6,
+      "errors": 0,
+      "also_reproduced_against_committed_archive": true,
+      "records": [
+        {
+          "test": "security119_attacks.BudgetAttackTests.test_concurrency_never_exceeds_budget",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.BudgetAttackTests.test_expensive_paths_share_group_and_header_spoof_cannot_change_peer",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.BudgetAttackTests.test_full_bucket_does_not_evict_active_budget",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_deactivated_account_cannot_read_after_positive_control",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_invalid_role_does_not_reflect_synthetic_secret",
+          "status": "FAIL",
+          "error_type": "AssertionError"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_late_agent_finalize_after_deactivation_must_not_complete",
+          "status": "FAIL",
+          "error_type": "AssertionError"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_late_chat_after_purge_does_not_resurrect_account",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_late_chat_finalize_after_deactivation_must_not_write",
+          "status": "FAIL",
+          "error_type": "AssertionError"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_late_reinforce_after_deactivation_must_not_add_evidence",
+          "status": "FAIL",
+          "error_type": "AssertionError"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_memory_b_positive_a_denied_no_mutation",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.OwnershipAttackTests.test_project_service_exception_must_not_reflect_secret_to_log",
+          "status": "FAIL",
+          "error_type": "AssertionError"
+        },
+        {
+          "test": "security119_attacks.PrivacyAttackTests.test_spaced_password_assignment_must_not_be_automatic_memory",
+          "status": "FAIL",
+          "error_type": "AssertionError"
+        },
+        {
+          "test": "security119_attacks.PrivacyAttackTests.test_standard_positive_secret_and_third_party_controls",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.RouteCoverageAttackTests.test_every_protected_route_blocks_missing_token_before_business",
+          "status": "PASS"
+        },
+        {
+          "test": "security119_attacks.SignedTokenAttackTests.test_real_sdk_valid_control_and_bad_signature_expiry_issuer_audience",
+          "status": "PASS"
+        }
+      ]
+    },
+    "security_suite": {
+      "total": 150,
+      "passed": 144,
+      "failures": 6,
+      "errors": 0,
+      "groups": {
+        "run_security_account_deletion_tests": {
+          "PASS": 20,
+          "FAIL": 0,
+          "ERROR": 0,
+          "NOT_RUN": 0
+        },
+        "run_security_admin_access_tests": {
+          "PASS": 44,
+          "FAIL": 0,
+          "ERROR": 0,
+          "NOT_RUN": 0
+        },
+        "run_security_adversarial_tests": {
+          "PASS": 9,
+          "FAIL": 6,
+          "ERROR": 0,
+          "NOT_RUN": 0
+        },
+        "run_security_api_surface_tests": {
+          "PASS": 15,
+          "FAIL": 0,
+          "ERROR": 0,
+          "NOT_RUN": 0
+        },
+        "run_security_auth_fail_closed_tests": {
+          "PASS": 8,
+          "FAIL": 0,
+          "ERROR": 0,
+          "NOT_RUN": 0
+        },
+        "run_security_memory_privacy_tests": {
+          "PASS": 24,
+          "FAIL": 0,
+          "ERROR": 0,
+          "NOT_RUN": 0
+        },
+        "run_security_rate_limit_tests": {
+          "PASS": 24,
+          "FAIL": 0,
+          "ERROR": 0,
+          "NOT_RUN": 0
+        }
+      }
+    },
+    "mobile_archive": {
+      "tests": 96,
+      "passed": 96,
+      "failed": 0,
+      "scope": "Node VM/fake HTTP and storage; NOT real Android/iOS hardware"
+    },
+    "typescript_archive": "PASS",
+    "typescript_working_tree": "PASS",
+    "syntax_import_mapper": "PASS",
+    "migration_sanity": {
+      "heads": [
+        "20261006_0020"
+      ],
+      "chain": [
+        "20261006_0020",
+        "20261006_0019",
+        "20261005_0018",
+        "20261003_0017",
+        "20261003_0016",
+        "20261003_0015",
+        "20261003_0014",
+        "20261003_0013",
+        "20261003_0012",
+        "20261002_0011",
+        "20261002_0010",
+        "20261002_0009",
+        "20261001_0008",
+        "20261001_0007",
+        "20260930_0006",
+        "20260930_0005",
+        "20260930_0004",
+        "20260930_0003",
+        "20260930_0002",
+        "20260930_0001"
+      ],
+      "current": "NOT_RUN",
+      "check": "NOT_RUN",
+      "reason": "No authorized separate PostgreSQL; no migration executed"
+    },
+    "diff_check": "PASS"
+  },
+  "positive_controls": {
+    "memory": "Existing synthetic B Memory/Evidence read succeeds as B; A rejected 404 with no content/evidence/mutation",
+    "auth": "Official Supabase SDK accepts genuinely signed synthetic token; rejects wrong signature/expiry/issuer/audience/tampered input",
+    "privacy": "Benign goal/relationship allowed; ordinary credential and third-party diagnosis blocked",
+    "agent": "Existing own confirm/execute/reject succeeds; foreign confirm/reject/execute denied with executor uncalled",
+    "admin": "OWNER authorized cross-user reads audited; SECURITY_ADMIN break-glass positive read; SUPPORT summary only; audit insert/commit fail closed",
+    "deletion": "Active self identity succeeds; deactivation rejects further identity; purge preserves B and retry/rollback covered"
+  },
+  "route_inventory": [
+    {
+      "path": "/users",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_user",
+        "require_core_principal",
+        "require_dev_user_creation",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/conversations",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_conversation",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/conversations",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_conversations",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/conversations/{conversation_id}/messages",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_message",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/conversations/{conversation_id}/messages",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_conversation_messages",
+        "get_db",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/memories",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_memory",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/memories",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_memories",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/memories/{memory_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_memory_by_id",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/messages/{message_id}/extract-memory",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "post_extract_memory",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/messages/{message_id}/memory-extraction",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_message_memory_extraction",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/memory-retrieval/preview",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "post_memory_retrieval_preview",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/users/{user_id}/summary",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "require_admin_identity",
+        "resolve_auth_principal",
+        "summary"
+      ]
+    },
+    {
+      "path": "/admin/break-glass",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "create_session",
+        "get_db",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/users/{user_id}/memories/{memory_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "owner_memory",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/users/{user_id}/conversations/{conversation_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "owner_conversation",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/users/{user_id}/conversations/{conversation_id}/messages",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "owner_messages",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/users/{user_id}/records/{record_type}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "owner_records",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/break-glass/{session_id}/revoke",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "require_admin_identity",
+        "resolve_auth_principal",
+        "revoke_session"
+      ]
+    },
+    {
+      "path": "/admin/break-glass/{session_id}/users/{user_id}/memories/{memory_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "memory",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/break-glass/{session_id}/users/{user_id}/conversations/{conversation_id}/messages",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "messages",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/admin/audit-logs",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "audits",
+        "get_db",
+        "require_admin_identity",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/account",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "account_identity",
+        "get_db",
+        "require_account_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/account/delete",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "delete_account",
+        "get_db",
+        "require_account_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/agent/actions/plan",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_action_plan",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/agent/actions/{action_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_action_by_id",
+        "get_db",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/agent/actions/{action_id}/confirm",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_confirm_action",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/agent/actions/{action_id}/reject",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_reject_action",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/agent-actions",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_agent_actions",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/agent/actions/{action_id}/execute",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "post_execute_action",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/emotion-events/{emotion_event_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_emotion_event_by_id",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/emotion-events",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_emotion_events",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/daily-life-events/{daily_life_event_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_daily_life_event_by_id",
+        "get_db",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/daily-life-events",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_daily_life_events",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/dream-goals/{dream_goal_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_dream_goal_by_id",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/dream-goals",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_dream_goals",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/schedules/{schedule_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_schedule_by_id",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/schedules",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_schedules",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/place-events/{place_event_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_place_event_by_id",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/place-events",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_place_events",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/body-state-events/{event_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_body_state_by_id",
+        "get_db",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/body-state-events",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_body_states",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/cognitive-state-events/{event_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_cognitive_state_by_id",
+        "get_db",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/cognitive-state-events",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_cognitive_states",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/recommendations/{event_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_recommendation_by_id",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/recommendations",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_recommendations",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/relationship-events/{event_id}",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_relationship_by_id",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/users/{user_id}/relationship-events",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "get_db",
+        "get_user_relationships",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/orchestrate",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "post_orchestrate",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/agent/tool-plan",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "post_tool_plan",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/auth/bootstrap",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "get_db",
+        "post_auth_bootstrap",
+        "require_bootstrap_identity"
+      ]
+    },
+    {
+      "path": "/internal/background-probe",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "background_endpoint_probe"
+      ]
+    },
+    {
+      "path": "/",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "health_check"
+      ]
+    },
+    {
+      "path": "/db-health",
+      "methods": [
+        "GET"
+      ],
+      "dependencies": [
+        "db_health",
+        "get_db"
+      ]
+    },
+    {
+      "path": "/generate-title",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "generate_title",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/analyze-emotion",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "analyze_emotion",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/chat",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "chat",
+        "resolve_auth_principal"
+      ]
+    },
+    {
+      "path": "/extract-daily-trace",
+      "methods": [
+        "POST"
+      ],
+      "dependencies": [
+        "extract_daily_trace",
+        "require_core_principal",
+        "resolve_auth_principal"
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "AUTH_ALL_ROUTES_MISSING_TOKEN",
+      "status": "PASS",
+      "scope": "All 54 non-public/non-probe application route entries; spoofed admin headers; zero DB dependency invocation"
+    },
+    {
+      "id": "JWT_REAL_SIGNATURE_AND_CLAIMS",
+      "status": "PASS",
+      "scope": "Synthetic local JWKS, genuine SDK signature validation, no external calls"
+    },
+    {
+      "id": "CORE_AGENT_DOMAIN_OWNERSHIP",
+      "status": "PASS",
+      "scope": "Existing deterministic positive/negative controls; verifier identity delivery substituted, ownership defenses not mocked"
+    },
+    {
+      "id": "ADMIN_OWNER_SECURITY_SUPPORT_AUDIT",
+      "status": "PASS",
+      "scope": "44 existing synthetic SQLite cases, not real PostgreSQL locking"
+    },
+    {
+      "id": "ACCOUNT_LOCAL_LIFECYCLE",
+      "status": "PASS",
+      "scope": "20 existing SQLite cases plus post-purge late chat denial"
+    },
+    {
+      "id": "RATE_LIMIT_CONCURRENCY_FULL_BUCKET_SPOOF",
+      "status": "PASS",
+      "scope": "24 concurrent local consumes, 8 threads; header spoof; expensive group consistency"
+    },
+    {
+      "id": "CORS_DOCS_PROBE",
+      "status": "PASS",
+      "scope": "15 existing API surface cases and new missing-token route inventory"
+    },
+    {
+      "id": "LATE_CHAT_AFTER_DEACTIVATION",
+      "status": "FAIL",
+      "finding": "SEC119-001"
+    },
+    {
+      "id": "LATE_MEMORY_REINFORCE_AFTER_DEACTIVATION",
+      "status": "FAIL",
+      "finding": "SEC119-001"
+    },
+    {
+      "id": "LATE_AGENT_AFTER_DEACTIVATION",
+      "status": "FAIL",
+      "finding": "SEC119-002"
+    },
+    {
+      "id": "422_SYNTHETIC_INPUT_REFLECTION",
+      "status": "FAIL",
+      "finding": "SEC119-003"
+    },
+    {
+      "id": "PROJECT_EXCEPTION_LOG_REFLECTION",
+      "status": "FAIL",
+      "finding": "SEC119-004"
+    },
+    {
+      "id": "OBFUSCATED_MEMORY_CREDENTIAL",
+      "status": "FAIL",
+      "finding": "SEC119-005"
+    },
+    {
+      "id": "COMMITTED_TEST_IMPORT_COMPLETENESS",
+      "status": "FAIL",
+      "finding": "SEC119-006"
+    },
+    {
+      "id": "POSTGRES_OWNER_DELETE_ADMIN_REVOKE_RACES",
+      "status": "NOT_RUN",
+      "reason": "No separately authorized test PostgreSQL; production temporary-schema rollback forbidden"
+    },
+    {
+      "id": "POSTGRES_LATE_NEW_SUPERSEDE_DOMAIN_FINALIZE_RACES",
+      "status": "NOT_RUN",
+      "reason": "SQLite serial schedules do not validate real PostgreSQL locking"
+    },
+    {
+      "id": "REAL_OAUTH_SESSION_REVOCATION_OLD_TOKEN",
+      "status": "NOT_RUN",
+      "reason": "External provider calls prohibited; static policy review only"
+    },
+    {
+      "id": "REAL_ANDROID_IOS_SECURESTORE",
+      "status": "NOT_RUN",
+      "reason": "Only Node VM adapters tested"
+    },
+    {
+      "id": "REAL_LLM_PROMPT_INJECTION",
+      "status": "NOT_RUN",
+      "reason": "No real OpenAI allowed; schema/ownership/code boundaries only"
+    },
+    {
+      "id": "RENDER_PROXY_WORKER_RATE_LIMIT_BACKUP_MIGRATION",
+      "status": "NOT_RUN",
+      "reason": "11.10 release gate, no production access"
+    }
+  ],
+  "residual_risks": [
+    "Local logout clears session but does not invoke provider signout/revocation. Valid issued JWTs can remain usable until expiry unless active local identity is deactivated.",
+    "After purge an explicit bootstrap with still-valid provider identity creates a NEW local UUID; old namespace is not reused. Fresh reauthentication after deletion is not enforced by this policy.",
+    "Rate limiter fixed-window edge bursts, per-process restarts and multi-worker independent counters are architectural limits, not all-at-once concurrency limiter failures.",
+    "Explicit auth OFF is accepted even on production; deployment config is a separate release gate.",
+    "ChatRequest text/history and MessageCreate content lack a byte-level request cap; no fleet-wide cost/concurrency ceiling demonstrated. No large payload attack sent.",
+    "OWNER full-read policy is intentional; stolen OWNER credentials have broad audited read scope; MFA/re-auth not demonstrated.",
+    "Original chat is not redacted by Memory privacy; real model injection and full obfuscation/third-party sensitive detection remain unverified.",
+    "Missed deletion response is ambiguous client-side; remote deactivation survives, local cleanup is not guaranteed across crash/backups/other devices."
+  ],
+  "findings": [
+    {
+      "id": "SEC119-001",
+      "severity": "HIGH",
+      "status": "reproduced_local",
+      "files": [
+        "backend/chat_persistence_service.py:320",
+        "backend/memory_reconciliation_service.py:156"
+      ],
+      "preconditions": "Authenticated work acquired context/lease before Phase A; finalize arrives after deactivation, before purge.",
+      "reproduction": [
+        "Begin synthetic authenticated chat; deactivate; complete_chat_request.",
+        "Acquire synthetic extraction lease; deactivate; apply REINFORCE."
+      ],
+      "expected": "No new assistant Message or MemoryEvidence after deactivation.",
+      "actual": "Assistant Message commits and REINFORCE adds Evidence to inactive account.",
+      "impact": "Deletion boundary does not fence already-running work; purge scheduling failure can leave newly committed data.",
+      "evidence": {
+        "late_chat_saved": true,
+        "late_reinforce_evidence_added": true,
+        "engine": "SQLite FK enabled"
+      },
+      "limitations": "Real PostgreSQL concurrency/locks not tested. NEW/SUPERSEDE use active-user create_memory gate, but their actual deletion races were not exercised.",
+      "recommended_scope": "Separate fix phase: transactional active-owner revalidation and deletion fencing at final write boundaries; PostgreSQL lock-order/race tests."
+    },
+    {
+      "id": "SEC119-002",
+      "severity": "MEDIUM",
+      "status": "reproduced_local",
+      "files": [
+        "backend/agent/executor_service.py:141"
+      ],
+      "preconditions": "Agent lease acquired before account deactivation.",
+      "reproduction": [
+        "Seed ready synthetic Action; acquire lease; deactivate; _finish_success."
+      ],
+      "expected": "Inactive account cannot receive a new completed Action result.",
+      "actual": "Action status becomes completed and result commits; attempt fencing alone accepts it.",
+      "impact": "Work/audit state progresses after account deletion request. This test does NOT prove a domain-tool write after deletion.",
+      "evidence": {
+        "late_agent_completed": true,
+        "domain_tool_executed": false
+      },
+      "recommended_scope": "Include final Action-state writes in the deletion fencing fix; retain existing attempt fencing."
+    },
+    {
+      "id": "SEC119-003",
+      "severity": "LOW",
+      "status": "reproduced_local",
+      "files": [
+        "backend/chat_storage_schemas.py:56",
+        "backend/chat_storage_router.py"
+      ],
+      "preconditions": "Authenticated client places a synthetic secret in an invalid role field.",
+      "reproduction": [
+        "POST own conversation/messages with invalid role containing synthetic marker."
+      ],
+      "expected": "422 without raw marker.",
+      "actual": "Default validation 422 echoes input marker.",
+      "impact": "Caller-supplied sensitive input can be duplicated into response/response logging. No cross-user leak demonstrated.",
+      "evidence": {
+        "http_status": 422,
+        "synthetic_input_reflected": true
+      },
+      "recommended_scope": "Separate consistent validation sanitization for ordinary routes; preserve validation status and safe diagnostics."
+    },
+    {
+      "id": "SEC119-004",
+      "severity": "MEDIUM",
+      "status": "reproduced_local",
+      "files": [
+        "backend/main.py:1491"
+      ],
+      "preconditions": "Project response service exception includes sensitive text.",
+      "reproduction": [
+        "Synthetic OpenAI boundary raises marker-bearing RuntimeError; execute real project /chat fallback branch."
+      ],
+      "expected": "Safe error class/code only in logs; fallback reply preserved.",
+      "actual": "Fallback reply preserved but raw exception marker appears in stdout.",
+      "impact": "Provider error details may disclose sensitive request information to log readers. No real token or provider request used.",
+      "evidence": {
+        "fallback_reply_preserved": true,
+        "synthetic_exception_reflected_in_log": true
+      },
+      "recommended_scope": "Separate exception-log sanitization at project fallback and review other raw exception formatting."
+    },
+    {
+      "id": "SEC119-005",
+      "severity": "MEDIUM",
+      "status": "reproduced_local",
+      "files": [
+        "backend/memory_privacy.py:18",
+        "backend/memory_privacy.py:58"
+      ],
+      "preconditions": "Credential label is obfuscated with spaces.",
+      "reproduction": [
+        "automatic_memory_allowed with spaced Korean password label and synthetic value; compare normal goal and explicit credential controls."
+      ],
+      "expected": "Credential-like value excluded from automatic Memory/RAG.",
+      "actual": "Spaced label classifies STANDARD and automatic policy allows it.",
+      "impact": "Heuristic gate is not a comprehensive sensitive-data barrier; possible unintended promotion/reuse. No actual LLM extraction or external transmission tested.",
+      "evidence": {
+        "normal_goal_allowed": true,
+        "explicit_password_blocked": true,
+        "spaced_password_allowed": true
+      },
+      "recommended_scope": "Separate bounded normalization/privacy hardening plus false-positive controls; do not claim complete detection."
+    },
+    {
+      "id": "SEC119-006",
+      "severity": "MEDIUM",
+      "status": "reproduced_archive",
+      "files": [
+        "backend/evals/run_supabase_auth_tests.py:23",
+        "backend/evals/run_security_rate_limit_tests.py:20",
+        "backend/evals/run_auth_principal_tests.py:17",
+        "backend/evals/run_chat_background_observability_tests.py:17"
+      ],
+      "preconditions": "Checkout/git archive HEAD without unrelated untracked fixtures.",
+      "reproduction": [
+        "git archive HEAD; isolated unittest discovery run_*tests.py."
+      ],
+      "expected": "Committed tests import using committed files only.",
+      "actual": "7 test-module ImportErrors; run_lv4_shadow_mode_tests and its downstream fixture dependencies are untracked.",
+      "impact": "Working-tree PASS does not establish reproducible CI/security regression coverage from this commit. Production main import succeeds.",
+      "evidence": {
+        "discovered": 446,
+        "passed": 439,
+        "import_errors": 7,
+        "production_import": "PASS"
+      },
+      "recommended_scope": "Extract required minimal committed test fixture in a separately approved change; do not blindly stage all unrelated Lv4 files."
+    }
+  ],
+  "recommended_next_fix": "SEC119-001: active-owner deletion fencing at final chat/Memory write boundaries, including related Agent result boundary, followed by isolated real PostgreSQL race tests.",
+  "unverified": [
+    "Actual PostgreSQL migration current/drift/upgrade/downgrade and lock semantics",
+    "Late NEW/SUPERSEDE and all nine domain write/deletion races",
+    "Real provider revoke and old access-token lifetime enforcement",
+    "Real native hardware storage and restore behavior",
+    "Live reverse-proxy peer trust and multiple workers",
+    "Real LLM prompt injection",
+    "Production backups/data lifecycle"
+  ],
+  "commands": [
+    "git status --short; git rev-parse HEAD; git diff --check",
+    "git archive HEAD -o <temp>/source.zip; Expand-Archive into <temp>/source",
+    "python evals/run_security_adversarial_verification.py --backend-root . --suite baseline",
+    "python evals/run_security_adversarial_verification.py --backend-root . --suite security",
+    "python C:/noie/backend/evals/run_security_adversarial_verification.py --backend-root <archive>/backend --suite baseline",
+    "python C:/noie/backend/evals/run_security_adversarial_verification.py --backend-root <archive>/backend --suite attacks",
+    "node --test tests/auth.test.cjs tests/accountStorage.test.cjs (archive mobile, existing modules reused)",
+    "npx --no-install tsc --noEmit (archive and working-tree mobile)"
+  ],
+  "preservation": {
+    "baseline_count": 375,
+    "changed": [],
+    "protected": [
+      {
+        "path": "docs/LV4_SPEC.md",
+        "hash": "2545C00E705F9E13FFF020C0A9D72F1C3DD8E5F45E02295A0DBCCC2D23D56964"
+      },
+      {
+        "path": "mobile/src/styles/appStyles.ts",
+        "hash": "201C3AD2A15BD21715C140C5D3609399D01112B7CA27FE89E4D158AA317448D2"
+      }
+    ]
+  },
+  "production_changes": [],
+  "staged_files": [],
+  "commit_push": false,
+  "discarded_harness_runs": [
+    "Initial blanket socket blocking prevented Windows asyncio internal socketpair; corrected without enabling external network.",
+    "Initial global auth/rate defaults conflicted with legacy dev fixtures; rerun with explicit local dev-fixture environment. Not product failures.",
+    "Initial two new limiter tests used incorrect consume signature; corrected tests to actual API without weakening budget expectation."
+  ]
+}
