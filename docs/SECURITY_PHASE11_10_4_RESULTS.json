@@ -1,0 +1,2887 @@
+{
+  "phase": "11.10.4",
+  "date": "2026-10-07",
+  "repository_root": "C:\\noie",
+  "head": "fcf9a3429c14ab5269a14c45fb3a31d24b42c611",
+  "verdict": "LOCAL_SECURITY_GATE_PASS",
+  "verdict_scope": "Current working-tree local Windows CPython 3.14.3 / Node 24.13.0; not a production or all-library-features approval",
+  "production_verdict": "PRODUCTION_RELEASE_NOT_APPROVED",
+  "release_approved": false,
+  "changed_files": [
+    "backend/requirements.txt",
+    "backend/requirements.constraints.txt",
+    "backend/scripts/dependency_inventory.py",
+    "backend/evals/run_security_supply_chain_tests.py",
+    "docs/SECURITY_PHASE11_10_4_SUPPLY_CHAIN_CLOSURE.md",
+    "docs/SECURITY_PHASE11_10_4_RESULTS.json"
+  ],
+  "dependency_versions_changed": [],
+  "deployment_config_changed": false,
+  "business_runtime_changes": false,
+  "starlette": {
+    "installed": "0.52.1",
+    "fastapi": "0.128.4",
+    "fastapi_requirement": "starlette>=0.40.0,<1.0.0",
+    "advisory": "GHSA-86qp-5c8j-p5mr",
+    "affected": "<=1.0.0",
+    "fixed": "1.0.1",
+    "application_disposition": "MITIGATED_IN_CURRENT_NOIE_COST_CLASSIFICATION",
+    "authority": "request.scope[path]; not request.url/base_url/Host/forwarded authority",
+    "package_disposition": "UPSTREAM_ADVISORY_REMAINS; coordinated major Starlette upgrade deferred",
+    "other_url_consumers": "No application Request URL security authority found; framework automatic slash redirect still uses URL(scope). LIVE proxy/redirect behavior not verified.",
+    "source": "https://github.com/Kludex/starlette/security/advisories/GHSA-86qp-5c8j-p5mr"
+  },
+  "audit": {
+    "npm": {
+      "status": "FRESH_QUERY_COMPLETED",
+      "families": {
+        "info": 0,
+        "low": 1,
+        "moderate": 36,
+        "high": 55,
+        "critical": 3,
+        "total": 95
+      },
+      "unique_advisories": 89,
+      "unique_critical": 3,
+      "unique_high": 55,
+      "ids_same_as_phase11102": true,
+      "classes": {
+        "production_runtime_reachable": 0,
+        "build_install_only": 75,
+        "development_tooling_only": 10,
+        "vulnerable_feature_not_reachable": 1,
+        "uncertain": 3
+      },
+      "critical_high_classes": {
+        "production_runtime_reachable": 0,
+        "build_install_only": 54,
+        "development_tooling_only": 4,
+        "vulnerable_feature_not_reachable": 0,
+        "uncertain": 0
+      },
+      "confirmed_runtime_exploitable_critical_high": 0,
+      "not_an_absence_of_vulnerabilities_claim": true,
+      "classifications": [
+        {
+          "id": "GHSA-wh4c-j3r5-mjhp",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: XML injection via unsafe CDATA serialization allows attacker-controlled markup insertion",
+          "source": "https://github.com/advisories/GHSA-wh4c-j3r5-mjhp",
+          "fixed_versions": [
+            "0.8.12",
+            "0.9.9"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-2v35-w6hq-6mfw",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Uncontrolled recursion in XML serialization leads to DoS",
+          "source": "https://github.com/advisories/GHSA-2v35-w6hq-6mfw",
+          "fixed_versions": [
+            "0.8.13",
+            "0.9.10"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-f6ww-3ggp-fr8h",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom has XML injection through unvalidated DocumentType serialization",
+          "source": "https://github.com/advisories/GHSA-f6ww-3ggp-fr8h",
+          "fixed_versions": [
+            "0.8.13",
+            "0.9.10"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-x6wf-f3px-wcqx",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom has XML node injection through unvalidated processing instruction serialization",
+          "source": "https://github.com/advisories/GHSA-x6wf-f3px-wcqx",
+          "fixed_versions": [
+            "0.8.13",
+            "0.9.10"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-j759-j44w-7fr8",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom has XML node injection through unvalidated comment serialization",
+          "source": "https://github.com/advisories/GHSA-j759-j44w-7fr8",
+          "fixed_versions": [
+            "0.8.13",
+            "0.9.10"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-6gmq-8vp8-gcm6",
+          "package": "@xmldom/xmldom",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: XML fragment injection via invalid EntityReference.nodeName during requireWellFormed serialization",
+          "source": "https://github.com/advisories/GHSA-6gmq-8vp8-gcm6",
+          "fixed_versions": [
+            "0.8.15",
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-6mj3-qw4j-hgrw",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config-plugins@6.0.2",
+            "xcode@3.0.1",
+            "simple-plist@1.3.1",
+            "plist@3.1.1",
+            "@xmldom/xmldom@0.9.10"
+          ],
+          "vulnerable_feature": "xmldom: HTML raw-text closing-tag case mismatch causes output amplification",
+          "source": "https://github.com/advisories/GHSA-6mj3-qw4j-hgrw",
+          "fixed_versions": [
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-g53g-w8rj-fmg7",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config-plugins@6.0.2",
+            "xcode@3.0.1",
+            "simple-plist@1.3.1",
+            "plist@3.1.1",
+            "@xmldom/xmldom@0.9.10"
+          ],
+          "vulnerable_feature": "xmldom PI grammar regex ReDoS: quadratic backtracking on unterminated processing instructions",
+          "source": "https://github.com/advisories/GHSA-g53g-w8rj-fmg7",
+          "fixed_versions": [
+            "0.9.11"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-w2rr-34g9-rvrj",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Element name injection via createElement() bypasses requireWellFormed",
+          "source": "https://github.com/advisories/GHSA-w2rr-34g9-rvrj",
+          "fixed_versions": [
+            "0.9.11",
+            "0.8.14"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-4w3w-2rp5-g8jm",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Attribute name injection via setAttribute() bypasses requireWellFormed",
+          "source": "https://github.com/advisories/GHSA-4w3w-2rp5-g8jm",
+          "fixed_versions": [
+            "0.9.11",
+            "0.8.14"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-c7q8-3ch8-vqpv",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Processing Instruction Target Injection Bypasses requireWellFormed",
+          "source": "https://github.com/advisories/GHSA-c7q8-3ch8-vqpv",
+          "fixed_versions": [
+            "0.8.15",
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-27p8-2357-5qqv",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: DocType `name` Injection Bypasses requireWellFormed",
+          "source": "https://github.com/advisories/GHSA-27p8-2357-5qqv",
+          "fixed_versions": [
+            "0.8.15",
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-3px3-54cx-rmw9",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config-plugins@6.0.2",
+            "xcode@3.0.1",
+            "simple-plist@1.3.1",
+            "plist@3.1.1",
+            "@xmldom/xmldom@0.9.10"
+          ],
+          "vulnerable_feature": "xmldom: Creation-time XML Name/QName validation is bypassable via an embedded line terminator, allowing injection on the default serialization path",
+          "source": "https://github.com/advisories/GHSA-3px3-54cx-rmw9",
+          "fixed_versions": [
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-vr34-hp96-76pp",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config-plugins@6.0.2",
+            "xcode@3.0.1",
+            "simple-plist@1.3.1",
+            "plist@3.1.1",
+            "@xmldom/xmldom@0.9.10"
+          ],
+          "vulnerable_feature": "xmldom: requireWellFormed DocType publicId/systemId validation is bypassable via an embedded line terminator",
+          "source": "https://github.com/advisories/GHSA-vr34-hp96-76pp",
+          "fixed_versions": [
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-6h8r-xr42-gp59",
+          "package": "@xmldom/xmldom",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Parser silently accepts a not-well-formed end tag whose name is followed by a line break and trailing content",
+          "source": "https://github.com/advisories/GHSA-6h8r-xr42-gp59",
+          "fixed_versions": [
+            "0.8.15",
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-8344-3jmq-59r6",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Quadratic-time attribute deduplication",
+          "source": "https://github.com/advisories/GHSA-8344-3jmq-59r6",
+          "fixed_versions": [
+            "0.8.15",
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-x4fp-j954-r2f4",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: End-tag Whitespace-Trim Regex ReDoS — quadratic backtracking in the 0.8.x end-tag parser",
+          "source": "https://github.com/advisories/GHSA-x4fp-j954-r2f4",
+          "fixed_versions": [
+            "0.8.15"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-965w-775f-mr7g",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Quadratic-memory consumption",
+          "source": "https://github.com/advisories/GHSA-965w-775f-mr7g",
+          "fixed_versions": [
+            "0.8.15",
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-93r5-fhx6-vmg9",
+          "package": "@xmldom/xmldom",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "@expo/plist@0.0.20",
+            "@xmldom/xmldom@0.7.13"
+          ],
+          "vulnerable_feature": "xmldom: Quadratic-time parsing via the malformed-input recovery path — `parseElementStartPart` re-scan and `normalize()` adjacent-text merge",
+          "source": "https://github.com/advisories/GHSA-93r5-fhx6-vmg9",
+          "fixed_versions": [
+            "0.8.15",
+            "0.9.12"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-w5vr-8v7q-w6rv",
+          "package": "baseline-browser-mapping",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack@5.108.4",
+            "browserslist@4.28.4",
+            "baseline-browser-mapping@2.10.42"
+          ],
+          "vulnerable_feature": "baseline-browser-mapping process termination on invalid input causes denial of service",
+          "source": "https://github.com/advisories/GHSA-w5vr-8v7q-w6rv",
+          "fixed_versions": [
+            "2.11.0"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-v422-hmwv-36x6",
+          "package": "body-parser",
+          "severity": "low",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2",
+            "express@4.22.2",
+            "body-parser@1.20.5"
+          ],
+          "vulnerable_feature": "body-parser vulnerable to denial of service when invalid limit value silently disables size enforcement",
+          "source": "https://github.com/advisories/GHSA-v422-hmwv-36x6",
+          "fixed_versions": [
+            "1.20.6",
+            "2.3.0"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-3jxr-9vmj-r5cp",
+          "package": "brace-expansion",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config@8.0.5",
+            "glob@7.1.6",
+            "minimatch@3.1.5",
+            "brace-expansion@1.1.15"
+          ],
+          "vulnerable_feature": "brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups",
+          "source": "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp",
+          "fixed_versions": [
+            "5.0.7",
+            "1.1.16",
+            "2.1.2"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-mh99-v99m-4gvg",
+          "package": "brace-expansion",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config@8.0.5",
+            "glob@7.1.6",
+            "minimatch@3.1.5",
+            "brace-expansion@1.1.15"
+          ],
+          "vulnerable_feature": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+          "source": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+          "fixed_versions": [
+            "5.0.8",
+            "3.0.3",
+            "2.1.3",
+            "1.1.17"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-rgw5-rvv9-x895",
+          "package": "brace-expansion",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config@8.0.5",
+            "glob@7.1.6",
+            "minimatch@3.1.5",
+            "brace-expansion@1.1.15"
+          ],
+          "vulnerable_feature": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+          "source": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+          "fixed_versions": [
+            "1.1.18",
+            "2.1.4",
+            "3.0.6",
+            "5.0.9"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-q2hr-2g5m-vwhr",
+          "package": "brace-expansion",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config@8.0.5",
+            "glob@7.1.6",
+            "minimatch@3.1.5",
+            "brace-expansion@1.1.15"
+          ],
+          "vulnerable_feature": "brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service",
+          "source": "https://github.com/advisories/GHSA-q2hr-2g5m-vwhr",
+          "fixed_versions": [
+            "5.0.12",
+            "3.0.9",
+            "2.1.7",
+            "1.1.21"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-qhr7-859c-m2p7",
+          "package": "brace-expansion",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config@8.0.5",
+            "glob@7.1.6",
+            "minimatch@3.1.5",
+            "brace-expansion@1.1.15"
+          ],
+          "vulnerable_feature": "brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion",
+          "source": "https://github.com/advisories/GHSA-qhr7-859c-m2p7",
+          "fixed_versions": [
+            "5.0.11",
+            "3.0.8",
+            "2.1.6",
+            "1.1.20"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-6j4f-fj2g-mc7p",
+          "package": "brace-expansion",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config@8.0.5",
+            "glob@7.1.6",
+            "minimatch@3.1.5",
+            "brace-expansion@1.1.15"
+          ],
+          "vulnerable_feature": "brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion",
+          "source": "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p",
+          "fixed_versions": [
+            "5.0.10",
+            "3.0.7",
+            "2.1.5",
+            "1.1.19"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-vfj7-8cjw-p6xm",
+          "package": "braces",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "find-yarn-workspace-root@2.0.0",
+            "micromatch@4.0.8",
+            "braces@3.0.3"
+          ],
+          "vulnerable_feature": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
+          "source": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+          "fixed_versions": [],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-c83g-rgw3-j3cx",
+          "package": "browserslist",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack@5.108.4",
+            "browserslist@4.28.4"
+          ],
+          "vulnerable_feature": "Browserslist: Unbounded memory growth (no cache eviction) via distinct query results, leading to eventual OOM",
+          "source": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx",
+          "fixed_versions": [
+            "4.28.7"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-73wf-gq98-2v4g",
+          "package": "browserslist",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack@5.108.4",
+            "browserslist@4.28.4"
+          ],
+          "vulnerable_feature": "Browserslist: Uncaught crash / prototype write via untrusted browserslist-stats.json custom stats (normalizeStats)",
+          "source": "https://github.com/advisories/GHSA-73wf-gq98-2v4g",
+          "fixed_versions": [
+            "4.28.7"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-2wm5-q62r-hmrv",
+          "package": "colord",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-minimizer-webpack-plugin@3.4.1",
+            "cssnano@5.1.15",
+            "cssnano-preset-default@5.2.14",
+            "postcss-colormin@5.3.1",
+            "colord@2.9.3"
+          ],
+          "vulnerable_feature": "Colord: Slow rejection of oversized malformed color strings",
+          "source": "https://github.com/advisories/GHSA-2wm5-q62r-hmrv",
+          "fixed_versions": [
+            "2.9.4"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-vc2v-76pw-4v95",
+          "package": "compression",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2",
+            "compression@1.8.1"
+          ],
+          "vulnerable_feature": "compression vulnerable to Denial of Service via memory leak on premature response close",
+          "source": "https://github.com/advisories/GHSA-vc2v-76pw-4v95",
+          "fixed_versions": [
+            "1.8.2"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-vcc3-ghjq-m6fr",
+          "package": "decode-uri-component",
+          "severity": "moderate",
+          "chain": [
+            "expo-web-browser@12.1.1",
+            "compare-urls@2.0.0",
+            "normalize-url@2.0.1",
+            "query-string@5.1.1",
+            "decode-uri-component@0.2.2"
+          ],
+          "vulnerable_feature": "decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input",
+          "source": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
+          "fixed_versions": [
+            "0.5.0"
+          ],
+          "classification": "uncertain"
+        },
+        {
+          "id": "GHSA-v2hh-gcrm-f6hx",
+          "package": "fast-uri",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to host confusion via literal backslash authority delimiter",
+          "source": "https://github.com/advisories/GHSA-v2hh-gcrm-f6hx",
+          "fixed_versions": [
+            "2.4.3",
+            "3.1.4",
+            "4.1.1"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-7p8r-x3mc-p8w7",
+          "package": "fast-uri",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to host confusion via backslash authority introducer",
+          "source": "https://github.com/advisories/GHSA-7p8r-x3mc-p8w7",
+          "fixed_versions": [
+            "2.4.4",
+            "3.1.5",
+            "4.1.2"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-5jgf-p345-68v8",
+          "package": "fast-uri",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+          "source": "https://github.com/advisories/GHSA-5jgf-p345-68v8",
+          "fixed_versions": [
+            "2.4.5",
+            "3.1.6",
+            "4.1.3"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-f65p-4m7j-42xc",
+          "package": "fast-uri",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+          "source": "https://github.com/advisories/GHSA-f65p-4m7j-42xc",
+          "fixed_versions": [
+            "2.4.5",
+            "3.1.6",
+            "4.1.3"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-fph4-wmhf-6fwf",
+          "package": "fast-uri",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+          "source": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf",
+          "fixed_versions": [
+            "2.4.5",
+            "3.1.6",
+            "4.1.3"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-jqff-g426-hqxp",
+          "package": "fast-uri",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+          "source": "https://github.com/advisories/GHSA-jqff-g426-hqxp",
+          "fixed_versions": [
+            "2.4.5",
+            "3.1.6",
+            "4.1.3"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-qw65-cvwx-89v3",
+          "package": "fast-uri",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to authority injection via an unvalidated port in serialize",
+          "source": "https://github.com/advisories/GHSA-qw65-cvwx-89v3",
+          "fixed_versions": [
+            "2.4.6",
+            "3.1.7",
+            "4.1.4"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-hrr3-gc8f-f4qj",
+          "package": "fast-uri",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "schema-utils@4.3.3",
+            "ajv@8.20.0",
+            "fast-uri@3.1.3"
+          ],
+          "vulnerable_feature": "fast-uri vulnerable to inconsistent host case normalization via percent-encoded octets",
+          "source": "https://github.com/advisories/GHSA-hrr3-gc8f-f4qj",
+          "fixed_versions": [
+            "2.4.7",
+            "3.1.8",
+            "4.1.5"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-gh4j-gqv2-49f6",
+          "package": "fast-xml-parser",
+          "severity": "moderate",
+          "chain": [
+            "react-native@0.71.14",
+            "@react-native-community/cli-platform-ios@10.2.4",
+            "fast-xml-parser@4.5.7"
+          ],
+          "vulnerable_feature": "fast-xml-parser XMLBuilder: XML Comment and CDATA Injection via Unescaped Delimiters",
+          "source": "https://github.com/advisories/GHSA-gh4j-gqv2-49f6",
+          "fixed_versions": [
+            "5.7.0"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-w3rx-r6r6-pgpr",
+          "package": "image-size",
+          "severity": "high",
+          "chain": [
+            "react-native@0.71.14",
+            "@react-native-community/cli@10.2.4",
+            "@react-native-community/cli-plugin-metro@10.2.3",
+            "metro@0.73.10",
+            "image-size@0.6.3"
+          ],
+          "vulnerable_feature": "image-size: ICNS parser allows denial of service through an infinite loop",
+          "source": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr",
+          "fixed_versions": [
+            "2.0.3"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-6w3j-5fw6-r9vr",
+          "package": "joi",
+          "severity": "low",
+          "chain": [
+            "react-native@0.71.14",
+            "@react-native-community/cli@10.2.4",
+            "@react-native-community/cli-config@10.1.1",
+            "joi@17.13.4"
+          ],
+          "vulnerable_feature": "joi: Prototype pollution via a `__proto__` language key in custom messages",
+          "source": "https://github.com/advisories/GHSA-6w3j-5fw6-r9vr",
+          "fixed_versions": [
+            "17.13.6",
+            "18.2.5"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-gg4h-3hg2-grpc",
+          "package": "joi",
+          "severity": "low",
+          "chain": [
+            "react-native@0.71.14",
+            "@react-native-community/cli@10.2.4",
+            "@react-native-community/cli-config@10.1.1",
+            "joi@17.13.4"
+          ],
+          "vulnerable_feature": "joi: object().rename() with a template target can set the validated object's prototype",
+          "source": "https://github.com/advisories/GHSA-gg4h-3hg2-grpc",
+          "fixed_versions": [
+            "17.13.5",
+            "18.2.4"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-wr44-6hxh-3jwq",
+          "package": "joi",
+          "severity": "moderate",
+          "chain": [
+            "react-native@0.71.14",
+            "@react-native-community/cli@10.2.4",
+            "@react-native-community/cli-config@10.1.1",
+            "joi@17.13.4"
+          ],
+          "vulnerable_feature": "joi messages compilation allows prototype replacement through __proto__ error codes",
+          "source": "https://github.com/advisories/GHSA-wr44-6hxh-3jwq",
+          "fixed_versions": [
+            "17.13.8",
+            "18.2.9"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-6h2x-m376-mqjq",
+          "package": "joi",
+          "severity": "high",
+          "chain": [
+            "react-native@0.71.14",
+            "@react-native-community/cli@10.2.4",
+            "@react-native-community/cli-config@10.1.1",
+            "joi@17.13.4"
+          ],
+          "vulnerable_feature": "joi: Quadratic regular-expression backtracking in `Joi.string().isoDate()`",
+          "source": "https://github.com/advisories/GHSA-6h2x-m376-mqjq",
+          "fixed_versions": [
+            "17.13.7",
+            "18.2.6"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-5p4m-2wfm-xmqj",
+          "package": "js-yaml",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "js-yaml@3.15.0"
+          ],
+          "vulnerable_feature": "JS-YAML: Quadratic CPU consumption in !!omap resolution (3.x and 4.x) — CVE-2026-59870 fix not backported",
+          "source": "https://github.com/advisories/GHSA-5p4m-2wfm-xmqj",
+          "fixed_versions": [
+            "4.3.1",
+            "3.15.1"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-2883-xcg3-v3hh",
+          "package": "js-yaml",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "js-yaml@3.15.0"
+          ],
+          "vulnerable_feature": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
+          "source": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+          "fixed_versions": [
+            "4.3.2",
+            "3.15.2"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-28wg-ghj8-5hjv",
+          "package": "nanoid",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-loader@6.11.0",
+            "postcss@8.5.16",
+            "nanoid@3.3.15"
+          ],
+          "vulnerable_feature": "nanoid: non-secure generators can loop indefinitely with negative size",
+          "source": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv",
+          "fixed_versions": [
+            "3.3.16",
+            "5.1.16"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-2v37-7h3g-55p8",
+          "package": "nanoid",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-loader@6.11.0",
+            "postcss@8.5.16",
+            "nanoid@3.3.15"
+          ],
+          "vulnerable_feature": "nanoid: custom generators can loop indefinitely when size is zero",
+          "source": "https://github.com/advisories/GHSA-2v37-7h3g-55p8",
+          "fixed_versions": [
+            "3.3.18",
+            "5.1.6"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-86w9-cpqp-85rv",
+          "package": "node-forge",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "node-forge@1.4.0"
+          ],
+          "vulnerable_feature": "node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements",
+          "source": "https://github.com/advisories/GHSA-86w9-cpqp-85rv",
+          "fixed_versions": [],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-fxqj-rqcc-2cmp",
+          "package": "postcss",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-loader@6.11.0",
+            "postcss@8.5.16"
+          ],
+          "vulnerable_feature": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset",
+          "source": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp",
+          "fixed_versions": [
+            "8.5.23"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-r28c-9q8g-f849",
+          "package": "postcss",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-loader@6.11.0",
+            "postcss@8.5.16"
+          ],
+          "vulnerable_feature": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure",
+          "source": "https://github.com/advisories/GHSA-r28c-9q8g-f849",
+          "fixed_versions": [
+            "8.5.18"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-rj75-hqrm-r3gf",
+          "package": "postcss-selector-parser",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-loader@6.11.0",
+            "postcss-modules-local-by-default@4.2.0",
+            "postcss-selector-parser@7.1.4"
+          ],
+          "vulnerable_feature": "PostCSS: Quadratic complexity in flat selector parsing allows CPU exhaustion",
+          "source": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf",
+          "fixed_versions": [
+            "7.1.6"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-jqcg-44mw-7w3h",
+          "package": "proxy-addr",
+          "severity": "critical",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2",
+            "express@4.22.2",
+            "proxy-addr@2.0.7"
+          ],
+          "vulnerable_feature": "proxy-addr vulnerable to IP spoofing via IPv4-mapped IPv6 trust subnet",
+          "source": "https://github.com/advisories/GHSA-jqcg-44mw-7w3h",
+          "fixed_versions": [
+            "2.0.8"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-x5fp-wj9c-mxmx",
+          "package": "qs",
+          "severity": "moderate",
+          "chain": [
+            "expo-linking@4.0.1",
+            "qs@6.15.3"
+          ],
+          "vulnerable_feature": "qs array-limit bypass via bracket-key comma parsing",
+          "source": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx",
+          "fixed_versions": [
+            "6.16.0"
+          ],
+          "classification": "uncertain"
+        },
+        {
+          "id": "GHSA-4mjr-xmp4-gh2g",
+          "package": "qs",
+          "severity": "moderate",
+          "chain": [
+            "expo-linking@4.0.1",
+            "qs@6.15.3"
+          ],
+          "vulnerable_feature": "qs: Denial of Service via Attacker Controlled isBuffer",
+          "source": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g",
+          "fixed_versions": [
+            "6.16.0"
+          ],
+          "classification": "uncertain"
+        },
+        {
+          "id": "GHSA-c2qf-rxjj-qqgw",
+          "package": "semver",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "semver@7.3.8"
+          ],
+          "vulnerable_feature": "semver vulnerable to Regular Expression Denial of Service",
+          "source": "https://github.com/advisories/GHSA-c2qf-rxjj-qqgw",
+          "fixed_versions": [
+            "7.5.2",
+            "6.3.1",
+            "5.7.2"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-m6fv-jmcg-4jfg",
+          "package": "send",
+          "severity": "low",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "send@0.18.0"
+          ],
+          "vulnerable_feature": "send vulnerable to template injection that can lead to XSS",
+          "source": "https://github.com/advisories/GHSA-m6fv-jmcg-4jfg",
+          "fixed_versions": [
+            "0.19.0"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-5c6j-r48x-rmvq",
+          "package": "serialize-javascript",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "serialize-javascript@6.0.2"
+          ],
+          "vulnerable_feature": "Serialize JavaScript is Vulnerable to RCE via RegExp.flags and Date.prototype.toISOString()",
+          "source": "https://github.com/advisories/GHSA-5c6j-r48x-rmvq",
+          "fixed_versions": [
+            "7.0.3"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-qj8w-gfj5-8c6v",
+          "package": "serialize-javascript",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "copy-webpack-plugin@10.2.4",
+            "serialize-javascript@6.0.2"
+          ],
+          "vulnerable_feature": "Serialize JavaScript has CPU Exhaustion Denial of Service via crafted array-like objects",
+          "source": "https://github.com/advisories/GHSA-qj8w-gfj5-8c6v",
+          "fixed_versions": [
+            "7.0.5"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-pqg4-j6r4-53mv",
+          "package": "shell-quote",
+          "severity": "critical",
+          "chain": [
+            "react-native@0.71.14",
+            "react-devtools-core@4.28.5",
+            "shell-quote@1.9.0"
+          ],
+          "vulnerable_feature": "shell-quote: `quote()` command injection via a line terminator in a token after a `{ comment }` token",
+          "source": "https://github.com/advisories/GHSA-pqg4-j6r4-53mv",
+          "fixed_versions": [
+            "1.11.0"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-68fv-2mgg-jv7q",
+          "package": "source-map-js",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "source-map-loader@3.0.2",
+            "source-map-js@1.2.1"
+          ],
+          "vulnerable_feature": "source-map-js allows event-loop denial of service through indexed source-map section offsets",
+          "source": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q",
+          "fixed_versions": [
+            "1.2.2"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-hp3w-g68c-fv3c",
+          "package": "sprintf-js",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "js-yaml@3.15.0",
+            "argparse@1.0.10",
+            "sprintf-js@1.0.3"
+          ],
+          "vulnerable_feature": "sprintf-js vulnerable to denial of service through unbounded precision specifiers",
+          "source": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c",
+          "fixed_versions": [],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-2p49-hgcm-8545",
+          "package": "svgo",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-minimizer-webpack-plugin@3.4.1",
+            "cssnano@5.1.15",
+            "cssnano-preset-default@5.2.14",
+            "postcss-svgo@5.1.0",
+            "svgo@2.8.2"
+          ],
+          "vulnerable_feature": "SVGO removeScripts plugin leaves some executable scripts intact",
+          "source": "https://github.com/advisories/GHSA-2p49-hgcm-8545",
+          "fixed_versions": [
+            "2.8.3",
+            "3.3.4",
+            "4.0.2"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-w27v-7q3p-w38r",
+          "package": "svgo",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-minimizer-webpack-plugin@3.4.1",
+            "cssnano@5.1.15",
+            "cssnano-preset-default@5.2.14",
+            "postcss-svgo@5.1.0",
+            "svgo@2.8.2"
+          ],
+          "vulnerable_feature": "SVGO: removeScripts allows executable links through namespace and control-character bypasses",
+          "source": "https://github.com/advisories/GHSA-w27v-7q3p-w38r",
+          "fixed_versions": [
+            "2.8.4",
+            "3.3.5",
+            "4.1.0"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-4vpr-x523-8j87",
+          "package": "svgo",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "css-minimizer-webpack-plugin@3.4.1",
+            "cssnano@5.1.15",
+            "cssnano-preset-default@5.2.14",
+            "postcss-svgo@5.1.0",
+            "svgo@2.8.2"
+          ],
+          "vulnerable_feature": "SVGO: removeScripts incompletely sanitizes executable HTML in SVG foreignObject elements",
+          "source": "https://github.com/advisories/GHSA-4vpr-x523-8j87",
+          "fixed_versions": [
+            "2.8.4",
+            "3.3.5",
+            "4.1.0"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-34x7-hfp2-rc4v",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar Vulnerable to Arbitrary File Creation/Overwrite via Hardlink Path Traversal",
+          "source": "https://github.com/advisories/GHSA-34x7-hfp2-rc4v",
+          "fixed_versions": [
+            "7.5.7"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-8qq5-rm4j-mr97",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar is Vulnerable to Arbitrary File Overwrite and Symlink Poisoning via Insufficient Path Sanitization",
+          "source": "https://github.com/advisories/GHSA-8qq5-rm4j-mr97",
+          "fixed_versions": [
+            "7.5.3"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-83g3-92jg-28cx",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "Arbitrary File Read/Write via Hardlink Target Escape Through Symlink Chain in node-tar Extraction",
+          "source": "https://github.com/advisories/GHSA-83g3-92jg-28cx",
+          "fixed_versions": [
+            "7.5.8"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-qffp-2rhf-9h96",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "tar has Hardlink Path Traversal via Drive-Relative Linkpath",
+          "source": "https://github.com/advisories/GHSA-qffp-2rhf-9h96",
+          "fixed_versions": [
+            "7.5.10"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-9ppj-qmqm-q256",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar Symlink Path Traversal via Drive-Relative Linkpath",
+          "source": "https://github.com/advisories/GHSA-9ppj-qmqm-q256",
+          "fixed_versions": [
+            "7.5.11"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-r6q2-hw4h-h46w",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "Race Condition in node-tar Path Reservations via Unicode Ligature Collisions on macOS APFS",
+          "source": "https://github.com/advisories/GHSA-r6q2-hw4h-h46w",
+          "fixed_versions": [
+            "7.5.4"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-vmf3-w455-68vh",
+          "package": "tar",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar applies PAX size override to intermediary GNU long-name/long-link headers, causing tar parser interpretation differential (file smuggling)",
+          "source": "https://github.com/advisories/GHSA-vmf3-w455-68vh",
+          "fixed_versions": [
+            "7.5.16"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-w8wr-v893-vjvp",
+          "package": "tar",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar: Process crash via PAX numeric path type confusion",
+          "source": "https://github.com/advisories/GHSA-w8wr-v893-vjvp",
+          "fixed_versions": [
+            "7.5.18"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-23hp-3jrh-7fpw",
+          "package": "tar",
+          "severity": "critical",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar: Decompression/parse DoS via unlimited input",
+          "source": "https://github.com/advisories/GHSA-23hp-3jrh-7fpw",
+          "fixed_versions": [
+            "7.5.19"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-8x88-c5mf-7j5w",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar: Negative tar entry size causes infinite loop in archive replace",
+          "source": "https://github.com/advisories/GHSA-8x88-c5mf-7j5w",
+          "fixed_versions": [
+            "7.5.18"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-gvwx-54wh-qm9j",
+          "package": "tar",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar: Uncaught Exception DoS via NUL byte in PAX path/linkpath records",
+          "source": "https://github.com/advisories/GHSA-gvwx-54wh-qm9j",
+          "fixed_versions": [
+            "7.5.17"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-r292-9mhp-454m",
+          "package": "tar",
+          "severity": "high",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/cli@0.7.3",
+            "tar@6.2.1"
+          ],
+          "vulnerable_feature": "node-tar: Uncontrolled recursion in mapHas/filesFilter allows uncatchable stack-overflow DoS via crafted long-path tar with member selection",
+          "source": "https://github.com/advisories/GHSA-r292-9mhp-454m",
+          "fixed_versions": [
+            "7.5.21"
+          ],
+          "classification": "build_install_only"
+        },
+        {
+          "id": "GHSA-w5hq-g745-h8pq",
+          "package": "uuid",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "uuid@3.4.0"
+          ],
+          "vulnerable_feature": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+          "source": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+          "fixed_versions": [
+            "11.1.1",
+            "12.0.1",
+            "13.0.1"
+          ],
+          "classification": "vulnerable_feature_not_reachable"
+        },
+        {
+          "id": "GHSA-g84c-rxfj-3j2c",
+          "package": "webpack-dev-middleware",
+          "severity": "high",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2",
+            "webpack-dev-middleware@5.3.4"
+          ],
+          "vulnerable_feature": "webpack-dev-middleware vulnerable to Path Traversal via non-slash-terminated publicPath",
+          "source": "https://github.com/advisories/GHSA-g84c-rxfj-3j2c",
+          "fixed_versions": [
+            "8.3.0",
+            "7.4.6"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-9jgg-88mc-972h",
+          "package": "webpack-dev-server",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2"
+          ],
+          "vulnerable_feature": "webpack-dev-server users' source code may be stolen when they access a malicious web site with non-Chromium based browser",
+          "source": "https://github.com/advisories/GHSA-9jgg-88mc-972h",
+          "fixed_versions": [
+            "5.2.1"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-4v9v-hfq4-rm2v",
+          "package": "webpack-dev-server",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2"
+          ],
+          "vulnerable_feature": "webpack-dev-server users' source code may be stolen when they access a malicious web site",
+          "source": "https://github.com/advisories/GHSA-4v9v-hfq4-rm2v",
+          "fixed_versions": [
+            "5.2.1"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-79cf-xcqc-c78w",
+          "package": "webpack-dev-server",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2"
+          ],
+          "vulnerable_feature": "webpack-dev-server vulnerable to cross-origin source code exposure on non-HTTPS origins",
+          "source": "https://github.com/advisories/GHSA-79cf-xcqc-c78w",
+          "fixed_versions": [
+            "5.2.4"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-mx8g-39q3-5c79",
+          "package": "webpack-dev-server",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2"
+          ],
+          "vulnerable_feature": "webpack-dev-server vulnerable to HMR WebSocket interception via permissive user proxies",
+          "source": "https://github.com/advisories/GHSA-mx8g-39q3-5c79",
+          "fixed_versions": [
+            "5.2.5"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-f5vj-f2hx-8m93",
+          "package": "webpack-dev-server",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2"
+          ],
+          "vulnerable_feature": "webpack-dev-server vulnerable to cross-site request forgery via internal developer endpoints",
+          "source": "https://github.com/advisories/GHSA-f5vj-f2hx-8m93",
+          "fixed_versions": [
+            "5.2.6"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-m28w-2pqf-7qgj",
+          "package": "webpack-dev-server",
+          "severity": "moderate",
+          "chain": [
+            "@expo/webpack-config@18.1.4",
+            "webpack-dev-server@4.15.2"
+          ],
+          "vulnerable_feature": "webpack-dev-server vulnerable to denial of service via a malformed Host or Origin header",
+          "source": "https://github.com/advisories/GHSA-m28w-2pqf-7qgj",
+          "fixed_versions": [
+            "5.2.6"
+          ],
+          "classification": "development_tooling_only"
+        },
+        {
+          "id": "GHSA-776f-qx25-q3cc",
+          "package": "xml2js",
+          "severity": "moderate",
+          "chain": [
+            "expo@48.0.21",
+            "@expo/config-plugins@6.0.2",
+            "xml2js@0.4.23"
+          ],
+          "vulnerable_feature": "xml2js is vulnerable to prototype pollution",
+          "source": "https://github.com/advisories/GHSA-776f-qx25-q3cc",
+          "fixed_versions": [
+            "0.5.0"
+          ],
+          "classification": "build_install_only"
+        }
+      ]
+    },
+    "python": {
+      "status": "FRESH_OSV_QUERY_COMPLETED",
+      "packages": 50,
+      "previous_closure": 47,
+      "previous_omission": [
+        "h2",
+        "hpack",
+        "hyperframe"
+      ],
+      "unique_advisories": 10,
+      "raw_ids": 19,
+      "new_affected_packages_from_corrected_closure": 0,
+      "results": [
+        {
+          "package": "alembic",
+          "version": "1.20.0",
+          "ids": []
+        },
+        {
+          "package": "annotated-doc",
+          "version": "0.0.4",
+          "ids": []
+        },
+        {
+          "package": "annotated-types",
+          "version": "0.7.0",
+          "ids": []
+        },
+        {
+          "package": "anyio",
+          "version": "4.12.1",
+          "ids": [
+            "GHSA-5p39-cfhj-2xmp",
+            "GHSA-82r6-8w77-94w6",
+            "PYSEC-2026-4024",
+            "PYSEC-2026-4025"
+          ]
+        },
+        {
+          "package": "certifi",
+          "version": "2026.1.4",
+          "ids": []
+        },
+        {
+          "package": "cffi",
+          "version": "2.1.1",
+          "ids": []
+        },
+        {
+          "package": "click",
+          "version": "8.3.1",
+          "ids": [
+            "PYSEC-2026-2132"
+          ]
+        },
+        {
+          "package": "colorama",
+          "version": "0.4.6",
+          "ids": []
+        },
+        {
+          "package": "cryptography",
+          "version": "50.0.2",
+          "ids": []
+        },
+        {
+          "package": "deprecation",
+          "version": "2.1.0",
+          "ids": []
+        },
+        {
+          "package": "distro",
+          "version": "1.9.0",
+          "ids": []
+        },
+        {
+          "package": "fastapi",
+          "version": "0.128.4",
+          "ids": []
+        },
+        {
+          "package": "h11",
+          "version": "0.16.0",
+          "ids": []
+        },
+        {
+          "package": "h2",
+          "version": "4.4.1",
+          "ids": []
+        },
+        {
+          "package": "hpack",
+          "version": "4.2.0",
+          "ids": []
+        },
+        {
+          "package": "httpcore",
+          "version": "1.0.9",
+          "ids": []
+        },
+        {
+          "package": "httpx",
+          "version": "0.28.1",
+          "ids": []
+        },
+        {
+          "package": "hyperframe",
+          "version": "6.1.0",
+          "ids": []
+        },
+        {
+          "package": "idna",
+          "version": "3.11",
+          "ids": [
+            "GHSA-65pc-fj4g-8rjx",
+            "PYSEC-2026-215"
+          ]
+        },
+        {
+          "package": "jiter",
+          "version": "0.16.0",
+          "ids": []
+        },
+        {
+          "package": "mako",
+          "version": "1.4.3",
+          "ids": []
+        },
+        {
+          "package": "markupsafe",
+          "version": "3.0.3",
+          "ids": []
+        },
+        {
+          "package": "multidict",
+          "version": "7.0.0",
+          "ids": []
+        },
+        {
+          "package": "openai",
+          "version": "2.44.0",
+          "ids": []
+        },
+        {
+          "package": "packaging",
+          "version": "26.0",
+          "ids": []
+        },
+        {
+          "package": "postgrest",
+          "version": "2.32.0",
+          "ids": []
+        },
+        {
+          "package": "propcache",
+          "version": "0.5.4",
+          "ids": []
+        },
+        {
+          "package": "psycopg",
+          "version": "3.3.6",
+          "ids": []
+        },
+        {
+          "package": "psycopg-binary",
+          "version": "3.3.6",
+          "ids": []
+        },
+        {
+          "package": "pycparser",
+          "version": "3.0",
+          "ids": []
+        },
+        {
+          "package": "pydantic",
+          "version": "2.12.5",
+          "ids": []
+        },
+        {
+          "package": "pydantic-core",
+          "version": "2.41.5",
+          "ids": []
+        },
+        {
+          "package": "pyjwt",
+          "version": "2.15.1",
+          "ids": []
+        },
+        {
+          "package": "python-dotenv",
+          "version": "1.2.1",
+          "ids": [
+            "GHSA-mf9w-mj56-hr94",
+            "PYSEC-2026-2270"
+          ]
+        },
+        {
+          "package": "realtime",
+          "version": "2.32.0",
+          "ids": []
+        },
+        {
+          "package": "sniffio",
+          "version": "1.3.1",
+          "ids": []
+        },
+        {
+          "package": "sqlalchemy",
+          "version": "2.1.1",
+          "ids": []
+        },
+        {
+          "package": "starlette",
+          "version": "0.52.1",
+          "ids": [
+            "GHSA-82w8-qh3p-5jfq",
+            "GHSA-86qp-5c8j-p5mr",
+            "GHSA-jp82-jpqv-5vv3",
+            "GHSA-wqp7-x3pw-xc5r",
+            "GHSA-x746-7m8f-x49c",
+            "PYSEC-2026-161",
+            "PYSEC-2026-2280",
+            "PYSEC-2026-2281",
+            "PYSEC-2026-248",
+            "PYSEC-2026-249"
+          ]
+        },
+        {
+          "package": "storage3",
+          "version": "2.32.0",
+          "ids": []
+        },
+        {
+          "package": "strenum",
+          "version": "0.4.15",
+          "ids": []
+        },
+        {
+          "package": "supabase",
+          "version": "2.32.0",
+          "ids": []
+        },
+        {
+          "package": "supabase-auth",
+          "version": "2.32.0",
+          "ids": []
+        },
+        {
+          "package": "supabase-functions",
+          "version": "2.32.0",
+          "ids": []
+        },
+        {
+          "package": "tqdm",
+          "version": "4.67.3",
+          "ids": []
+        },
+        {
+          "package": "typing-extensions",
+          "version": "4.15.0",
+          "ids": []
+        },
+        {
+          "package": "typing-inspection",
+          "version": "0.4.2",
+          "ids": []
+        },
+        {
+          "package": "tzdata",
+          "version": "2026.4",
+          "ids": []
+        },
+        {
+          "package": "uvicorn",
+          "version": "0.40.0",
+          "ids": []
+        },
+        {
+          "package": "websockets",
+          "version": "15.0.1",
+          "ids": []
+        },
+        {
+          "package": "yarl",
+          "version": "1.25.1",
+          "ids": []
+        }
+      ],
+      "advisory_details_reference": "SECURITY_PHASE11_10_2_RESULTS.json#audit.python"
+    }
+  },
+  "reproducibility": {
+    "strategy": "requirements.txt includes exact constraints for its 9-root dependency closure",
+    "active_local_pins": 50,
+    "unrelated_shared_python_packages_included": 0,
+    "extras_followed": [
+      "psycopg[binary]",
+      "httpx[http2]",
+      "pyjwt[crypto]"
+    ],
+    "windows_only_markers": [
+      "colorama",
+      "tzdata"
+    ],
+    "version_determinism": "VERIFIED_LOCAL_PROFILE",
+    "artifact_hash_lock": false,
+    "clean_install_executed": false,
+    "fresh_resolution": {
+      "status": "PASS",
+      "dry_run": true,
+      "ignore_installed": true,
+      "binary_only": true,
+      "source": "https://pypi.org/simple",
+      "resolved": 50,
+      "equals_installed_inventory": true,
+      "download_sources": [
+        "files.pythonhosted.org"
+      ],
+      "sha256_in_public_report": 50,
+      "sdist_build_hooks_executed": false
+    },
+    "deployment_profile": "UNKNOWN; validate separately before deployment",
+    "root_legacy_manifest": "Not used by verified backend/mobile commands; no root lock. Do not install from root.",
+    "python_components": [
+      {
+        "package": "alembic",
+        "version": "1.20.0",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "maintenance",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "mako",
+          "sqlalchemy",
+          "typing-extensions"
+        ]
+      },
+      {
+        "package": "annotated-doc",
+        "version": "0.0.4",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "annotated-types",
+        "version": "0.7.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "anyio",
+        "version": "4.12.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "idna"
+        ]
+      },
+      {
+        "package": "certifi",
+        "version": "2026.1.4",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "cffi",
+        "version": "2.1.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "pycparser"
+        ]
+      },
+      {
+        "package": "click",
+        "version": "8.3.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "colorama"
+        ]
+      },
+      {
+        "package": "colorama",
+        "version": "0.4.6",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "cryptography",
+        "version": "50.0.2",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "cffi"
+        ]
+      },
+      {
+        "package": "deprecation",
+        "version": "2.1.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "packaging"
+        ]
+      },
+      {
+        "package": "distro",
+        "version": "1.9.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "fastapi",
+        "version": "0.128.4",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "annotated-doc",
+          "pydantic",
+          "starlette",
+          "typing-extensions",
+          "typing-inspection"
+        ]
+      },
+      {
+        "package": "h11",
+        "version": "0.16.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "h2",
+        "version": "4.4.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "hpack",
+          "hyperframe"
+        ]
+      },
+      {
+        "package": "hpack",
+        "version": "4.2.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "httpcore",
+        "version": "1.0.9",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "certifi",
+          "h11"
+        ]
+      },
+      {
+        "package": "httpx",
+        "version": "0.28.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "anyio",
+          "certifi",
+          "h2",
+          "httpcore",
+          "idna"
+        ]
+      },
+      {
+        "package": "hyperframe",
+        "version": "6.1.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "idna",
+        "version": "3.11",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "jiter",
+        "version": "0.16.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "mako",
+        "version": "1.4.3",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "maintenance",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "markupsafe"
+        ]
+      },
+      {
+        "package": "markupsafe",
+        "version": "3.0.3",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "maintenance",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "multidict",
+        "version": "7.0.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "openai",
+        "version": "2.44.0",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "anyio",
+          "distro",
+          "httpx",
+          "jiter",
+          "pydantic",
+          "sniffio",
+          "tqdm",
+          "typing-extensions"
+        ]
+      },
+      {
+        "package": "packaging",
+        "version": "26.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "postgrest",
+        "version": "2.32.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "deprecation",
+          "httpx",
+          "pydantic",
+          "yarl"
+        ]
+      },
+      {
+        "package": "propcache",
+        "version": "0.5.4",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "psycopg",
+        "version": "3.3.6",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "psycopg-binary",
+          "tzdata"
+        ]
+      },
+      {
+        "package": "psycopg-binary",
+        "version": "3.3.6",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "pycparser",
+        "version": "3.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "pydantic",
+        "version": "2.12.5",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "annotated-types",
+          "pydantic-core",
+          "typing-extensions",
+          "typing-inspection"
+        ]
+      },
+      {
+        "package": "pydantic-core",
+        "version": "2.41.5",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "typing-extensions"
+        ]
+      },
+      {
+        "package": "pyjwt",
+        "version": "2.15.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "cryptography"
+        ]
+      },
+      {
+        "package": "python-dotenv",
+        "version": "1.2.1",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "realtime",
+        "version": "2.32.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "pydantic",
+          "typing-extensions",
+          "websockets"
+        ]
+      },
+      {
+        "package": "sniffio",
+        "version": "1.3.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "sqlalchemy",
+        "version": "2.1.1",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "typing-extensions"
+        ]
+      },
+      {
+        "package": "starlette",
+        "version": "0.52.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "anyio"
+        ]
+      },
+      {
+        "package": "storage3",
+        "version": "2.32.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "deprecation",
+          "httpx",
+          "pydantic",
+          "yarl"
+        ]
+      },
+      {
+        "package": "strenum",
+        "version": "0.4.15",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "supabase",
+        "version": "2.32.0",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "httpx",
+          "postgrest",
+          "realtime",
+          "storage3",
+          "supabase-auth",
+          "supabase-functions",
+          "yarl"
+        ]
+      },
+      {
+        "package": "supabase-auth",
+        "version": "2.32.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "httpx",
+          "pydantic",
+          "pyjwt"
+        ]
+      },
+      {
+        "package": "supabase-functions",
+        "version": "2.32.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "httpx",
+          "strenum",
+          "yarl"
+        ]
+      },
+      {
+        "package": "tqdm",
+        "version": "4.67.3",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "colorama"
+        ]
+      },
+      {
+        "package": "typing-extensions",
+        "version": "4.15.0",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "typing-inspection",
+        "version": "0.4.2",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "typing-extensions"
+        ]
+      },
+      {
+        "package": "tzdata",
+        "version": "2026.4",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "uvicorn",
+        "version": "0.40.0",
+        "ecosystem": "PyPI",
+        "direct": true,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "click",
+          "h11"
+        ]
+      },
+      {
+        "package": "websockets",
+        "version": "15.0.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": []
+      },
+      {
+        "package": "yarl",
+        "version": "1.25.1",
+        "ecosystem": "PyPI",
+        "direct": false,
+        "usage": "runtime",
+        "source": "installed-metadata; registry origin not attested",
+        "dependencies": [
+          "idna",
+          "multidict",
+          "propcache"
+        ]
+      }
+    ]
+  },
+  "sbom": {
+    "inventory_components": 1451,
+    "python_components": 50,
+    "npm_lock_locations": 1401,
+    "python_direct": 9,
+    "npm_direct": 16,
+    "usage_unknown_not_assumed_runtime": true,
+    "unified_format": "CycloneDX 1.5 component inventory",
+    "production_verified": false,
+    "reproducible_cli": "python -B scripts/dependency_inventory.py --format cyclonedx --output <new-file>",
+    "native_npm": {
+      "command": "npm sbom --package-lock-only --sbom-format=cyclonedx --ignore-scripts",
+      "status": "PASS",
+      "format": "CycloneDX",
+      "spec": "1.5",
+      "components": 1210,
+      "dependencies": 1211,
+      "lifecycle": "pre-build"
+    },
+    "full_schema_validation": {
+      "status": "NOT_COMPLETED",
+      "validator": "existing AJV 8.20.0",
+      "diagnostic": "wrapper0.validate is not a function",
+      "notes": "Initial $schema literal mismatch corrected to official HTTP identifier. Subsequently validator threw TypeError. Do not claim formal schema conformance PASS; no validator package upgrade/install performed."
+    },
+    "raw_git_artifacts_added": false,
+    "inventory_closure_and_registry_integrity_format_checks": "PASS"
+  },
+  "provenance": {
+    "npm": {
+      "locked_official_registry_sha512": 1401,
+      "installed_versions_match": 1400,
+      "optional_darwin_uninstalled": 1,
+      "signature_verified": 1400,
+      "attestations_verified": 133,
+      "unexpected_git_file_sources": 0,
+      "signature_is_not_no_malware_guarantee": true
+    },
+    "python": {
+      "fresh_resolution_official_wheel_metadata_verified": 50,
+      "existing_installed_file_origin_attested": false,
+      "unexpected_direct_url_installs_in_closure": 0
+    },
+    "auth_components": [
+      {
+        "package": "compare-urls",
+        "version": "2.0.0",
+        "ecosystem": "npm",
+        "location": "node_modules/compare-urls",
+        "direct": false,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/compare-urls/-/compare-urls-2.0.0.tgz",
+        "integrity": "sha512-eCJcWn2OYFEIqbm70ta7LQowJOOZZqq1a2YbbFCFI1uwSvj+TWMwXVn7vPR1ceFNcAIt5RSTDbwdlX82gYLTkA==",
+        "install_script": false,
+        "optional": false
+      },
+      {
+        "package": "normalize-url",
+        "version": "2.0.1",
+        "ecosystem": "npm",
+        "location": "node_modules/compare-urls/node_modules/normalize-url",
+        "direct": false,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/normalize-url/-/normalize-url-2.0.1.tgz",
+        "integrity": "sha512-D6MUW4K/VzoJ4rJ01JFKxDrtY1v9wrgzCX5f2qj/lzH1m/lW6MhUZFKerVsnyjOhOsYzI9Kqqak+10l4LvLpMw==",
+        "install_script": false,
+        "optional": false
+      },
+      {
+        "package": "decode-uri-component",
+        "version": "0.2.2",
+        "ecosystem": "npm",
+        "location": "node_modules/decode-uri-component",
+        "direct": false,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/decode-uri-component/-/decode-uri-component-0.2.2.tgz",
+        "integrity": "sha512-FqUYQ+8o158GyGTrMFJms9qh3CqTKvAqgqsTnkLI8sKu0028orqBhxNMFkFen0zGyg6epACD32pjVk58ngIErQ==",
+        "install_script": false,
+        "optional": false
+      },
+      {
+        "package": "expo-linking",
+        "version": "4.0.1",
+        "ecosystem": "npm",
+        "location": "node_modules/expo-linking",
+        "direct": true,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/expo-linking/-/expo-linking-4.0.1.tgz",
+        "integrity": "sha512-geRMmKLhtaCigptRzOGW8ZZJKGl47gyu0KFtQOtGf26ELxyt/AietgQjyzF24i7cVD08TnWUJDHgWZkpRHTa7g==",
+        "install_script": false,
+        "optional": false
+      },
+      {
+        "package": "expo-web-browser",
+        "version": "12.1.1",
+        "ecosystem": "npm",
+        "location": "node_modules/expo-web-browser",
+        "direct": true,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/expo-web-browser/-/expo-web-browser-12.1.1.tgz",
+        "integrity": "sha512-QdFnJKCKzWrvTIjFL2Yb6SlfyJWfBw1S1ceRyGtQSp4p7WFsvfbR6oJyucF04SJD7GshBluIlchrQK7XH/4EWQ==",
+        "install_script": false,
+        "optional": false
+      },
+      {
+        "package": "normalize-url",
+        "version": "6.1.0",
+        "ecosystem": "npm",
+        "location": "node_modules/normalize-url",
+        "direct": false,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/normalize-url/-/normalize-url-6.1.0.tgz",
+        "integrity": "sha512-DlL+XwOy3NxAQ8xuC0okPgK46iuVNAK01YN7RueYBqqFeGsBjV9XmCAzAdgt+667bCl5kPh9EqKKDwnaPG1I7A==",
+        "install_script": false,
+        "optional": false
+      },
+      {
+        "package": "qs",
+        "version": "6.15.3",
+        "ecosystem": "npm",
+        "location": "node_modules/qs",
+        "direct": false,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/qs/-/qs-6.15.3.tgz",
+        "integrity": "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==",
+        "install_script": false,
+        "optional": false
+      },
+      {
+        "package": "query-string",
+        "version": "5.1.1",
+        "ecosystem": "npm",
+        "location": "node_modules/query-string",
+        "direct": false,
+        "usage": "runtime_or_build_unresolved",
+        "source": "https://registry.npmjs.org/query-string/-/query-string-5.1.1.tgz",
+        "integrity": "sha512-gjWOsm2SoGlgLEdAGt7a6slVOk9mGiXmPFMqrEhLQ68rhQuBnpfs3+EmlvqKyxnCo9/PPlF+9MtY02S1aFg+Jw==",
+        "install_script": false,
+        "optional": false
+      }
+    ],
+    "backend_auth_path": "Supabase 2.32.0 -> supabase-auth 2.32.0 get_claims -> PyJWT 2.15.1 / cryptography 50.0.2. Asymmetric signatures verified; symmetric path uses get_user. NOIE issuer/audience/role/anonymous/expiry/canonical subject checks preserved.",
+    "provider_specific_extra_helper_dependencies": 0,
+    "live_provider_requests": 0,
+    "parser_debt": "qs 6.15.3 (2 Moderate) and decode-uri-component 0.2.2 (1 Moderate): actual callback path, exploitability uncertain; keep separate PRE_PRODUCTION_REQUIRED"
+  },
+  "install_scripts": {
+    "executed": false,
+    "app_hooks": 0,
+    "installed_preinstall_install_postinstall": 0,
+    "prepare_definitions": 130,
+    "definition_is_not_execution_evidence": true,
+    "lock_hook": {
+      "package": "fsevents",
+      "version": "2.3.3",
+      "optional": true,
+      "os": "darwin",
+      "windows_installed": false
+    },
+    "policy": "Ignore scripts for metadata/audit; least privilege clean CI and explicitly reviewed required native hooks before production builds"
+  },
+  "unused_dependencies": {
+    "removed": [],
+    "webpack_config": "Not removed: Metro config alone does not prove unused in all legacy CLI/build paths; removing direct dependency affects a large chain.",
+    "root_manifest": "Kept unchanged; deploy entrypoint confirmation required"
+  },
+  "tests": {
+    "supply_chain": 15,
+    "host": 12,
+    "resource_budget": 44,
+    "rate_limit": 24,
+    "v1": 20,
+    "v2": 24,
+    "v3": 11,
+    "v3_additional": 17,
+    "adversarial": 15,
+    "security": 399,
+    "backend": 1050,
+    "mobile": 96,
+    "typescript": "PASS",
+    "pip_check": "PASS",
+    "syntax_import_mapper": "PASS",
+    "static_alembic_head": "20261006_0020",
+    "static_alembic_revisions": 20,
+    "expo_config": {
+      "status": "PASS",
+      "sdk": "48.0.0",
+      "web_bundler": "metro"
+    },
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "actual_db": "NOT_RUN",
+    "live_render_openai_oauth": "NOT_RUN",
+    "full_web_native_build": "NOT_RUN"
+  },
+  "local_gate_criteria": {
+    "known_reachable_local_release_blocker_found": false,
+    "critical_high_relevance_assessed": true,
+    "remaining_issues_classified": true,
+    "version_installation_deterministic_for_local_profile": true,
+    "host_regression_locked": true,
+    "fresh_backend_security_mobile_pass": true,
+    "not_a_clean_build_or_artifact_origin_certification": true
+  },
+  "preproduction_required": [
+    "Confirm actual Render Python/OS/install command and backend/mobile entrypoints; clean binary-only target resolution/install with constraints. Current profile is Windows CPython 3.14.3 only.",
+    "Produce deployed backend and actual web/native artifact SBOMs; validate schema with a compatible validator; compare installed artifacts and retain hash evidence.",
+    "Isolated credential-free build/native compatibility tests for safe minor candidates and separate coordinated Expo/RN/Starlette migrations; no untrusted archives/assets/config and no exposed dev server before this is addressed.",
+    "Real web/native bounded malformed callback tests and compatible qs/decoder remediation.",
+    "Dedicated PostgreSQL lifecycle concurrency, live migration/drift, Native SecureStore device, production auth/CORS/proxy/redirect policy and real provider canaries."
+  ],
+  "ongoing_security_work": [
+    "Periodic npm/OSV and registry attestation review",
+    "Per-platform wheel hash lock / approved artifact mirror and supplier review",
+    "Node/npm pin and required OS-hook allowlist with least-privilege CI",
+    "Reassess legacy root/webpack dependency usage and remove only after build proof",
+    "Reaudit when URL-sensitive features or dependency graph change"
+  ],
+  "git": {
+    "starting_modified": 37,
+    "starting_untracked": 84,
+    "starting_staged": 0,
+    "expected_final_modified": 38,
+    "expected_final_untracked": 89,
+    "expected_final_staged": 0,
+    "baseline_files": 422,
+    "changed_original_only": [
+      "backend/requirements.txt"
+    ],
+    "protected_original_unchanged": 421,
+    "appStyles_unchanged": true,
+    "old_security_and_lv3_lv4_docs_unchanged": true,
+    "diff_check": "PASS_WITH_EXISTING_EOL_WARNINGS",
+    "staged": false,
+    "committed": false,
+    "pushed": false,
+    "deployed": false,
+    "final_modified": 38,
+    "final_untracked": 89,
+    "final_staged": 0,
+    "new_files_syntax_json_whitespace": "PASS",
+    "status_short": [
+      " M backend/admin_access_service.py",
+      " M backend/agent/action_router.py",
+      " M backend/agent/action_service.py",
+      " M backend/agent/executor_service.py",
+      " M backend/agent/lv4/recommendation_adapter.py",
+      " M backend/agent/orchestrator.py",
+      " M backend/agent/schemas.py",
+      " M backend/agent/tool_policy.py",
+      " M backend/chat_agent_integration_service.py",
+      " M backend/chat_persistence_service.py",
+      " M backend/chat_storage_router.py",
+      " M backend/chat_storage_schemas.py",
+      " M backend/chat_storage_service.py",
+      " M backend/daily_trace_analyzer.py",
+      " M backend/evals/run_auth_principal_tests.py",
+      " M backend/evals/run_background_endpoint_probe_tests.py",
+      " M backend/evals/run_chat_background_observability_tests.py",
+      " M backend/evals/run_chat_background_probe_tests.py",
+      " M backend/evals/run_security_rate_limit_tests.py",
+      " M backend/evals/run_shadow_dispatch_tail_tests.py",
+      " M backend/evals/run_supabase_auth_tests.py",
+      " M backend/main.py",
+      " M backend/memory_extraction_service.py",
+      " M backend/memory_extractor.py",
+      " M backend/memory_privacy.py",
+      " M backend/memory_reconciler.py",
+      " M backend/memory_reconciliation_service.py",
+      " M backend/memory_retriever.py",
+      " M backend/memory_router.py",
+      " M backend/memory_schemas.py",
+      " M backend/memory_service.py",
+      " M backend/openai_analyzer.py",
+      " M backend/requirements.txt",
+      " M backend/run_eval.py",
+      " M backend/schemas.py",
+      " M backend/security_rate_limit.py",
+      " M docs/LV4_SPEC.md",
+      " M mobile/src/styles/appStyles.ts",
+      "?? backend/agent/action_ownership.py",
+      "?? backend/evals/chat_test_fixture.py",
+      "?? backend/evals/lv4_real_eval_cases.py",
+      "?? backend/evals/run_lv4_canary_tests.py",
+      "?? backend/evals/run_lv4_choice_schedule_gate.py",
+      "?? backend/evals/run_lv4_choice_schedule_gate_tests.py",
+      "?? backend/evals/run_lv4_local_shadow_e2e.py",
+      "?? backend/evals/run_lv4_local_shadow_e2e_tests.py",
+      "?? backend/evals/run_lv4_quality_hardening.py",
+      "?? backend/evals/run_lv4_quality_hardening_tests.py",
+      "?? backend/evals/run_lv4_real_eval.py",
+      "?? backend/evals/run_lv4_real_eval_tests.py",
+      "?? backend/evals/run_lv4_relationship_calibration.py",
+      "?? backend/evals/run_lv4_relationship_calibration_tests.py",
+      "?? backend/evals/run_lv4_reliability_triage.py",
+      "?? backend/evals/run_lv4_reliability_triage_tests.py",
+      "?? backend/evals/run_lv4_schedule_temporal_gate.py",
+      "?? backend/evals/run_lv4_schedule_temporal_gate_tests.py",
+      "?? backend/evals/run_lv4_semantic_hardening.py",
+      "?? backend/evals/run_lv4_semantic_hardening_tests.py",
+      "?? backend/evals/run_lv4_shadow_entry_gate.py",
+      "?? backend/evals/run_lv4_shadow_entry_gate_tests.py",
+      "?? backend/evals/run_lv4_shadow_mode.py",
+      "?? backend/evals/run_lv4_shadow_mode_tests.py",
+      "?? backend/evals/run_security_defensive_review_v3_tests.py",
+      "?? backend/evals/run_security_error_privacy_tests.py",
+      "?? backend/evals/run_security_host_classification_tests.py",
+      "?? backend/evals/run_security_independent_red_team_tests.py",
+      "?? backend/evals/run_security_independent_red_team_v2_tests.py",
+      "?? backend/evals/run_security_memory_privacy_bypass_tests.py",
+      "?? backend/evals/run_security_red_team_remediation_tests.py",
+      "?? backend/evals/run_security_resource_budget_tests.py",
+      "?? backend/evals/run_security_supply_chain_tests.py",
+      "?? backend/evals/run_security_v2_defensive_remediation_tests.py",
+      "?? backend/evals/run_security_v3_remediation_tests.py",
+      "?? backend/memory_ownership.py",
+      "?? backend/message_ownership.py",
+      "?? backend/private_model_access.py",
+      "?? backend/requirements.constraints.txt",
+      "?? backend/resource_budget.py",
+      "?? backend/scripts/dependency_inventory.py",
+      "?? docs/LV3_LV4_INTEGRATION_AUDIT.md",
+      "?? docs/LV3_LV4_INTEGRATION_AUDIT_RESULTS.json",
+      "?? docs/LV4_CHOICE_SCHEDULE_GATE_FIX.md",
+      "?? docs/LV4_CHOICE_SCHEDULE_GATE_FIX_RESULTS.json",
+      "?? docs/LV4_PHASE8_1_HARDENING.md",
+      "?? docs/LV4_PHASE8_1_RESULTS.json",
+      "?? docs/LV4_PHASE8_2_HARDENING.md",
+      "?? docs/LV4_PHASE8_2_RESULTS.json",
+      "?? docs/LV4_PHASE8_3_RELATIONSHIP_CALIBRATION.md",
+      "?? docs/LV4_PHASE8_3_RESULTS.json",
+      "?? docs/LV4_PHASE8_4_RELIABILITY_TRIAGE.md",
+      "?? docs/LV4_PHASE8_4_RESULTS.json",
+      "?? docs/LV4_PHASE9_1_LOCAL_SHADOW_E2E.md",
+      "?? docs/LV4_PHASE9_1_LOCAL_SHADOW_E2E_INITIAL_RESULTS.json",
+      "?? docs/LV4_PHASE9_1_LOCAL_SHADOW_E2E_RESULTS.json",
+      "?? docs/LV4_PHASE9_2_LIMITED_PRODUCTION_SHADOW.md",
+      "?? docs/LV4_PHASE9_2_LIVE_CANARY_VALIDATION.md",
+      "?? docs/LV4_PHASE9_SHADOW_MODE.md",
+      "?? docs/LV4_REAL_EVAL.md",
+      "?? docs/LV4_REAL_EVAL_RESULTS.json",
+      "?? docs/LV4_SCHEDULE_TEMPORAL_GATE.md",
+      "?? docs/LV4_SCHEDULE_TEMPORAL_GATE_RESULTS.json",
+      "?? docs/LV4_SHADOW_ENTRY_GATE.md",
+      "?? docs/LV4_SHADOW_ENTRY_GATE_RESULTS.json",
+      "?? docs/SECURITY_DEFENSIVE_REVIEW_V3.md",
+      "?? docs/SECURITY_DEFENSIVE_REVIEW_V3_RESULTS.json",
+      "?? docs/SECURITY_INDEPENDENT_RED_TEAM_RESULTS.json",
+      "?? docs/SECURITY_INDEPENDENT_RED_TEAM_V1.md",
+      "?? docs/SECURITY_PHASE11_10_1_RESOURCE_BUDGET.md",
+      "?? docs/SECURITY_PHASE11_10_1_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_10_2_DEPENDENCY_REVIEW.md",
+      "?? docs/SECURITY_PHASE11_10_2_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_10_3_HOST_CLASSIFICATION.md",
+      "?? docs/SECURITY_PHASE11_10_3_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_10_4_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_10_4_SUPPLY_CHAIN_CLOSURE.md",
+      "?? docs/SECURITY_PHASE11_10_FINAL_GATE.md",
+      "?? docs/SECURITY_PHASE11_10_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_9_1_PG_CONCURRENCY.md",
+      "?? docs/SECURITY_PHASE11_9_1_PG_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_9_2_ERROR_PRIVACY.md",
+      "?? docs/SECURITY_PHASE11_9_3_MEMORY_PRIVACY_BYPASS.md",
+      "?? docs/SECURITY_PHASE11_9_4_RED_TEAM_FIXES.md",
+      "?? docs/SECURITY_PHASE11_9_4_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_9_5_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_9_5_V2_FIXES.md",
+      "?? docs/SECURITY_PHASE11_9_6_RESULTS.json",
+      "?? docs/SECURITY_PHASE11_9_6_V3_FIXES.md"
+]
+  },
+  "safety": {
+    "private_env_read_by_review": false,
+    "private_env_modified": false,
+    "db_writes": 0,
+    "migrations": 0,
+    "auth_provider_calls": 0,
+    "openai_calls": 0,
+    "business_files_modified": 0,
+    "mobile_files_modified": 0,
+    "dependency_installation": 0,
+    "lifecycle_scripts_run": 0
+  }
+}

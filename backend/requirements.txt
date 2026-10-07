@@ -1,3 +1,5 @@
+# 검증된 직접/전이 버전을 함께 제한합니다. 운영 Python/OS 호환성은 배포 전에 별도 확인합니다.
+-c requirements.constraints.txt
 fastapi
 uvicorn
 openai

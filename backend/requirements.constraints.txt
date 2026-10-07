@@ -1,0 +1,54 @@
+# Phase 11.10.4: backend의 9개 직접 요구사항에 필요한 설치 closure만 고정합니다.
+# 공유 Python 환경 전체의 pip freeze가 아닙니다. 검증 환경: CPython 3.14.3 / Windows x64.
+# 버전 잠금이지 artifact hash lock은 아닙니다. Linux 배포 profile은 별도 검증해야 합니다.
+# advisory 예외/미해결 항목은 docs/SECURITY_PHASE11_10_4_SUPPLY_CHAIN_CLOSURE.md를 참고합니다.
+alembic==1.20.0
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.12.1
+certifi==2026.1.4
+cffi==2.1.1
+click==8.3.1
+colorama==0.4.6; sys_platform == "win32"
+cryptography==50.0.2
+deprecation==2.1.0
+distro==1.9.0
+fastapi==0.128.4
+h11==0.16.0
+h2==4.4.1
+hpack==4.2.0
+httpcore==1.0.9
+httpx==0.28.1
+hyperframe==6.1.0
+idna==3.11
+jiter==0.16.0
+Mako==1.4.3
+MarkupSafe==3.0.3
+multidict==7.0.0
+openai==2.44.0
+packaging==26.0
+postgrest==2.32.0
+propcache==0.5.4
+psycopg==3.3.6
+psycopg-binary==3.3.6
+pycparser==3.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+PyJWT==2.15.1
+python-dotenv==1.2.1
+realtime==2.32.0
+sniffio==1.3.1
+SQLAlchemy==2.1.1
+starlette==0.52.1
+storage3==2.32.0
+StrEnum==0.4.15
+supabase==2.32.0
+supabase-auth==2.32.0
+supabase-functions==2.32.0
+tqdm==4.67.3
+typing_extensions==4.15.0
+typing-inspection==0.4.2
+tzdata==2026.4; sys_platform == "win32"
+uvicorn==0.40.0
+websockets==15.0.1
+yarl==1.25.1
