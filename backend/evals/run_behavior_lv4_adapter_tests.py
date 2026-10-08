@@ -247,10 +247,23 @@ class BehaviorLv4Tests(unittest.TestCase):
 
     def test_legacy_prompt_fingerprint_detects_instruction_changes(self):
         """payload 변경만 제외하며 기존 지시문 변경을 놓치지 않는지 검사합니다."""
-        from evals.run_lv4_reliability_triage import ROOT, PROMPT_BASELINE, prompt_fingerprint
-        source = (ROOT / "backend/agent/lv4/recommendation_adapter.py").read_text(encoding="utf-8-sig")
-        self.assertEqual(prompt_fingerprint(source), PROMPT_BASELINE)
-        self.assertNotEqual(prompt_fingerprint(source.replace("이번 호출은 추천 Suggest만 생성한다.", "changed instruction")), PROMPT_BASELINE)
+        # 과거 평가/결과 JSON을 import하지 않고 동일한 purpose AST 지문을 검증합니다.
+        import ast
+        import hashlib
+        from pathlib import Path
+        baseline = "f5b046561edf9b1778dadb02dcd9e98fe04a1f1c2a67e533a2850689b1344ca9"
+
+        def prompt_fingerprint(source):
+            """기존 네 purpose 지시의 AST만 계산하며 기대 지문은 변경하지 않습니다."""
+            nodes = [ast.dump(node, include_attributes=False) for node in ast.walk(ast.parse(source))
+                if (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "purpose"
+                    for target in node.targets)) or
+                (isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name) and node.target.id == "purpose")]
+            return hashlib.sha256("\n".join(nodes).encode()).hexdigest()
+
+        source = (Path(__file__).resolve().parents[1] / "agent/lv4/recommendation_adapter.py").read_text(encoding="utf-8-sig")
+        self.assertEqual(prompt_fingerprint(source), baseline)
+        self.assertNotEqual(prompt_fingerprint(source.replace("이번 호출은 추천 Suggest만 생성한다.", "changed instruction")), baseline)
 
     def test_behavior_instruction_only_when_context_is_present(self):
         """Behavior 없음의 기존 prompt와 payload를 유지하고 있는 경우에만 최소 계약을 추가합니다."""
