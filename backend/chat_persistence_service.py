@@ -57,6 +57,20 @@ class AuthenticatedOwnershipError(Exception):
     """검증된 사용자 문맥을 안전하게 확정하지 못했습니다. 개발 사용자로 대체하지 않습니다."""
 
 
+def require_active_chat_user(user_id: UUID) -> None:
+    """후속 모델 호출 직전에 원래 사용자의 활성 상태만 조회하고 세션을 닫습니다."""
+    if SessionLocal is None or not isinstance(user_id, UUID):
+        raise AuthenticatedOwnershipError
+    try:
+        with SessionLocal() as db:
+            active = db.scalar(select(User.id).where(User.id == user_id, User.deleted_at.is_(None)))
+            if active is None:
+                raise AuthenticatedOwnershipError
+    except Exception:
+        # 오류도 fail-closed로 처리하며 다른 dev-user를 찾거나 생성하지 않습니다.
+        raise AuthenticatedOwnershipError from None
+
+
 _DUPLICATE_WAIT_SECONDS = 60.0
 _DUPLICATE_POLL_SECONDS = 0.2
 
