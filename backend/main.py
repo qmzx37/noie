@@ -1490,7 +1490,10 @@ def chat(
                 ]
                 checkpoint_draft = checkpoint_draft_model.dict()
         except Exception as error:
-            print(f"[noie] project combined reply failed: {error}")
+            # 예외 원문/traceback/임의 클래스명은 민감정보일 수 있어 고정 코드와 허용된 종류만 기록합니다.
+            error_type = type(error)
+            error_kind = error_type.__name__ if error_type in (TimeoutError, ValueError, TypeError, RuntimeError) else "OtherError"
+            print(f"[noie] project combined reply failed: reason=project_reply_error error_type={error_kind}")
             checkpoint_draft = None
             try:
                 reply = generate_chat_reply_with_openai(
