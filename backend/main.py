@@ -27,6 +27,7 @@ from chat_persistence_service import (
     complete_chat_request,
     mark_chat_request_failed,
 )
+from private_model_access import PrivateModelAccessDenied
 from chat_agent_integration_service import prepare_chat_recommendation, run_chat_agent_integration
 from chat_background_observability import run_background_probe, run_observed_background
 from database import get_db
@@ -38,6 +39,7 @@ from account_router import router as account_router
 from memory_extraction_service import run_memory_extraction_background
 from memory_retriever import retrieve_relevant_memories_safe
 from lv4_shadow_service import schedule_shadow
+from lv4_production_service import try_lv4_production_reply
 from openai_analyzer import (
     fallback_chat_reply,
     generate_chat_reply_with_openai,
@@ -1530,6 +1532,22 @@ def chat(
         )
         if recommendation_text:
             reply = f"{reply}\n\n{recommendation_text}"
+
+    # 첫 production slice는 일반 추천 채팅만 대상으로 합니다. project/checkpoint 계약은 그대로 둡니다.
+    # 유효한 Lv4 조정 결과만 최종 reply로 사용하고 None이면 이미 만든 Lv3 답변을 변경하지 않습니다.
+    if not request.is_project:
+        try:
+            lv4_reply = try_lv4_production_reply(context=persistence_context, text=text, memories=relevant_memories)
+        except PrivateModelAccessDenied:
+            # 새 SDK 경계도 기존 권한 거부와 동일하게 요청을 정리하고 안전한 403으로 전달합니다.
+            mark_chat_request_failed(persistence_context)
+            raise HTTPException(status_code=403, detail="채팅 처리 권한을 확인할 수 없습니다.") from None
+        except Exception:
+            # 선택적 Lv4 진입 자체의 장애도 이미 생성한 Lv3 답변과 저장 흐름을 중단하지 않습니다.
+            lv4_reply = None
+        if lv4_reply is not None:
+            reply = lv4_reply
+            reply_source = "lv4"
 
     response = {
         "reply": reply,
