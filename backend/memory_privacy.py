@@ -16,6 +16,9 @@ class PrivacyClass(StrEnum):
 
 # 실제 값 형태 또는 소유/할당 표현을 요구합니다. 단순 '비밀번호 기능 개발'은 차단하지 않습니다.
 SECRET_PATTERNS = tuple(re.compile(pattern, re.I) for pattern in (
+    # 비밀번호 라벨 안의 공백만 허용합니다. 값 할당/소유 문맥 없이 일반 개발 주제를 차단하지 않습니다.
+    r"비\s*밀\s*번\s*호\s*[:=]\s*\S+",
+    r"(?:내|나의|사용자의)\s*비\s*밀\s*번\s*호\s*(?:는|은|이|가|is|:|=)\s*\S+",
     r"-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
     r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}",
     r"\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|AKIA[A-Z0-9]{16}|gh[pousr]_[A-Za-z0-9]{20,})\b",
