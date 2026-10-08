@@ -4,6 +4,7 @@ import json
 
 # 일반/중첩/후속 호출 모두 동일한 요청별 자원 예산을 통과합니다.
 from resource_budget import budgeted_client
+from private_model_access import require_private_model_access
 import os
 
 from openai import OpenAI
@@ -95,6 +96,8 @@ class OpenAIRecommendationAdapter:
         try:
             # SDK 호출 경계만 감싸고 기존 purpose AST와 incomplete 진단은 보존합니다.
             client = budgeted_client(client)
+            # background도 현재 계정 권한을 SDK 전송 직전에 확인합니다. DB 세션/잠금은 유지하지 않습니다.
+            require_private_model_access()
             response = client.responses.create(
                 model=os.getenv("OPENAI_AGENT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4.1-mini")),
                 input=[{"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT + purpose + behavior_instruction}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],

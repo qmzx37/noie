@@ -8,6 +8,10 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from chat_background_observability import run_background_tail_probe
+from chat_persistence_service import require_active_chat_user
+from private_model_access import (
+    PrivateModelAccessDenied, private_model_access_scope, require_private_model_access,
+)
 
 
 def shadow_enabled():
@@ -151,15 +155,22 @@ def run_shadow(*, user_id, text, memories, correlation):
         from agent.lv4.context_bridge import ContextBridgeResult
         from agent.lv4.collaboration_context import Lv4CollaborationResult, STAGES
         from agent.lv4.failure_diagnostics import diagnose
-        bridge = _make_bridge(user_id,memories).build(user_id=user_id,current_utterance=text,
-            reference_time=datetime.now(timezone.utc))
-        bridge = ContextBridgeResult.model_validate(bridge.model_dump())
-        observation["bridge_status"] = bridge.bridge_status
-        observation["provider_statuses"] = {item.source:item.status for item in bridge.diagnostics}
-        stage = "RECOMMENDATION"
-        pipeline,client = _make_pipeline(text)
-        diagnostics = []
-        result = pipeline.run(bridge.context,failure_observer=diagnostics.append)
+        # 예약 당시 권한은 재사용하지 않습니다. 매 검사마다 원래 계정만 조회하고 세션을 닫습니다.
+        with private_model_access_scope(lambda: require_active_chat_user(user_id)):
+            stage = "AUTHORIZATION"
+            require_private_model_access()
+            stage = "BRIDGE"
+            bridge = _make_bridge(user_id,memories).build(user_id=user_id,current_utterance=text,
+                reference_time=datetime.now(timezone.utc))
+            bridge = ContextBridgeResult.model_validate(bridge.model_dump())
+            observation["bridge_status"] = bridge.bridge_status
+            observation["provider_statuses"] = {item.source:item.status for item in bridge.diagnostics}
+            stage = "RECOMMENDATION"
+            pipeline,client = _make_pipeline(text)
+            diagnostics = []
+            result = pipeline.run(bridge.context,failure_observer=diagnostics.append)
+            # Specialist가 권한 거부를 partial 실패로 반환해도 성공/재시도로 취급하지 않습니다.
+            require_private_model_access()
         stage = "VALIDATOR"
         result = Lv4CollaborationResult.model_validate(result.model_dump())
         observation.update(status=result.pipeline_status,pipeline_status=result.pipeline_status,
@@ -169,6 +180,9 @@ def run_shadow(*, user_id, text, memories, correlation):
             observation["error_type"] = diagnostics[0].error_type
         observation.update({stage+"_status":getattr(result,stage+"_opinion").result_status
             if getattr(result,stage+"_opinion") else None for stage in STAGES})
+    except PrivateModelAccessDenied:
+        # 비활성/삭제/잘못된 계정과 검사 장애를 모두 차단합니다. 예외 본문/식별자는 기록하지 않습니다.
+        observation.update(status="SKIPPED",failure_stage="AUTHORIZATION",failure_code="private_access_denied")
     except Exception as error:
         # 기존 안전 진단만 사용하며 임의 예외 문자열을 로그에 넣지 않습니다.
         # 기존 진단 자체가 실패해도 고정된 코드만 기록하고 worker를 안전하게 끝냅니다.
@@ -189,9 +203,11 @@ def run_shadow(*, user_id, text, memories, correlation):
             except Exception:
                 pass
         observation["elapsed_ms"] = round((time.monotonic()-started)*1000,2)
-        # 기존 status 계약을 유지하고 운영 집계용 outcome만 덧붙입니다.
-        observation["outcome"] = ("TIMEOUT" if observation.get("error_type") in {"TimeoutError","APITimeoutError"}
+        # 기존 완료/오류 outcome을 유지하며 권한 차단은 고정된 SKIPPED로 구분합니다.
+        observation["outcome"] = ("SKIPPED" if observation["status"]=="SKIPPED"
+            else "TIMEOUT" if observation.get("error_type") in {"TimeoutError","APITimeoutError"}
             else "FAILED" if observation["status"] != "COMPLETED"
             else "PARTIAL" if observation.get("bridge_status") == "PARTIAL" else "SUCCESS")
-        _emit("completed" if observation["status"]=="COMPLETED" else "failed",observation)
+        event = "skipped" if observation["status"]=="SKIPPED" else "completed" if observation["status"]=="COMPLETED" else "failed"
+        _emit(event,observation)
     return observation
