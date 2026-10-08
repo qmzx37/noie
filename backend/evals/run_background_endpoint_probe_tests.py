@@ -69,7 +69,10 @@ class BackgroundEndpointProbeTests(unittest.TestCase):
         """잘못된 UUID는 FastAPI가 422로 거부하고 probe를 예약하지 않습니다."""
         response, registered, output = self.call_endpoint('true', 'not-a-uuid')
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.json()['detail'][0]['loc'], ['query', 'request_id'])
+        # 공통 422 정책은 location/input 배열 대신 고정 안내만 반환합니다.
+        self.assertEqual(response.json(), {'detail': '요청 형식이 올바르지 않습니다.'})
+        self.assertEqual(response.headers.get('X-Noie-Error-Code'), 'request_validation_error')
+        self.assertNotIn('not-a-uuid', response.text)
         self.assertEqual(registered, [])
         self.assertEqual(output, '')
 

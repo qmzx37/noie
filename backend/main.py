@@ -7,7 +7,9 @@ import re
 from uuid import UUID
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from security_config import CORS_HEADERS, CORS_METHODS, api_docs_options, cors_allowed_origins
 from security_rate_limit import PreAuthRateLimitMiddleware
 from sqlalchemy import text as sql_text
@@ -70,6 +72,19 @@ app = FastAPI(
     # 문서 노출은 startup 설정입니다. 기본/오타는 OFF이며 업무 인증과는 별개입니다.
     **api_docs_options(),
 )
+
+@app.exception_handler(RequestValidationError)
+async def safe_request_validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
+    """일반 API의 422에도 입력값/예외 원문 대신 고정 안내만 반환합니다."""
+    # errors()/body/ctx는 비밀값을 포함할 수 있어 읽거나 로그에 남기지 않습니다.
+    # HTTPException과 기존 admin/account의 별도 안전 응답은 처리하지 않습니다.
+    # body는 고정 안내를 유지하고 오류 분류는 사용자 값과 무관한 고정 헤더로 전달합니다.
+    return JSONResponse(
+        {"detail": "요청 형식이 올바르지 않습니다."},
+        status_code=422,
+        headers={"X-Noie-Error-Code": "request_validation_error"},
+    )
+
 
 # 순수 ASGI guard를 CORS 안쪽에 둬 429 응답에도 기존 CORS 정책이 적용되게 합니다.
 app.add_middleware(PreAuthRateLimitMiddleware)
