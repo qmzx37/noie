@@ -7,6 +7,7 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from .schemas import AgentOpinion, ContractModel, OpinionEvidence, Score, ShortText, SpecialistInput
 from .place_context import PlaceContext
+from .behavior_adapter import behavior_provenance_allowed
 
 
 class MemoryContext(ContractModel):
@@ -115,6 +116,10 @@ class RecommendationContext(SpecialistInput):
     def validate_state(self) -> "RecommendationContext":
         """다른 Specialist의 의견이나 행동/다른 domain 근거를 State로 위장하지 못하게 합니다."""
         state = self.state_opinion
-        if state is not None and (state.agent_name != "state" or state.suggested_actions or any(item.source_type != "state" for item in state.evidence)):
+        # Behavior 원문은 바로 뒤의 유효한 최소 의미 관찰과 연결된 provenance만 허용합니다.
+        if state is not None and (state.agent_name != "state" or state.suggested_actions or any(
+            item.source_type != "state" and not behavior_provenance_allowed(item, state.evidence)
+            for item in state.evidence
+        )):
             raise ValueError("state_opinion에는 State의 관찰 opinion만 허용합니다.")
         return self

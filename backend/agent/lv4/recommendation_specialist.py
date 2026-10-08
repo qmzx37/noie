@@ -14,6 +14,7 @@ from .recommendation_context import RecommendationContext, related_relationship,
 from .schemas import AgentOpinion, ContractModel, OpinionEvidence, OpinionRisk, ShortText, SpecialistInput, SuggestedAction
 from .specialist import SpecialistAgent
 from .place_context import place_question, related_place
+from .behavior_adapter import behavior_fields, related_behavior
 
 
 class RecommendationDecision(ContractModel):
@@ -107,8 +108,19 @@ def prepare_evidence(context: RecommendationContext) -> list[OpinionEvidence]:
     # 장소 선택에서도 신선한 상태 관찰을 참고하되 장소에서 상태를 역으로 추론하지 않습니다.
     if (activity or place_question(question)) and context.state_opinion is not None and context.state_opinion.result_status not in {"ERROR", "NOT_RUN"}:
         for index, item in enumerate(context.state_opinion.evidence[:3]):
+            # 원문 Behavior evidence는 내부 provenance이며 모델에 재전송하지 않습니다.
+            if item.source_type != "state" or (item.evidence_ref or "").startswith("behavior_"):
+                continue
             if item.observed_at is not None and now-timedelta(minutes=120) <= item.observed_at <= now and "현재 상태 종합에서 제외" not in item.summary:
                 result.append(item.model_copy(update={"evidence_ref": f"state_{index}"}))
+    if context.state_opinion is not None and context.state_opinion.result_status not in {"ERROR", "NOT_RUN"}:
+        for item in context.state_opinion.evidence:
+            fields = behavior_fields(item)
+            if fields is None or not related_behavior(fields["action"], question):
+                continue
+            if item.observed_at is not None and not now-timedelta(minutes=120) <= item.observed_at <= now:
+                continue
+            result.append(item)
     for index, item in enumerate(related_memories(context.memories, question)):
         # 기존 retrieval의 .55 / Top-K 4는 변경하지 않습니다. 질문 주제가 없으면 개인 Memory는 제외합니다.
         if item.relevance >= 0.55 and (item.observed_at is None or item.observed_at <= now):

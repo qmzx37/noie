@@ -1,5 +1,7 @@
 """State Agent v0.1: 관찰을 나란히 정리하며 원인/성격/행동을 추론하지 않습니다."""
 
+import json
+
 from .schemas import AgentOpinion, OpinionEvidence, OpinionRisk, SpecialistInput
 from .specialist import SpecialistAgent
 from .state_context import StateContext
@@ -65,6 +67,39 @@ class StateSpecialist(SpecialistAgent):
             # Low/Mid/High의 기존 경계를 설명용으로만 사용합니다. 상태 간 원인/활동 능력을 확정하지 않습니다.
             parts.append(", ".join(f"{LABELS[axis]} {'높음' if value >= 0.7 else '중간' if value >= 0.4 else '낮음'}" for axis, value in values.items()))
             confidences.append(observation.confidence)
+
+        usable_behaviors = 0
+        for index, observation in enumerate(request.behaviors):
+            # 원문 provenance는 내부에 보존하고 추천 모델에는 별도의 최소 의미만 전달합니다.
+            source = observation.evidence
+            when = source.observed_at
+            age = None if when is None else (request.as_of - when).total_seconds()
+            excluded = False
+            if age is not None and age < 0:
+                future.append(f"behavior_{index}")
+                excluded = True
+            elif age is not None and request.max_age_seconds is not None and age > request.max_age_seconds:
+                stale.append(f"behavior_{index}")
+                excluded = True
+            elif when is None:
+                undated.append(f"behavior_{index}")
+            if when is not None:
+                times.append(when)
+            fields = {"action": observation.action, "status": observation.status}
+            if observation.confidence is not None:
+                fields["confidence"] = observation.confidence
+            summary = "behavior: " + json.dumps(fields, ensure_ascii=False)
+            if excluded:
+                summary += "; 현재 상태 종합에서 제외"
+            evidence.extend([source, OpinionEvidence(
+                source_type="state", evidence_ref=f"behavior_{index}", summary=summary,
+                observed_at=when, interpretation=True,
+            )])
+            if not excluded:
+                usable_behaviors += 1
+                confidences.append(observation.confidence)
+        if usable_behaviors:
+            parts.append(f"사용자 보고 행동 {usable_behaviors}개(현실 수행 검증 아님)")
 
         if unavailable:
             risks.append(OpinionRisk(code="partial_context", summary="관찰 정보 없음: " + ", ".join(unavailable)))

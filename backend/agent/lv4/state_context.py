@@ -1,10 +1,11 @@
-"""이미 분석된 상태의 최소 입력입니다. DB row/ID/metadata는 받지 않습니다."""
+"""이미 분석된 typed 관찰의 최소 입력입니다. DB row나 임의 metadata는 받지 않습니다."""
 
 from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field
 
 from .schemas import ContractModel, OpinionEvidence, Score, SpecialistInput
+from agent.behavior_schemas import BehaviorObservation
 
 
 class StateObservation(ContractModel):
@@ -60,3 +61,5 @@ class StateContext(SpecialistInput):
     emotion: EmotionState | None = None
     body: BodyState | None = None
     cognitive: CognitiveState | None = None
+    # 행동은 optional한 사용자 보고이며 기존 숫자 상태로 변환하지 않습니다.
+    behaviors: list[BehaviorObservation] = Field(default_factory=list, max_length=4)
