@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from agent.executor_registry import ExecutorContext, ExecutorResult, get_executor
+from agent.action_ownership import owned_action_context
 from database import SessionLocal
 from account_write_guard import lock_account_for_write, require_active_account_for_write
 from models.agent_action import AgentAction
@@ -99,8 +100,9 @@ def _acquire_lease(action_id: UUID, user_id: UUID) -> tuple[AgentAction, Lease |
             require_active_account_for_write(db, user_id)
             action = db.scalar(
                 select(AgentAction)
-                .where(AgentAction.action_id == action_id, AgentAction.user_id == user_id)
+                .where(AgentAction.action_id == action_id, AgentAction.user_id == user_id, owned_action_context())
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
             if action is None:
                 raise ExecutorNotFoundError

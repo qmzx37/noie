@@ -87,6 +87,9 @@ register_executor("record_emotion", record_emotion_executor)
 from agent.record_daily_trace_executor import record_daily_trace_executor  # noqa: E402
 
 register_executor("record_daily_trace", record_daily_trace_executor)
+from agent.link_activity_completion_executor import link_activity_completion_executor  # noqa: E402
+
+register_executor("link_activity_completion", link_activity_completion_executor)
 from agent.record_dream_goal_executor import record_dream_goal_executor  # noqa: E402
 
 register_executor("record_dream_goal", record_dream_goal_executor)

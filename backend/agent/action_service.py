@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from account_write_guard import AccountWriteRejected, require_active_account_for_write
 
 from agent.action_schemas import ConfirmationRequest, PersistActionPlanRequest
+from agent.activity_link_schemas import activity_link_binding, bound_activity_link_arguments
 from models.agent_action import AgentAction
 from models.conversation import Conversation
 from models.message import Message
@@ -106,7 +107,7 @@ def _action_values(data: PersistActionPlanRequest, plan) -> dict:
     confirmation_id = uuid4() if confirmation_pending else None
     confirmation_status = "pending" if confirmation_pending else "not_required"
     rejected_at = datetime.now(timezone.utc) if plan.status == "rejected" else None
-    return {
+    values = {
         "user_id": data.user_id,
         "conversation_id": data.conversation_id,
         "message_id": data.message_id,
@@ -132,6 +133,14 @@ def _action_values(data: PersistActionPlanRequest, plan) -> dict:
             ],
         },
     }
+    if plan.tool_name == "link_activity_completion":
+        try:
+            values["metadata"]["activity_link_binding"] = activity_link_binding(
+                values["arguments"], user_id=data.user_id,
+                conversation_id=data.conversation_id, message_id=data.message_id)
+        except ValueError:
+            raise ActionValidationError("Activity 연결의 근거가 올바르지 않습니다.") from None
+    return values
 
 
 def persist_action_plan(db: Session, data: PersistActionPlanRequest) -> list[AgentAction]:
@@ -166,6 +175,13 @@ def persist_action_plan(db: Session, data: PersistActionPlanRequest) -> list[Age
                     or row.user_id != data.user_id
                 ):
                     raise ActionConflictError("action_id 또는 idempotency_key가 충돌합니다.")
+                if row.tool_name == "link_activity_completion":
+                    try:
+                        bound_activity_link_arguments(row)
+                        if row.metadata_["activity_link_binding"] != values["metadata"].get("activity_link_binding"):
+                            raise ValueError("changed_pair")
+                    except ValueError:
+                        raise ActionConflictError("Activity 연결 대상이 변경되어 새 확인이 필요합니다.") from None
             saved.append(row)
         db.commit()
         for row in saved:
@@ -235,6 +251,12 @@ def _transition_confirmation(
             raise ActionConfirmationError
         if row.status != "pending_confirmation" or row.confirmation_status != "pending":
             raise ActionConflictError("현재 상태에서는 승인 또는 거절할 수 없습니다.")
+
+        if row.tool_name == "link_activity_completion" and not reject:
+            try:
+                bound_activity_link_arguments(row)
+            except ValueError:
+                raise ActionConflictError("Activity 연결 대상이 변경되어 새 확인이 필요합니다.") from None
 
         now = datetime.now(timezone.utc)
         if reject:

@@ -19,6 +19,7 @@ from agent.body_state_schemas import RecordBodyStateArguments
 from agent.cognitive_state_schemas import RecordCognitiveStateArguments
 from agent.recommendation_schemas import RecommendationArguments
 from agent.relationship_schemas import RecordRelationshipArguments
+from agent.activity_link_schemas import LinkActivityCompletionArguments
 
 
 PlanStatus = Literal[
@@ -49,7 +50,16 @@ class GatewayAction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | LinkActivityCompletionArguments | None = None
+
+    @model_validator(mode="after")
+    def validate_activity_link_arguments(self):
+        if self.intent == "link_activity_completion":
+            if self.type != "daily_life" or self.mode != "execute" or not isinstance(self.arguments, LinkActivityCompletionArguments):
+                raise ValueError("Activity link requires an explicit pair and Execute mode")
+        elif isinstance(self.arguments, LinkActivityCompletionArguments):
+            raise ValueError("Activity pair is restricted to link_activity_completion")
+        return self
 
     @model_validator(mode="after")
     def validate_relationship_arguments(self) -> "GatewayAction":
@@ -131,7 +141,7 @@ class ToolExecutionPlan(BaseModel):
     implemented: bool
     can_execute: bool = False
     policy_messages: list[str] = Field(default_factory=list)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | LinkActivityCompletionArguments | None = None
 
 
 class ToolPlanResponse(BaseModel):

@@ -16,7 +16,7 @@ from models.user import User
 
 # 순서는 실제 FK 기준 child -> parent입니다. 새 테이블은 검토 없이 자동 삭제하지 않습니다.
 PURGE_ORDER = (
-    "memory_evidence", "memory_extractions", "body_state_events", "cognitive_state_events",
+    "memory_evidence", "memory_extractions", "activities", "body_state_events", "cognitive_state_events",
     "daily_life_events", "dream_goals", "emotion_events", "place_events", "recommendations",
     "relationship_events", "schedules", "chat_requests", "agent_actions", "messages",
     "memories", "conversations", "admin_break_glass_sessions", "admin_grants",

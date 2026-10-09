@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from agent.daily_life_schemas import DailyTraceArguments
+from agent.activity_service import activity_recorder_enabled, persist_activity_for_action
 from agent.executor_registry import ExecutorContext, ExecutorResult
 from database import SessionLocal
 from account_write_guard import require_active_account_for_write
@@ -40,6 +41,7 @@ def record_daily_trace_executor(
                 raise RecordDailyTraceError
             if action.conversation_id is not None and db.scalar(select(Conversation.id).where(Conversation.id == action.conversation_id, Conversation.user_id == action.user_id, Conversation.deleted_at.is_(None))) is None:
                 raise RecordDailyTraceError
+            message = None
             if action.message_id is not None:
                 message = db.scalar(select(Message).join(Conversation).where(Message.id == action.message_id, Message.user_id == action.user_id, Message.role == "user", Conversation.user_id == action.user_id, Conversation.deleted_at.is_(None)))
                 if message is None or (action.conversation_id is not None and message.conversation_id != action.conversation_id):
@@ -55,6 +57,10 @@ def record_daily_trace_executor(
             event = db.get(DailyLifeEvent, inserted_id) if inserted_id else db.scalar(select(DailyLifeEvent).where(DailyLifeEvent.agent_action_id == action.id))
             if event is None:
                 raise RecordDailyTraceError
+            # 새 Direct write/Tool 없이 기존 검증된 Executor transaction에서만 추가 기록합니다.
+            # 기본 OFF이며 unsupported/의도/후보/민감 원문은 Activity 행을 만들지 않습니다.
+            if message is not None and activity_recorder_enabled():
+                persist_activity_for_action(db, action, message, attempt_count=context.attempt_count)
             if before_commit is not None:
                 before_commit()
             db.commit()

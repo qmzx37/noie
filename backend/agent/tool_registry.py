@@ -23,6 +23,7 @@ class ToolDefinition:
 TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
     ToolDefinition("record_emotion", "emotion", ("record_emotion", "record_emotion_event"), ("record",), False, True, True),
     ToolDefinition("record_daily_trace", "daily_life", ("record_daily_life", "record_daily_trace", "record_completed_action"), ("record",), False, True, True),
+    ToolDefinition("link_activity_completion", "daily_life", ("link_activity_completion",), ("execute",), True, True, True),
     ToolDefinition("record_routine_event", "routine", ("record_routine", "record_routine_event", "record_exercise_event"), ("record",), False, True, False),
     ToolDefinition("create_memory_candidate", "memory", ("record_memory_candidate", "record_goal_memory", "record_preference_change"), ("record",), False, True, False),
     ToolDefinition("record_dream_goal", "dream_goal", ("record_dream_goal",), ("record",), False, True, True),

@@ -19,6 +19,7 @@ from agent.recommendation_router import router as recommendation_router
 from agent.relationship_event_router import router as relationship_event_router
 # Behavior는 기존 Specialist 계약을 쓰는 읽기 전용 해석이며 업무 Tool을 실행하지 않습니다.
 from agent.behavior_router import router as behavior_router
+from agent.activity_router import router as activity_router
 from agent.schemas import OrchestratorRequest, OrchestratorResult
 from agent.tool_gateway import create_tool_plan
 from agent.tool_schemas import ToolPlanRequest, ToolPlanResponse
@@ -37,6 +38,7 @@ router.include_router(recommendation_router)
 # 근거 목록 조회만 제공하며 관계 갱신/삭제 API는 없습니다.
 router.include_router(relationship_event_router)
 router.include_router(behavior_router)
+router.include_router(activity_router)
 
 
 @router.post("/orchestrate", response_model=OrchestratorResult)
