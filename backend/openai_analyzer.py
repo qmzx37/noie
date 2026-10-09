@@ -174,33 +174,41 @@ JSON_SCHEMA = {
 
 
 def print_openai_error(error: Exception) -> None:
-    """OpenAI 호출 실패 원인을 서버 로그에서 보기 좋게 출력합니다."""
+    """예외 본문 없이 허용된 오류 종류와 고정 reason code만 기록합니다."""
 
-    error_name = type(error).__name__
+    # 기존 본문 비출력 정책을 유지하고 임의의 클래스명도 로그에 복사하지 않습니다.
+    allowed_types = {
+        "APIError", "APIStatusError", "APIConnectionError", "APITimeoutError",
+        "AuthenticationError", "PermissionDeniedError", "RateLimitError",
+        "BadRequestError", "NotFoundError", "ConflictError",
+        "UnprocessableEntityError", "InternalServerError", "SDKError",
+        "JSONDecodeError", "ValidationError", "RuntimeError", "ValueError",
+        "TypeError", "TimeoutError", "ConnectionError",
+    }
+    name = type(error).__name__
+    error_name = name if name in allowed_types else "OtherError"
+    # SDK body/response/str(error)는 읽지 않으며, 상태도 정수인 경우에만 분류합니다.
     status_code = getattr(error, "status_code", None)
-    message = str(error)
-    lowered_message = message.lower()
+    status_code = status_code if type(status_code) is int else None
 
+    reason, category = "openai_error", "OpenAI 호출 실패"
     if isinstance(error, json.JSONDecodeError):
-        print(f"[noie] JSON 파싱 문제: {error_name}: {message}")
-        return
+        reason, category = "json_parse_error", "JSON 파싱 문제"
+    elif error_name == "ValidationError":
+        reason, category = "validation_error", "응답 검증 문제"
+    elif error_name == "AuthenticationError" or status_code == 401:
+        reason, category = "authentication_error", "인증 문제"
+    elif error_name == "RateLimitError" or status_code == 429:
+        reason, category = "rate_limit_error", "결제/크레딧/사용량 문제"
+    elif status_code in (400, 404):
+        # 상태만으로 결제 부족이나 모델 오류를 단정하지 않습니다.
+        reason, category = "request_configuration_error", "요청/모델 설정 문제"
+    elif error_name in {"APIConnectionError", "ConnectionError"}:
+        reason, category = "connection_error", "연결 문제"
+    elif error_name in {"APITimeoutError", "TimeoutError"}:
+        reason, category = "timeout_error", "시간 초과"
 
-    if error_name == "AuthenticationError" or status_code == 401:
-        print(f"[noie] 인증 문제: OPENAI_API_KEY를 확인해 주세요. {error_name}: {message}")
-        return
-
-    if status_code == 429 or any(
-        word in lowered_message
-        for word in ["quota", "billing", "credit", "insufficient"]
-    ):
-        print(f"[noie] 결제/크레딧/사용량 문제: {error_name}: {message}")
-        return
-
-    if status_code in [400, 404] and "model" in lowered_message:
-        print(f"[noie] 모델 이름 문제: OPENAI_MODEL을 확인해 주세요. {error_name}: {message}")
-        return
-
-    print(f"[noie] OpenAI 호출 실패: {error_name}: {message}")
+    print(f"[noie] {category}: {error_name} reason={reason}")
 
 
 def extract_output_text(response: Any) -> str:
