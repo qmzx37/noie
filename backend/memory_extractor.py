@@ -11,6 +11,7 @@ from openai import OpenAI
 from memory_schemas import MemoryExtractionDecision
 from openai_analyzer import extract_output_text
 from memory_privacy import automatic_memory_allowed, blocked_memory_decision, validate_auto_decision
+from private_model_access import require_private_model_access
 
 
 load_dotenv()
@@ -107,6 +108,8 @@ def extract_memory_with_openai(text: str) -> MemoryExtractionDecision:
     )
     try:
         client = OpenAI(api_key=api_key)
+        # 원래 요청의 계정 검사를 SDK 전송 직전에 끝내며 DB 세션을 통신 중 유지하지 않습니다.
+        require_private_model_access()
         response = client.responses.create(
             model=model,
             input=[
@@ -123,6 +126,8 @@ def extract_memory_with_openai(text: str) -> MemoryExtractionDecision:
                 }
             },
         )
+        # 모델을 기다리는 동안 비활성화되었다면 개인 결과를 다음 단계에 넘기지 않습니다.
+        require_private_model_access()
         decision = MemoryExtractionDecision.model_validate(
             json.loads(extract_output_text(response))
         )

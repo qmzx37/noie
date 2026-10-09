@@ -13,6 +13,7 @@ from openai import OpenAI
 from memory_schemas import MemoryExtractionDecision, MemoryReconciliationDecision
 from openai_analyzer import extract_output_text
 from memory_privacy import automatic_memory_allowed
+from private_model_access import require_private_model_access
 
 
 load_dotenv()
@@ -83,6 +84,8 @@ def reconcile_memory_candidate(
 
     try:
         client = OpenAI(api_key=api_key)
+        # 앞선 후보 조회가 성공했어도 실제 전송 직전 원래 소유자의 접근 권한을 재검사합니다.
+        require_private_model_access()
         response = client.responses.create(
             model=model,
             input=[
@@ -109,6 +112,8 @@ def reconcile_memory_candidate(
                 }
             },
         )
+        # 호출 중 비활성화/삭제된 계정의 개인 결과는 반환하지 않습니다.
+        require_private_model_access()
         raw = json.loads(extract_output_text(response))
         raw["matched_memory_id"] = raw.get("matched_memory_id") or None
         return MemoryReconciliationDecision.model_validate(raw)

@@ -23,6 +23,9 @@ from models.conversation import Conversation
 from models.memory_extraction import MemoryExtraction
 from models.message import Message
 from models.user import User
+from private_model_access import (
+    PrivateModelAccessDenied, private_model_access_scope, require_private_model_access,
+)
 
 
 class MemoryExtractionNotFoundError(Exception):
@@ -292,6 +295,16 @@ def _complete_without_memory(
         raise MemoryExtractionDatabaseError from error
 
 
+def _require_memory_model_access(message_id: UUID, user_id: UUID) -> None:
+    """lease에서 확정한 원래 소유자를 새 세션으로 확인하고 통신 전에 세션을 닫습니다."""
+    if SessionLocal is None:
+        raise MemoryExtractionDatabaseError
+    # 기존 두 번째 모델 앞의 검사를 재사용합니다. dev-user로 재선택하지 않습니다.
+    with SessionLocal() as db:
+        _get_owned_user_message(db, message_id, user_id)
+
+
+
 def extract_memory_for_message(
     message_id: UUID,
     expected_user_id: UUID | None = None,
@@ -310,30 +323,45 @@ def extract_memory_for_message(
     if user_id is None or original_content is None:
         raise MemoryExtractionDatabaseError
 
-    try:
-        # lease/소유권 확인은 유지하고 세션을 닫은 뒤 privacy 검사합니다. 원문은 삭제하지 않습니다.
-        if not automatic_memory_allowed(original_content):
-            return _complete_without_memory(extraction_id, attempt_count, blocked_memory_decision())
-        # mock/향후 extractor가 prompt 정책을 무시해도 service에서 최종 검사합니다.
-        decision = validate_auto_decision(extract_memory_with_openai(original_content))
-        if decision.should_remember:
-            candidates = find_reconciliation_candidates(user_id, decision.kind)
-            reconciliation = reconcile_memory_candidate(decision, candidates)
-            if not automatic_memory_allowed(reconciliation.reason):
+    # 동기 SDK helper와 중첩 호출도 같은 소유자를 검사하며 종료 시 scope를 복구합니다.
+    with private_model_access_scope(lambda: _require_memory_model_access(message_id, user_id)):
+        try:
+            require_private_model_access()
+            # lease/소유권 확인은 유지하고 세션을 닫은 뒤 privacy 검사합니다. 원문은 삭제하지 않습니다.
+            if not automatic_memory_allowed(original_content):
                 return _complete_without_memory(extraction_id, attempt_count, blocked_memory_decision())
-            return apply_reconciliation(
-                extraction_id=extraction_id,
-                user_id=user_id,
-                message_id=message_id,
-                candidate=decision,
-                decision=reconciliation,
-                candidates=candidates,
-                expected_attempt_count=attempt_count,
-            )
+            # mock/향후 extractor가 prompt 정책을 무시해도 service에서 최종 검사합니다.
+            decision = validate_auto_decision(extract_memory_with_openai(original_content))
+            require_private_model_access()
+            if decision.should_remember:
+                candidates = find_reconciliation_candidates(user_id, decision.kind)
+                require_private_model_access()
+                reconciliation = reconcile_memory_candidate(decision, candidates)
+                require_private_model_access()
+                if not automatic_memory_allowed(reconciliation.reason):
+                    return _complete_without_memory(extraction_id, attempt_count, blocked_memory_decision())
+                return apply_reconciliation(
+                    extraction_id=extraction_id,
+                    user_id=user_id,
+                    message_id=message_id,
+                    candidate=decision,
+                    decision=reconciliation,
+                    candidates=candidates,
+                    expected_attempt_count=attempt_count,
+                )
 
-        return _complete_without_memory(extraction_id, attempt_count, decision)
-    except Exception as error:
-        return _mark_failed(extraction_id, attempt_count, error)
+            return _complete_without_memory(extraction_id, attempt_count, decision)
+        except PrivateModelAccessDenied:
+            # 권한/조회 실패는 개인 extraction 결과 대신 기존 고정 404 계약으로 전달합니다.
+            # 접근 거부만으로 lease를 갱신하거나 새 개인정보를 저장하지 않습니다.
+            raise MemoryExtractionNotFoundError from None
+        except Exception as error:
+            # SDK 자체가 실패했어도 계정이 그동안 삭제됐다면 failed 결과를 반환하지 않습니다.
+            try:
+                require_private_model_access()
+            except PrivateModelAccessDenied:
+                raise MemoryExtractionNotFoundError from None
+            return _mark_failed(extraction_id, attempt_count, error)
 
 
 def run_memory_extraction_background(message_id: UUID) -> None:
