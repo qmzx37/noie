@@ -20,7 +20,7 @@ from memory_schemas import (
 from models.memory import Memory
 from models.user import User
 from openai_analyzer import extract_output_text
-from memory_privacy import automatic_memory_allowed
+from memory_privacy import automatic_memory_allowed, automatic_memory_payload_allowed
 
 
 load_dotenv()
@@ -85,7 +85,11 @@ def fetch_memory_candidates(user_id: UUID) -> list[MemoryRetrievalCandidate]:
                     importance=memory.importance,
                     confidence=memory.confidence,
                 )
-                for memory in memories if automatic_memory_allowed(memory.content)
+                # 실제 전송되는 모든 필드를 검사하며 기존 Memory 행은 삭제하지 않습니다.
+                for memory in memories if automatic_memory_payload_allowed({
+                    "memory_id": str(memory.id), "content": memory.content, "kind": memory.kind,
+                    "importance": memory.importance, "confidence": memory.confidence,
+                })
             ]
     except MemoryRetrievalNotFoundError:
         raise
@@ -99,8 +103,9 @@ def select_relevant_memories(
 ) -> list[dict[str, Any]]:
     """OpenAI가 후보 중 관련 있는 ID만 최대 4개 선택하게 합니다."""
 
-    # legacy/수동 Memory도 content를 기준으로 검사하며 metadata의 분류를 신뢰하지 않습니다.
-    candidates = [candidate for candidate in candidates if automatic_memory_allowed(candidate.content)]
+    # legacy/수동/직접 호출 후보도 kind와 향후 보조 필드까지 검사합니다.
+    candidates = [candidate for candidate in candidates
+                  if automatic_memory_payload_allowed(candidate.model_dump(mode="json"))]
     if not candidates or not automatic_memory_allowed(query):
         return []
 
@@ -146,6 +151,12 @@ superseded/invalid Memory는 후보에 제공되지 않는다.
         os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
     )
     try:
+        transmission = {"current_user_input": query,
+            "memory_candidates": [candidate.model_dump(mode="json") for candidate in candidates]}
+        # 실제 전송 JSON을 고정하고 검사합니다. 이후 후보 참조 변경은 입력에 반영하지 않습니다.
+        payload = json.dumps(transmission, ensure_ascii=False, allow_nan=False)
+        if not automatic_memory_payload_allowed(json.loads(payload)):
+            raise ValueError("Blocked by memory privacy policy.")
         client = OpenAI(api_key=api_key)
         response = client.responses.create(
             model=model,
@@ -153,16 +164,7 @@ superseded/invalid Memory는 후보에 제공되지 않는다.
                 {"role": "system", "content": prompt},
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "current_user_input": query,
-                            "memory_candidates": [
-                                candidate.model_dump(mode="json")
-                                for candidate in candidates
-                            ],
-                        },
-                        ensure_ascii=False,
-                    ),
+                    "content": payload,
                 },
             ],
             text={
@@ -196,7 +198,7 @@ def resolve_selected_memories(
             raise MemoryRetrievalValidationError from error
         if memory_id not in by_id:
             raise MemoryRetrievalValidationError
-        if not automatic_memory_allowed(by_id[memory_id].content):
+        if not automatic_memory_payload_allowed(by_id[memory_id].model_dump(mode="json")):
             continue
         relevance = float(item.get("relevance", 0.0))
         if relevance < MIN_RELEVANCE:

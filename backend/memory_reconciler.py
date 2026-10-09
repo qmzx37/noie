@@ -12,7 +12,7 @@ from openai import OpenAI
 
 from memory_schemas import MemoryExtractionDecision, MemoryReconciliationDecision
 from openai_analyzer import extract_output_text
-from memory_privacy import automatic_memory_allowed
+from memory_privacy import automatic_memory_payload_allowed
 from private_model_access import require_private_model_access
 
 
@@ -49,8 +49,10 @@ def reconcile_memory_candidate(
     """후보 목록 안의 ID만 선택할 수 있는 동적 JSON schema로 판단합니다."""
 
     # legacy sensitive Memory를 비교 모델에 보내는 별도 복제 경로도 닫습니다.
-    existing_memories = [memory for memory in existing_memories if automatic_memory_allowed(memory["content"])]
-    if not automatic_memory_allowed(candidate.content) or not automatic_memory_allowed(candidate.reason):
+    # kind와 보조 필드도 검사합니다. 원문이나 기존 Memory 행은 변경하지 않습니다.
+    existing_memories = [memory for memory in existing_memories if automatic_memory_payload_allowed(memory)]
+    candidate_payload = candidate.model_dump(mode="json")
+    if not automatic_memory_payload_allowed(candidate_payload):
         raise ValueError("Blocked by memory privacy policy.")
     if not existing_memories:
         return MemoryReconciliationDecision(
@@ -83,6 +85,13 @@ def reconcile_memory_candidate(
     )
 
     try:
+        transmission = {"new_memory_candidate": candidate_payload,
+                        "existing_active_memories": existing_memories}
+        # 전송 JSON을 먼저 고정합니다. default=str로 검증 불가 객체를 우회시키지 않습니다.
+        payload = json.dumps(transmission, ensure_ascii=False, allow_nan=False)
+        # 직렬화된 실제 객체를 검사해 이후 참조 변경이 SDK 입력을 바꾸지 못하게 합니다.
+        if not automatic_memory_payload_allowed(json.loads(payload)):
+            raise ValueError("Blocked by memory privacy policy.")
         client = OpenAI(api_key=api_key)
         # 앞선 후보 조회가 성공했어도 실제 전송 직전 원래 소유자의 접근 권한을 재검사합니다.
         require_private_model_access()
@@ -92,14 +101,7 @@ def reconcile_memory_candidate(
                 {"role": "system", "content": RECONCILIATION_PROMPT},
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "new_memory_candidate": candidate.model_dump(),
-                            "existing_active_memories": existing_memories,
-                        },
-                        ensure_ascii=False,
-                        default=str,
-                    ),
+                    "content": payload,
                 },
             ],
             text={

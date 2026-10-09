@@ -1,5 +1,6 @@
 """Memory 승격/자동 재사용 정책입니다. 원문 삭제나 완전한 개인정보 탐지기가 아닙니다."""
 
+import math
 import re
 from enum import StrEnum
 
@@ -63,6 +64,37 @@ def automatic_memory_allowed(text: str) -> bool:
     return classify_memory_text(text) == PrivacyClass.STANDARD
 
 
+def automatic_memory_payload_allowed(payload, *, _depth=0) -> bool:
+    """모델에 보낼 JSON 객체의 모든 문자열을 검사합니다. 원본 객체는 변경하지 않습니다."""
+    # content 외 kind/summary/metadata/evidence와 향후 보조 필드도 같은 경계를 통과합니다.
+    # JSON에 없는 객체/과도한 중첩은 허용하지 않아 검사가 예외로 우회되지 않게 합니다.
+    try:
+        if _depth > 32:
+            return False
+        if isinstance(payload, str):
+            return automatic_memory_allowed(payload)
+        if payload is None or isinstance(payload, (bool, int)):
+            return True
+        if isinstance(payload, float):
+            # NaN/Infinity는 JSON 숫자가 아니므로 허용된 값으로 추측하지 않습니다.
+            return math.isfinite(payload)
+        if isinstance(payload, (list, tuple)):
+            return all(automatic_memory_payload_allowed(value, _depth=_depth + 1) for value in payload)
+        if isinstance(payload, dict):
+            return all(
+                isinstance(key, str) and automatic_memory_allowed(key)
+                and automatic_memory_payload_allowed(value, _depth=_depth + 1)
+                # password와 값이 별도 JSON key/value로 나뉘어 있어도 할당 문맥을 검사합니다.
+                and (not isinstance(value, (str, int, float, bool))
+                     or automatic_memory_allowed(f"{key}: {value}"))
+                for key, value in payload.items()
+            )
+        return False
+    except Exception:
+        # 검사 실패는 전송 거부입니다. 민감한 예외 본문을 로그에 복제하지 않습니다.
+        return False
+
+
 def blocked_memory_decision():
     """기존 completed/should_remember=false 계약을 사용해 privacy 차단의 재시도 loop를 막습니다."""
     from memory_schemas import MemoryExtractionDecision
@@ -72,6 +104,7 @@ def blocked_memory_decision():
 
 def validate_auto_decision(decision):
     """모델 출력도 authority가 아닙니다. content뿐 아니라 저장될 reason도 다시 검사합니다."""
-    if not automatic_memory_allowed(decision.content) or not automatic_memory_allowed(decision.reason):
+    # schema가 보조 필드를 추가하더라도 저장/후속 전송 전에 전체 출력을 검사합니다.
+    if not automatic_memory_payload_allowed(decision.model_dump(mode="json")):
         return blocked_memory_decision()
     return decision
