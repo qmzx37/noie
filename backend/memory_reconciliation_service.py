@@ -20,6 +20,8 @@ from memory_schemas import (
 )
 from memory_service import create_memory_in_transaction
 from memory_privacy import automatic_memory_allowed
+from memory_ownership import owned_memory_evidence
+from models.user import User
 from models.memory import Memory, MemoryEvidence
 from models.memory_extraction import MemoryExtraction
 
@@ -35,6 +37,22 @@ class MemoryReconciliationDatabaseError(Exception):
     """최종 조정 transaction 실패를 외부에 안전하게 전달합니다."""
 
 
+def require_reconciliation_candidate_ownership(user_id, candidates):
+    """SDK 직전 준비된 후보만 새 세션에서 확인합니다. 통신에는 세션/잠금을 넘기지 않습니다."""
+    if SessionLocal is None:
+        raise MemoryReconciliationDatabaseError
+    ids = {UUID(str(item["id"])) for item in candidates}
+    with SessionLocal() as db:
+        if db.scalar(select(User.id).where(User.id == user_id, User.deleted_at.is_(None))) is None:
+            raise MemoryReconciliationValidationError
+        found = set(db.scalars(select(Memory.id).where(
+            Memory.id.in_(ids), Memory.user_id == user_id, Memory.deleted_at.is_(None),
+            Memory.status == "active", owned_memory_evidence(),
+        )).all())
+        if found != ids:
+            raise MemoryReconciliationValidationError
+
+
 def find_reconciliation_candidates(
     user_id: UUID,
     candidate_kind: str,
@@ -45,6 +63,9 @@ def find_reconciliation_candidates(
         raise MemoryReconciliationDatabaseError
     try:
         with SessionLocal() as db:
+            # 독립적인 후보 조회도 비활성 사용자의 기억을 모델 context로 준비하지 않습니다.
+            if db.scalar(select(User.id).where(User.id == user_id, User.deleted_at.is_(None))) is None:
+                raise MemoryReconciliationValidationError
             memories = list(
                 db.scalars(
                     select(Memory)
@@ -52,6 +73,7 @@ def find_reconciliation_candidates(
                         Memory.user_id == user_id,
                         Memory.deleted_at.is_(None),
                         Memory.status == "active",
+                        owned_memory_evidence(),
                     )
                     .order_by(
                         case((Memory.kind == candidate_kind, 0), else_=1),
@@ -147,6 +169,7 @@ def apply_reconciliation(
                         Memory.user_id == user_id,
                         Memory.deleted_at.is_(None),
                         Memory.status == "active",
+                        owned_memory_evidence(),
                     )
                     .with_for_update()
                 )

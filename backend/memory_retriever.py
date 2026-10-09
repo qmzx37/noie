@@ -21,6 +21,8 @@ from models.memory import Memory
 from models.user import User
 from openai_analyzer import extract_output_text
 from memory_privacy import automatic_memory_allowed, automatic_memory_payload_allowed
+from memory_ownership import owned_memory_evidence
+from private_model_access import private_model_access_scope, require_private_model_access
 
 
 load_dotenv()
@@ -66,6 +68,7 @@ def fetch_memory_candidates(user_id: UUID) -> list[MemoryRetrievalCandidate]:
                         Memory.user_id == user_id,
                         Memory.status == "active",
                         Memory.deleted_at.is_(None),
+                        owned_memory_evidence(),
                     )
                     .order_by(
                         Memory.importance.desc().nullslast(),
@@ -158,6 +161,8 @@ superseded/invalid Memory는 후보에 제공되지 않는다.
         if not automatic_memory_payload_allowed(json.loads(payload)):
             raise ValueError("Blocked by memory privacy policy.")
         client = OpenAI(api_key=api_key)
+        # 후보 준비 뒤 상태가 바뀌어도 실제 SDK 진입 직전에 원래 소유권을 확인합니다.
+        require_private_model_access()
         response = client.responses.create(
             model=model,
             input=[
@@ -228,8 +233,20 @@ def retrieve_relevant_memories(
     """후보 조회와 관련성 선택을 묶은 교체 가능한 retrieval 진입점입니다."""
 
     candidates = [candidate for candidate in fetch_memory_candidates(user_id) if automatic_memory_allowed(candidate.content)]
-    raw_selected = select_relevant_memories(query, candidates)
-    return candidates, resolve_selected_memories(raw_selected, candidates)
+    def check_candidates():
+        # 통신 중 세션/잠금을 유지하지 않고 새 조회로 이미 준비한 후보의 연결을 확인합니다.
+        current = {item.memory_id: item.model_dump(mode="json") for item in fetch_memory_candidates(user_id)}
+        if any(current.get(item.memory_id) != item.model_dump(mode="json") for item in candidates):
+            raise MemoryRetrievalNotFoundError
+
+    with private_model_access_scope(check_candidates):
+        raw_selected = select_relevant_memories(query, candidates)
+    selected = resolve_selected_memories(raw_selected, candidates)
+    # 모델 호출 후 삭제/비활성화/근거 변경된 기억은 반환하지 않습니다.
+    current = {item.memory_id: item.model_dump(mode="json") for item in fetch_memory_candidates(user_id)}
+    candidates = [item for item in candidates if current.get(item.memory_id) == item.model_dump(mode="json")]
+    allowed = {item.memory_id for item in candidates}
+    return candidates, [item for item in selected if item.memory_id in allowed]
 
 
 def retrieve_relevant_memories_safe(user_id: UUID, query: str) -> list[SelectedMemory]:

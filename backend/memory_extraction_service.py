@@ -18,14 +18,18 @@ from memory_reconciler import reconcile_memory_candidate
 from memory_reconciliation_service import (
     apply_reconciliation,
     find_reconciliation_candidates,
+    require_reconciliation_candidate_ownership,
 )
 from models.conversation import Conversation
+from models.memory import Memory
+from memory_ownership import owned_memory_evidence
 from models.memory_extraction import MemoryExtraction
 from models.message import Message
 from models.user import User
 from private_model_access import (
     PrivateModelAccessDenied, private_model_access_scope, require_private_model_access,
 )
+from message_ownership import message_has_owner
 
 
 class MemoryExtractionNotFoundError(Exception):
@@ -85,7 +89,20 @@ def _get_owned_user_message(db, message_id: UUID, expected_user_id: UUID | None)
         raise MemoryExtractionAccessError
     if message.role != "user":
         raise MemoryExtractionRoleError
+    # lease/SDK 전에 작성자와 대화 소유자를 확인합니다. 최종 저장 차단만으로는 부족합니다.
+    if not message_has_owner(message, conversation.user_id):
+        raise MemoryExtractionNotFoundError
     return message, conversation.user_id
+
+
+def _check_extraction_memory_owner(db, extraction, user_id):
+    """완료 결과 재사용도 타 계정 Memory/Evidence 식별자를 반환하는 통로가 되지 않게 합니다."""
+    for memory_id in (extraction.memory_id, extraction.matched_memory_id):
+        if memory_id is not None and db.scalar(select(Memory.id).where(
+            Memory.id == memory_id, Memory.user_id == user_id,
+            Memory.deleted_at.is_(None), owned_memory_evidence(),
+        )) is None:
+            raise MemoryExtractionNotFoundError
 
 
 def _get_extraction(message_id: UUID, expected_user_id: UUID | None):
@@ -95,7 +112,7 @@ def _get_extraction(message_id: UUID, expected_user_id: UUID | None):
         raise MemoryExtractionDatabaseError
     try:
         with SessionLocal() as db:
-            _get_owned_user_message(db, message_id, expected_user_id)
+            _, user_id = _get_owned_user_message(db, message_id, expected_user_id)
             extraction = db.scalar(
                 select(MemoryExtraction).where(
                     MemoryExtraction.message_id == message_id,
@@ -104,6 +121,7 @@ def _get_extraction(message_id: UUID, expected_user_id: UUID | None):
             )
             if extraction is None:
                 raise MemoryExtractionNotFoundError
+            _check_extraction_memory_owner(db, extraction, user_id)
             return extraction
     except (
         MemoryExtractionNotFoundError,
@@ -157,6 +175,7 @@ def _acquire_processing_lease(
                     )
                     db.add(extraction)
                 elif extraction.status == "completed":
+                    _check_extraction_memory_owner(db, extraction, user_id)
                     return extraction, False, None, None
                 elif (
                     extraction.status == "processing"
@@ -336,7 +355,9 @@ def extract_memory_for_message(
             if decision.should_remember:
                 candidates = find_reconciliation_candidates(user_id, decision.kind)
                 require_private_model_access()
-                reconciliation = reconcile_memory_candidate(decision, candidates)
+                # source 소유권 검사에 기존 Memory/Evidence 검사도 더합니다. 원래 검사 범위는 유지합니다.
+                with private_model_access_scope(lambda: require_reconciliation_candidate_ownership(user_id, candidates)):
+                    reconciliation = reconcile_memory_candidate(decision, candidates)
                 require_private_model_access()
                 if not automatic_memory_allowed(reconciliation.reason):
                     return _complete_without_memory(extraction_id, attempt_count, blocked_memory_decision())

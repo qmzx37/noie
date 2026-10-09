@@ -11,6 +11,8 @@ from account_write_guard import AccountWriteRejected, require_active_account_for
 
 from memory_schemas import MemoryCreate
 from memory_privacy import PrivacyClass, classify_memory_text
+from memory_ownership import owned_memory_evidence
+from message_ownership import message_has_owner
 from models.conversation import Conversation
 from models.memory import Memory, MemoryEvidence
 from models.message import Message
@@ -39,6 +41,7 @@ def _memory_with_evidence_statement(memory_id: UUID):
             Memory.id == memory_id,
             Memory.deleted_at.is_(None),
             User.deleted_at.is_(None),
+            owned_memory_evidence(),
         )
         .options(selectinload(Memory.evidence).joinedload(MemoryEvidence.message))
     )
@@ -66,7 +69,7 @@ def create_memory_in_transaction(
     if len(evidence_rows) != len(data.evidence_message_ids):
         raise MemoryNotFoundError("일부 evidence 메시지를 찾을 수 없습니다.")
 
-    for _message, conversation in evidence_rows:
+    for message, conversation in evidence_rows:
         if conversation.deleted_at is not None:
             raise MemoryEvidenceValidationError(
                 "삭제된 conversation의 메시지는 evidence로 사용할 수 없습니다."
@@ -75,6 +78,9 @@ def create_memory_in_transaction(
             raise MemoryEvidenceValidationError(
                 "다른 사용자의 메시지는 evidence로 연결할 수 없습니다."
             )
+        # user 작성자는 일치해야 하고 assistant/system의 NULL 작성자는 기존처럼 허용합니다.
+        if not message_has_owner(message, data.user_id):
+            raise MemoryEvidenceValidationError("근거 메시지의 소유권이 일치하지 않습니다.")
 
     # explicit manual sensitive 저장은 유지하되 secret은 명시 요청이어도 Memory로 복제하지 않습니다.
     if classify_memory_text(data.content) == PrivacyClass.RESTRICTED_SECRET:
@@ -132,7 +138,7 @@ def list_user_memories(db: Session, user_id: UUID) -> list[Memory]:
         return list(
             db.scalars(
                 select(Memory)
-                .where(Memory.user_id == user_id, Memory.deleted_at.is_(None))
+                .where(Memory.user_id == user_id, Memory.deleted_at.is_(None), owned_memory_evidence())
                 .options(
                     selectinload(Memory.evidence).joinedload(MemoryEvidence.message)
                 )

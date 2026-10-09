@@ -13,6 +13,7 @@ from chat_storage_schemas import ConversationCreate, MessageCreate, UserCreate
 from models.conversation import Conversation
 from models.message import Message
 from models.user import User
+from message_ownership import message_has_owner
 
 
 class StorageNotFoundError(Exception):
@@ -158,10 +159,14 @@ def list_conversation_messages(
 ) -> list[Message]:
     """복합 인덱스 순서와 같은 created_at, id 오름차순으로 조회합니다."""
 
-    _get_active_conversation(db, conversation_id)
-    return _read_all(
+    conversation = _get_active_conversation(db, conversation_id)
+    messages = _read_all(
         db,
         select(Message)
         .where(Message.conversation_id == conversation_id)
         .order_by(Message.created_at.asc(), Message.id.asc()),
     )
+    # FK가 실재해도 논리적 소유권은 손상될 수 있습니다. 원문 수정 없이 읽기를 거부합니다.
+    if any(not message_has_owner(message, conversation.user_id) for message in messages):
+        raise StorageNotFoundError("활성 대화를 찾을 수 없습니다.")
+    return messages
