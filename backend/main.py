@@ -10,6 +10,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Re
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from validation_openapi import install_validation_openapi
 from security_config import CORS_HEADERS, CORS_METHODS, api_docs_options, cors_allowed_origins
 from security_rate_limit import PreAuthRateLimitMiddleware
 from sqlalchemy import text as sql_text
@@ -72,6 +73,9 @@ app = FastAPI(
     # 문서 노출은 startup 설정입니다. 기본/오타는 OFF이며 업무 인증과는 별개입니다.
     **api_docs_options(),
 )
+
+# 기존 안전한 422 응답은 그대로 두고 자동 생성되는 문서의 구조만 맞춥니다.
+install_validation_openapi(app)
 
 @app.exception_handler(RequestValidationError)
 async def safe_request_validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
