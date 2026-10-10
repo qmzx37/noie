@@ -2,6 +2,7 @@
 
 from models.agent_action import AgentAction
 from models.activity import Activity
+from models.object_mention import ObjectMention
 from models.admin_grant import AdminGrant
 from models.admin_break_glass_session import AdminBreakGlassSession
 from models.admin_audit_log import AdminAuditLog
@@ -25,6 +26,7 @@ from models.relationship_event import RelationshipEvent
 
 __all__ = [
     "Activity",
+    "ObjectMention",
     "AdminGrant",
     "AdminBreakGlassSession",
     "AdminAuditLog",

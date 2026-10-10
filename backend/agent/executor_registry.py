@@ -90,6 +90,9 @@ register_executor("record_daily_trace", record_daily_trace_executor)
 from agent.link_activity_completion_executor import link_activity_completion_executor  # noqa: E402
 
 register_executor("link_activity_completion", link_activity_completion_executor)
+from agent.save_object_mention_executor import save_object_mention_executor  # noqa: E402
+
+register_executor("save_object_mention", save_object_mention_executor)
 from agent.record_dream_goal_executor import record_dream_goal_executor  # noqa: E402
 
 register_executor("record_dream_goal", record_dream_goal_executor)

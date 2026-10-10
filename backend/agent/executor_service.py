@@ -13,6 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from agent.executor_registry import ExecutorContext, ExecutorResult, get_executor
 from agent.action_ownership import owned_action_context
+from agent.object_mention_service import object_mentions_enabled, validate_object_action
+from fastapi import HTTPException
 from database import SessionLocal
 from account_write_guard import lock_account_for_write, require_active_account_for_write
 from models.agent_action import AgentAction
@@ -107,6 +109,14 @@ def _acquire_lease(action_id: UUID, user_id: UUID) -> tuple[AgentAction, Lease |
             if action is None:
                 raise ExecutorNotFoundError
 
+            if action.tool_name == "save_object_mention":
+                try:
+                    if not object_mentions_enabled():
+                        raise ValueError("object_mentions_disabled")
+                    validate_object_action(db, action, require_mention=action.status == "completed")
+                except (ValueError, HTTPException):
+                    raise ExecutorConflictError("Object mention approval/source unavailable") from None
+
             now = datetime.now(timezone.utc)
             if action.status == "completed":
                 return action, None
@@ -161,6 +171,11 @@ def _finish_success(lease: Lease, result: ExecutorResult) -> tuple[AgentAction, 
                 raise ExecutorDatabaseError
             if not active:
                 return _cancel_inactive_attempt(db, action, lease), True
+            if action.tool_name == "save_object_mention":
+                try:
+                    validate_object_action(db, action, require_mention=True)
+                except (ValueError, HTTPException):
+                    raise ExecutorConflictError("Object mention approval/source unavailable") from None
             if action.status != "processing" or action.attempt_count != lease.attempt_count:
                 return action, True
             action.status = "completed"

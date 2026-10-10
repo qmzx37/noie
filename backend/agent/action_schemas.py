@@ -8,7 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent.schemas import ActionMode, AgentType
+from agent.schemas import ActionMode
+from agent.object_mention_schemas import GatewayActionType
 from agent.tool_schemas import ConfirmationStatus, PlanStatus, ToolExecutionPlan
 
 
@@ -45,7 +46,7 @@ class AgentActionResponse(BaseModel):
     message_id: UUID | None
     action_id: UUID
     tool_name: str | None
-    action_type: AgentType
+    action_type: GatewayActionType
     intent: str
     mode: ActionMode
     status: PlanStatus

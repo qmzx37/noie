@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
+
 from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,6 +15,8 @@ from account_write_guard import AccountWriteRejected, require_active_account_for
 
 from agent.action_schemas import ConfirmationRequest, PersistActionPlanRequest
 from agent.activity_link_schemas import activity_link_binding, bound_activity_link_arguments
+from agent.object_mention_schemas import object_mention_binding, bound_object_mention_arguments
+from agent.object_mention_service import validate_object_plan, validate_object_source
 from models.agent_action import AgentAction
 from models.conversation import Conversation
 from models.message import Message
@@ -140,6 +144,14 @@ def _action_values(data: PersistActionPlanRequest, plan) -> dict:
                 conversation_id=data.conversation_id, message_id=data.message_id)
         except ValueError:
             raise ActionValidationError("Activity 연결의 근거가 올바르지 않습니다.") from None
+    if plan.tool_name == "save_object_mention":
+        try:
+            validate_object_plan(plan)
+            values["metadata"]["object_mention_binding"] = object_mention_binding(
+                values["arguments"], user_id=data.user_id,
+                conversation_id=data.conversation_id, message_id=data.message_id)
+        except ValueError:
+            raise ActionValidationError("Invalid object mention approval") from None
     return values
 
 
@@ -151,6 +163,12 @@ def persist_action_plan(db: Session, data: PersistActionPlanRequest) -> list[Age
         saved: list[AgentAction] = []
         for plan in sorted(data.plans, key=lambda item: item.execution_order):
             values = _action_values(data, plan)
+            if plan.tool_name == "save_object_mention":
+                try:
+                    validate_object_source(db, data.user_id, plan.arguments,
+                        conversation_id=data.conversation_id, message_id=data.message_id)
+                except (ValueError, HTTPException):
+                    raise ActionValidationError("Invalid object mention source") from None
             inserted_id = db.scalar(
                 pg_insert(AgentAction)
                 .values(**values)
@@ -182,6 +200,13 @@ def persist_action_plan(db: Session, data: PersistActionPlanRequest) -> list[Age
                             raise ValueError("changed_pair")
                     except ValueError:
                         raise ActionConflictError("Activity 연결 대상이 변경되어 새 확인이 필요합니다.") from None
+                if row.tool_name == "save_object_mention":
+                    try:
+                        bound_object_mention_arguments(row)
+                        if row.metadata_["object_mention_binding"] != values["metadata"].get("object_mention_binding"):
+                            raise ValueError("changed_object_source")
+                    except ValueError:
+                        raise ActionConflictError("Object source changed; new confirmation required") from None
             saved.append(row)
         db.commit()
         for row in saved:
@@ -257,6 +282,14 @@ def _transition_confirmation(
                 bound_activity_link_arguments(row)
             except ValueError:
                 raise ActionConflictError("Activity 연결 대상이 변경되어 새 확인이 필요합니다.") from None
+
+        if row.tool_name == "save_object_mention" and not reject:
+            try:
+                arguments = bound_object_mention_arguments(row)
+                validate_object_source(db, row.user_id, arguments,
+                    conversation_id=row.conversation_id, message_id=row.message_id)
+            except (ValueError, HTTPException):
+                raise ActionConflictError("Object source changed; new confirmation required") from None
 
         now = datetime.now(timezone.utc)
         if reject:

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent.schemas import ActionMode, AgentType
+from agent.schemas import ActionMode
+from agent.object_mention_schemas import GatewayActionType
 
 
 @dataclass(frozen=True)
 class ToolDefinition:
     tool_name: str
-    action_type: AgentType
+    action_type: GatewayActionType
     allowed_intents: tuple[str, ...]
     allowed_modes: tuple[ActionMode, ...]
     requires_confirmation: bool
@@ -24,6 +25,7 @@ TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
     ToolDefinition("record_emotion", "emotion", ("record_emotion", "record_emotion_event"), ("record",), False, True, True),
     ToolDefinition("record_daily_trace", "daily_life", ("record_daily_life", "record_daily_trace", "record_completed_action"), ("record",), False, True, True),
     ToolDefinition("link_activity_completion", "daily_life", ("link_activity_completion",), ("execute",), True, True, True),
+    ToolDefinition("save_object_mention", "object", ("save_object_mention",), ("execute",), True, True, True),
     ToolDefinition("record_routine_event", "routine", ("record_routine", "record_routine_event", "record_exercise_event"), ("record",), False, True, False),
     ToolDefinition("create_memory_candidate", "memory", ("record_memory_candidate", "record_goal_memory", "record_preference_change"), ("record",), False, True, False),
     ToolDefinition("record_dream_goal", "dream_goal", ("record_dream_goal",), ("record",), False, True, True),
@@ -50,7 +52,7 @@ TOOL_REGISTRY: tuple[ToolDefinition, ...] = (
 )
 
 
-def find_tool(action_type: AgentType, intent: str) -> ToolDefinition | None:
+def find_tool(action_type: GatewayActionType, intent: str) -> ToolDefinition | None:
     """type과 intent가 모두 일치하는 Tool만 반환합니다."""
 
     return next(

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agent.schemas import ActionMode, AgentType
+from agent.schemas import ActionMode
 from agent.emotion_schemas import EmotionRecordArguments
 from agent.daily_life_schemas import DailyTraceArguments
 from agent.dream_goal_schemas import DreamGoalArguments
@@ -20,6 +20,8 @@ from agent.cognitive_state_schemas import RecordCognitiveStateArguments
 from agent.recommendation_schemas import RecommendationArguments
 from agent.relationship_schemas import RecordRelationshipArguments
 from agent.activity_link_schemas import LinkActivityCompletionArguments
+from agent.object_mention_schemas import GatewayActionType
+from agent.object_reference_schemas import ActivityObjectReferenceRequest
 
 
 PlanStatus = Literal[
@@ -43,14 +45,24 @@ class GatewayAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action_id: UUID | None = None
-    type: AgentType
+    type: GatewayActionType
     intent: str = Field(min_length=1, max_length=100)
     mode: ActionMode
     reason: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     requires_confirmation: bool
     execution_order: int = Field(ge=1)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | LinkActivityCompletionArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | LinkActivityCompletionArguments | ActivityObjectReferenceRequest | None = None
+
+    @model_validator(mode="after")
+    def validate_object_arguments(self):
+        if self.type == "object" or self.intent == "save_object_mention":
+            if (self.type != "object" or self.intent != "save_object_mention" or self.mode != "execute"
+                    or not isinstance(self.arguments, ActivityObjectReferenceRequest)):
+                raise ValueError("Object mention requires an explicit source and Execute mode")
+        elif isinstance(self.arguments, ActivityObjectReferenceRequest):
+            raise ValueError("Object source is restricted to save_object_mention")
+        return self
 
     @model_validator(mode="after")
     def validate_activity_link_arguments(self):
@@ -126,7 +138,7 @@ class ToolExecutionPlan(BaseModel):
     """아직 실행되지 않은 정책 검증 결과입니다."""
 
     action_id: UUID
-    action_type: AgentType
+    action_type: GatewayActionType
     intent: str
     tool_name: str | None
     mode: ActionMode
@@ -141,7 +153,7 @@ class ToolExecutionPlan(BaseModel):
     implemented: bool
     can_execute: bool = False
     policy_messages: list[str] = Field(default_factory=list)
-    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | LinkActivityCompletionArguments | None = None
+    arguments: EmotionRecordArguments | DailyTraceArguments | DreamGoalArguments | CreateScheduleArguments | RecordPlaceEventArguments | RecordBodyStateArguments | RecordCognitiveStateArguments | RecommendationArguments | RecordRelationshipArguments | LinkActivityCompletionArguments | ActivityObjectReferenceRequest | None = None
 
 
 class ToolPlanResponse(BaseModel):
