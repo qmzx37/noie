@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from resource_budget import create_model_response
+
 import json
 import os
 from copy import deepcopy
@@ -383,14 +385,15 @@ def orchestrate_with_openai(
         output_schema = ORCHESTRATOR_OUTPUT_SCHEMA
     model = os.getenv(
         "OPENAI_AGENT_MODEL",
-        os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        os.getenv("OPENAI_MODEL", "gpt-6-luna"),
     )
     try:
         # 전용 관계 재판단이 네트워크 장애로 기존 reply를 무한 대기시키지 않게 제한합니다.
         # 기존 다른 도메인의 client 정책은 바꾸지 않습니다.
         client = OpenAI(api_key=api_key, **({"timeout": 60.0, "max_retries": 1} if relationship_only else {}))
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="medium" if recommendation_context is not None else "low",
             **({"max_output_tokens": 8192} if relationship_only else {}),
             input=[
                 {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT + purpose},

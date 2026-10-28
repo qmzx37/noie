@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from resource_budget import create_model_response
+
 import json
 import os
 
@@ -103,11 +105,21 @@ def extract_memory_with_openai(text: str) -> MemoryExtractionDecision:
 
     model = os.getenv(
         "OPENAI_MEMORY_MODEL",
-        os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        os.getenv("OPENAI_MODEL", "gpt-6-luna"),
     )
     try:
+        extraction_model = os.getenv("OPENAI_MEMORY_EXTRACTION_MODEL", "").strip()
+        request_options = {}
+        if extraction_model:
+            if extraction_model != "gpt-6-luna":
+                raise ValueError("Unsupported memory extraction model setting.")
+            effort = os.getenv("OPENAI_MEMORY_EXTRACTION_REASONING_EFFORT", "medium").strip() or "medium"
+            if effort != "medium":
+                raise ValueError("Unsupported memory extraction reasoning setting.")
+            model = extraction_model
+            request_options["reasoning"] = {"effort": effort}
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
             input=[
                 {"role": "system", "content": MEMORY_EXTRACTION_PROMPT},
@@ -122,6 +134,7 @@ def extract_memory_with_openai(text: str) -> MemoryExtractionDecision:
                     "strict": True,
                 }
             },
+            **request_options,
         )
         decision = MemoryExtractionDecision.model_validate(
             json.loads(extract_output_text(response))

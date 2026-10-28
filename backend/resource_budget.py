@@ -24,6 +24,7 @@ MAX_MODEL_OUTPUT_BYTES = 65_536
 MAX_MODEL_CALLS = 24
 MAX_TOTAL_MODEL_INPUT_BYTES = 1_048_576
 MAX_OUTPUT_TOKENS = 8192
+LUNA_MIN_REASONING_OUTPUT_TOKENS = 2048
 MAX_TOTAL_OUTPUT_TOKENS = 196_608
 PAGE_SIZE = 100
 MAX_PAGE_OFFSET = 100_000
@@ -128,7 +129,7 @@ def model_budget_scope():
         _model_budget.reset(token)
 
 
-def create_model_response(client, *, require_complete=True, **kwargs):
+def create_model_response(client, *, require_complete=True, reasoning_effort=None, **kwargs):
     """SDK 직전 입력/출력 예약을 검사합니다. privacy 검사는 기존 호출자에 그대로 남습니다."""
     # 숨은 provider history/tool fan-out과 streaming은 현재 NOIE 호출 계약에 없습니다.
     if any(kwargs.get(key) for key in ("tools", "previous_response_id", "conversation", "background", "stream")):
@@ -136,6 +137,18 @@ def create_model_response(client, *, require_complete=True, **kwargs):
     tokens = kwargs.get("max_output_tokens", MAX_OUTPUT_TOKENS)
     if not isinstance(tokens, int) or not 16 <= tokens <= MAX_OUTPUT_TOKENS:
         raise ResourceBudgetExceeded()
+    if kwargs.get("model") == "gpt-6-luna":
+        reasoning = dict(kwargs.get("reasoning") or {})
+        if reasoning_effort is not None:
+            if "effort" in reasoning and reasoning["effort"] != reasoning_effort:
+                raise ResourceBudgetExceeded()
+            reasoning["effort"] = reasoning_effort
+        reasoning.setdefault("effort", "medium")
+        if reasoning["effort"] not in {"low", "medium"} or reasoning.get("mode", "standard") != "standard":
+            raise ResourceBudgetExceeded()
+        kwargs["reasoning"] = reasoning
+        # Reserve reasoning space before dispatch, never by making a paid retry.
+        tokens = max(tokens, LUNA_MIN_REASONING_OUTPUT_TOKENS)
     kwargs["max_output_tokens"] = tokens
     size = encoded_size(kwargs)
     if size > MAX_MODEL_INPUT_BYTES:

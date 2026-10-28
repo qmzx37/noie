@@ -99,7 +99,8 @@ class OpenAIRecommendationAdapter:
             # background도 현재 계정 권한을 SDK 전송 직전에 확인합니다. DB 세션/잠금은 유지하지 않습니다.
             require_private_model_access()
             response = client.responses.create(
-                model=os.getenv("OPENAI_AGENT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4.1-mini")),
+                model=os.getenv("OPENAI_AGENT_MODEL", os.getenv("OPENAI_MODEL", "gpt-6-luna")),
+                reasoning_effort="medium",
                 input=[{"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT + purpose + behavior_instruction}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
                 text={"format": {"type": "json_schema", "name": "noie_lv4_recommendation", "schema": schema, "strict": True}},
             )

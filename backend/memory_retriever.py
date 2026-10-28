@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from resource_budget import create_model_response
+
 import json
 import os
 from typing import Any
@@ -143,12 +145,13 @@ superseded/invalid Memory는 후보에 제공되지 않는다.
         raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다.")
     model = os.getenv(
         "OPENAI_MEMORY_MODEL",
-        os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        os.getenv("OPENAI_MODEL", "gpt-6-luna"),
     )
     try:
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="low",
             input=[
                 {"role": "system", "content": prompt},
                 {

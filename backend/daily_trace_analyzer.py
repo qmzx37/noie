@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from resource_budget import create_model_response
+
 import json
 import os
 from typing import Any
@@ -61,14 +63,15 @@ def extract_daily_trace_with_openai(text: str, current_date: str) -> dict[str, A
         print("[noie] OPENAI_API_KEY가 없어 하루의 흔적 추출을 건너뜁니다.")
         raise RuntimeError("OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
     try:
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="low",
             input=[
                 {
                     "role": "system",

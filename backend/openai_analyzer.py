@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from resource_budget import create_model_response
+
 import json
 import os
 from typing import Any, Dict
@@ -248,7 +250,7 @@ def analyze_with_openai(text: str) -> EmotionAnalysis:
         print("[noie] OPENAI_API_KEY가 설정되지 않았습니다.")
         raise RuntimeError("OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
     try:
         # openai 패키지가 설치되어 있을 때만 여기서 import합니다.
@@ -256,8 +258,9 @@ def analyze_with_openai(text: str) -> EmotionAnalysis:
 
         client = OpenAI(api_key=api_key)
 
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="low",
             input=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"분석할 문장: {text}"},
@@ -299,14 +302,15 @@ def generate_title_with_openai(text: str) -> str:
         print("[noie] OPENAI_API_KEY가 설정되지 않아 제목 생성을 건너뜁니다.")
         raise RuntimeError("OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
     try:
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="low",
             input=[
                 {
                     "role": "system",
@@ -382,14 +386,15 @@ def generate_save_decision_with_openai(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
     try:
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="medium",
             input=[
                 {
                     "role": "system",
@@ -538,14 +543,15 @@ def generate_save_decision_with_openai(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
     try:
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="medium",
             input=[
                 {
                     "role": "system",
@@ -638,7 +644,7 @@ def generate_chat_reply_with_openai(
         print("[noie] OPENAI_API_KEY가 설정되지 않아 일반 답변 생성을 건너뜁니다.")
         raise RuntimeError("OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
     history = messages or []
     history_limit = 20 if is_project else 8
     history_text = "\n".join(
@@ -675,8 +681,9 @@ def generate_chat_reply_with_openai(
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="low",
             input=[
                 {
                     "role": "system",
@@ -800,7 +807,7 @@ def generate_project_chat_reply_with_checkpoint_openai(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
     recent_messages = (messages or [])[-20:]
     history_text = "\n".join(
         f"{item.get('role', '')}: {item.get('content', '')}"
@@ -811,8 +818,9 @@ def generate_project_chat_reply_with_checkpoint_openai(
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = create_model_response(client,
             model=model,
+            reasoning_effort="low",
             input=[
                 {
                     "role": "system",
