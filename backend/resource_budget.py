@@ -1,6 +1,7 @@
 """요청 한 건의 크기와 모델 사용량을 제한합니다. 인증/빈도 제한을 대체하지 않습니다."""
 
 import json
+import os
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -165,6 +166,17 @@ def create_model_response(client, *, require_complete=True, reasoning_effort=Non
         # 불완전 JSON을 부분 성공으로 사용하지 않고 기존 fallback/실패 정책에 맡깁니다.
         if require_complete and getattr(response, "status", "completed") == "incomplete":
             raise ResourceBudgetExceeded()
+        # Diagnostic failures must not change the response or trigger a fallback.
+        try:
+            if (os.getenv("NOIE_MODEL_DIAGNOSTIC") == "1"
+                    and getattr(response, "status", None) == "completed"
+                    and getattr(response, "error", None) is None):
+                model = getattr(response, "model", None)
+                allowed_models = ("gpt-6-luna", "gpt-4.1-mini", "gpt-4.1-mini-2025-04-14")
+                safe_model = model if type(model) is str and model in allowed_models else "UNKNOWN"
+                print(f"[noie] response.model={safe_model}", flush=True)
+        except Exception:
+            pass
         return response
 
 
